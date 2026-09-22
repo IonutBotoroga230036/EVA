@@ -1,0 +1,41 @@
+﻿# Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+celery[redis]==5.4.0
+redis==5.2.1
+pydantic==2.10.3
+pydantic-settings==2.7.0
+pyyaml==6.0.2
+httpx==0.28.1
+python-dotenv==1.0.1
+
+# LLM
+openai==1.59.4
+anthropic==0.42.0
+
+# Memory
+chromadb==0.5.23
+sentence-transformers==3.3.1
+
+# Voice
+faster-whisper==1.1.0
+edge-tts==6.1.19
+openwakeword==0.6.0
+pyaudio==0.2.14
+sounddevice==0.5.1
+numpy==2.2.1
+scipy==1.15.0
+websockets==14.1
+
+# Calendar
+google-api-python-client==2.159.0
+google-auth-oauthlib==1.2.1
+msal==1.31.1
+
+# Security
+cryptography==44.0.0
+
+# Utilities
+rich==13.9.4
+click==8.1.7
+loguru==0.7.3

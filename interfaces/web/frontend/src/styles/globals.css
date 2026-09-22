@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@theme {
+  --color-eva-bg: #06080f;
+  --color-eva-panel: rgba(10, 18, 35, 0.85);
+  --color-eva-border: rgba(0, 200, 255, 0.12);
+  --color-eva-glow: rgba(0, 200, 255, 0.08);
+  --color-eva-cyan: #00c8ff;
+  --color-eva-cyan-dim: rgba(0, 200, 255, 0.5);
+  --color-eva-text: #c8dce8;
+  --color-eva-text-bright: #eaf4fb;
+  --color-eva-text-dim: #5a7a8a;
+  --color-eva-accent: #00e5a0;
+  --color-eva-warning: #ffaa00;
+  --color-eva-danger: #ff4060;
+  --color-eva-user-bubble: rgba(0, 200, 255, 0.08);
+  --color-eva-ai-bubble: rgba(10, 18, 35, 0.6);
+
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --font-display: "Inter", "SF Pro Display", system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-eva-bg);
+    color: var(--color-eva-text);
+    font-family: var(--font-display);
+    overflow: hidden;
+    height: 100vh;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-eva-border);
+  border-radius: 2px;
+}
+
+/* Glow animation */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px var(--color-eva-glow), inset 0 0 8px var(--color-eva-glow);
+  }
+  50% {
+    box-shadow: 0 0 16px var(--color-eva-glow), inset 0 0 16px var(--color-eva-glow);
+  }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}

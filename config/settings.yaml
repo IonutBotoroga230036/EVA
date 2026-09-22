@@ -1,0 +1,62 @@
+system:
+  name: "E.V.A."
+  version: "0.1.0"
+  log_level: "INFO"
+  data_dir: "./data"
+
+personas:
+  default: "eva"
+  available:
+    - "eva"
+    - "kira"
+
+inference:
+  local:
+    provider: "ollama"
+    base_url: "http://localhost:11434"
+    router_model: "llama3.2:3b"
+    general_model: "llama3.1:8b"
+    code_model: "deepseek-coder-v2:6.7b"
+  cloud:
+    provider: "anthropic"
+    model_light: "claude-haiku-4-5-20251001"
+    model_heavy: "claude-sonnet-4-6-20260901"
+
+budget:
+  daily_limit_euros: 1.50
+  warning_threshold: 0.80
+  fallback_to_local: true
+  track_file: "./data/budget.json"
+
+memory:
+  chromadb_path: "./data/chromadb"
+  sqlite_path: "./data/sqlite/eva.db"
+  embedding_model: "all-MiniLM-L6-v2"
+  session_ttl_hours: 24
+
+voice:
+  stt:
+    model: "small"
+    language: "en"
+    device: "cuda"
+  tts:
+    engine: "edge-tts"
+    voice_eva: "en-US-AriaNeural"
+    voice_kira: "en-US-GuyNeural"
+  wake_word:
+    engine: "openwakeword"
+    words:
+      - "eva"
+    threshold: 0.7
+
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+
+calendar:
+  sync_interval_minutes: 15
+  primary: "google"
+  sources:
+    - "google"
+    - "microsoft"
