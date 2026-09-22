@@ -1,53 +1,68 @@
 """
-ECHO - Text-to-Speech via edge-tts.
-Generates audio from text and returns the file path.
-When deployed on Linux server, this swaps to Piper with no API changes.
+ECHO - Text-to-Speech via Kokoro (local) or edge-tts (fallback).
+Kokoro runs as a Docker container on localhost:8880 with an
+OpenAI-compatible API. Fully local, no data leaves your machine.
 """
 
-import asyncio
 import hashlib
 import os
 from pathlib import Path
 from loguru import logger
-
-try:
-    import edge_tts
-    TTS_AVAILABLE = True
-except ImportError:
-    TTS_AVAILABLE = False
-    logger.warning("ECHO: edge-tts not installed. TTS disabled.")
-
-
-VOICE_MAP = {
-    "eva": "en-US-AriaNeural",
-    "kira": "en-US-GuyNeural",
-}
+import httpx
 
 AUDIO_DIR = Path("./data/audio")
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
+VOICE_MAP = {
+    "eva": "af_heart",
+    "kira": "am_adam",
+}
+
+KOKORO_URL = "http://localhost:8880/v1/audio/speech"
+
 
 async def synthesize(text: str, persona: str = "eva") -> str | None:
-    """Convert text to speech. Returns path to audio file."""
-    if not TTS_AVAILABLE:
-        return None
-
+    """Convert text to speech via Kokoro. Returns path to audio file."""
     voice = VOICE_MAP.get(persona, VOICE_MAP["eva"])
 
-    # Cache by content hash so we don't regenerate identical responses
+    # Cache by content hash
     text_hash = hashlib.md5(f"{voice}:{text}".encode()).hexdigest()[:12]
     output_path = AUDIO_DIR / f"{text_hash}.mp3"
 
     if output_path.exists():
         return str(output_path)
 
+    # Try Kokoro first (local, high quality)
     try:
-        communicate = edge_tts.Communicate(text, voice)
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                KOKORO_URL,
+                json={
+                    "model": "kokoro",
+                    "input": text,
+                    "voice": voice,
+                    "response_format": "mp3",
+                },
+            )
+            if response.status_code == 200:
+                output_path.write_bytes(response.content)
+                logger.debug(f"ECHO: Kokoro generated audio ({len(text)} chars) -> {output_path.name}")
+                return str(output_path)
+            else:
+                logger.warning(f"ECHO: Kokoro returned {response.status_code}")
+    except Exception as e:
+        logger.warning(f"ECHO: Kokoro unavailable ({e}), trying edge-tts fallback")
+
+    # Fallback to edge-tts
+    try:
+        import edge_tts
+        edge_voice = "en-US-AriaNeural" if persona == "eva" else "en-US-GuyNeural"
+        communicate = edge_tts.Communicate(text, edge_voice)
         await communicate.save(str(output_path))
-        logger.debug(f"ECHO: Generated audio ({len(text)} chars) -> {output_path.name}")
+        logger.debug(f"ECHO: edge-tts generated audio -> {output_path.name}")
         return str(output_path)
     except Exception as e:
-        logger.error(f"ECHO: TTS failed: {e}")
+        logger.error(f"ECHO: All TTS failed: {e}")
         return None
 
 
