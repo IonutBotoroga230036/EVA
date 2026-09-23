@@ -1,6 +1,6 @@
 """
-E.V.A. Core Orchestrator - The central nervous system.
-Now with MIRROR (self-awareness) and FORGE (self-extension).
+E.V.A. Core Orchestrator v3 - Tool-calling architecture.
+The LLM decides which tools to use. No keyword matching.
 """
 
 import yaml
@@ -19,6 +19,7 @@ from core.security.audit import audit
 from core.events.bus import PulseEventBus
 from core.mirror import mirror
 from core.forge import forge
+from core.tool_executor import TOOLS_DESCRIPTION, extract_tool_call, execute_tool
 
 
 class BudgetExhaustedError(Exception):
@@ -52,19 +53,19 @@ class Eva:
         self._skills: dict[str, object] = {}
         self._claude: anthropic.Anthropic | None = None
 
-        # Cloud availability check
         self._cloud_available = vault.has("ANTHROPIC_API_KEY")
         if not self._cloud_available:
             logger.warning("No Anthropic API key found. Running in local-only mode.")
 
-        # MIRROR - Self-awareness
+        # MIRROR
         self.mirror = mirror
         logger.info(f"MIRROR: Online. {len(mirror.list_skills())} skills registered.")
 
-        # FORGE - Self-extension
+        # FORGE
         self.forge = forge
         logger.info("FORGE: Online. Skill builder ready.")
 
+        # Load persona
         persona_name = self.config["personas"]["default"]
         persona_path = Path(f"personas/{persona_name}.yaml")
         with open(persona_path) as f:
@@ -73,14 +74,9 @@ class Eva:
         audit.log("system_start", "orchestrator", {"persona": persona_name})
         logger.info(f"E.V.A. initialized as {self.persona['name']}")
 
-    def register_skill(self, name: str, skill_instance: object) -> None:
-        self._skills[name] = skill_instance
-        self.router.register_skills(list(self._skills.keys()))
-
     def _get_claude(self) -> anthropic.Anthropic:
         if self._claude is None:
             self._claude = anthropic.Anthropic(api_key=vault.get("ANTHROPIC_API_KEY"))
-            audit.log("api_init", "AEGIS", {"provider": "anthropic"}, sensitive=True)
         return self._claude
 
     async def _local_inference(self, prompt: str, model: str | None = None) -> str:
@@ -97,10 +93,9 @@ class Eva:
                 elif "message" in result:
                     return result["message"].get("content", str(result))
                 else:
-                    logger.warning(f"Unexpected Ollama response: {list(result.keys())}")
                     return str(result)
         except httpx.TimeoutException:
-            return "I'm still thinking, sir. The local model is running slowly. Please try again in a moment."
+            return "I'm still processing, sir. The local model is running slowly."
         except Exception as e:
             logger.error(f"Local inference error: {e}")
             return f"My apologies, sir. Local inference failed: {e}"
@@ -108,7 +103,6 @@ class Eva:
     def _cloud_inference(self, messages: list[dict], model: str | None = None) -> str:
         if not self.budget.can_spend():
             raise BudgetExhaustedError("Daily API budget exhausted")
-
         model = model or self.config["inference"]["cloud"]["model_heavy"]
         client = self._get_claude()
         response = client.messages.create(
@@ -118,95 +112,116 @@ class Eva:
             messages=messages,
         )
         usage = response.usage
-        self.budget.record_usage(
-            model=model,
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-        )
-        audit.log("api_call", "VAULT", {
-            "model": model,
-            "tokens_in": usage.input_tokens,
-            "tokens_out": usage.output_tokens,
-        })
+        self.budget.record_usage(model=model, input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
         return response.content[0].text
 
     def _is_self_query(self, user_input: str) -> bool:
-        """Detect if the user is asking about E.V.A. herself."""
         lower = user_input.lower()
         self_triggers = [
             "what can you do", "what are your capabilities",
             "how do you work", "how are you built", "your architecture",
-            "what skills do you have", "what are your skills",
-            "tell me about yourself", "who are you", "what are you",
-            "describe yourself", "your subsystems", "your modules",
-            "what are your limits", "your limitations",
-            "explain your system", "how were you made",
+            "what skills do you have", "tell me about yourself",
+            "who are you", "what are you", "describe yourself",
             "what is mirror", "what is forge", "what is iris",
             "what is cortex", "what is pulse", "what is aegis",
-            "what is vault", "what is echo", "what is oracle",
-            "what is tempo", "what is herald", "what is aura",
-            "what is scribe", "what is muse",
         ]
         return any(trigger in lower for trigger in self_triggers)
 
     def _is_forge_command(self, user_input: str) -> bool:
-        """Detect forge-related commands."""
         lower = user_input.lower()
         forge_triggers = [
             "forge approve", "forge build", "yes, build it",
-            "yes build it", "go ahead and build", "build the skill",
-            "forge activate", "approve the skill",
+            "yes build it", "build the skill", "forge activate",
         ]
         return any(trigger in lower for trigger in forge_triggers)
 
     async def _handle_self_query(self, user_input: str) -> str:
-        """Answer questions about E.V.A.'s own capabilities and architecture."""
         lower = user_input.lower()
-
-        if any(w in lower for w in ["architecture", "how are you built", "how were you made", "how do you work", "explain your system"]):
+        if any(w in lower for w in ["architecture", "how are you built", "how do you work"]):
             context = self.mirror.get_architecture_description()
         else:
             context = self.mirror.get_capabilities_summary()
-
-        # Use LLM to generate a natural response based on the self-knowledge
         prompt = (
             f"{self.persona['personality']}\n\n"
-            f"The user is asking about your own capabilities or architecture. "
-            f"Here is your accurate self-knowledge:\n\n"
+            f"The user asks about your capabilities. Here is your self-knowledge:\n\n"
             f"{context}\n\n"
-            f"Answer the user's question naturally using this information. "
-            f"Be accurate. Do not invent capabilities you don't have. "
-            f"If something is planned but not built yet, say so.\n\n"
-            f"User: {user_input}\n"
-            f"Assistant:"
+            f"Answer concisely in your voice. Be accurate. Don't invent capabilities.\n\n"
+            f"User: {user_input}\nAssistant:"
         )
         return await self._local_inference(prompt)
 
     async def _handle_forge_command(self, user_input: str) -> str:
-        """Handle FORGE-related commands (approve, build, activate)."""
         lower = user_input.lower()
-
         if "activate" in lower:
-            # Extract skill name: "forge activate cad_design"
             parts = lower.split("activate", 1)
             if len(parts) > 1 and parts[1].strip():
-                skill_name = parts[1].strip()
-                return self.forge.activate_skill(skill_name, self)
-            return "Which skill should I activate, sir? Please specify the name."
-
-        # Approve and build the latest pending request
+                return self.forge.activate_skill(parts[1].strip(), self)
+            return "Which skill should I activate, sir?"
         latest = self.forge.get_latest_pending()
         if latest:
             return await self.forge.build_skill(latest.id, self)
-        else:
-            latest_any = self.forge.get_latest_request()
-            if latest_any and latest_any.status == "done":
-                return (
-                    f"The last skill I built ('{latest_any.analysis.get('skill_name', 'unknown')}') "
-                    f"is already complete, sir. Say 'forge activate {latest_any.analysis.get('skill_name')}' "
-                    f"to register it."
-                )
-            return "There's no pending skill request to approve, sir. Ask me to do something I can't do yet, and I'll propose a new skill."
+        return "No pending skill request, sir."
+
+    async def _tool_augmented_response(self, user_input: str) -> str:
+        """
+        The core loop: give the LLM tools, let it decide what to call,
+        execute the tools, and let the LLM formulate the final response.
+        Supports up to 3 chained tool calls.
+        """
+        system = (
+            f"{self.persona['personality']}\n\n"
+            f"{TOOLS_DESCRIPTION}"
+        )
+
+        conversation = f"User: {user_input}\nAssistant:"
+        tool_results = []
+
+        # Allow up to 3 tool calls in sequence
+        for turn in range(3):
+            prompt = system
+            if tool_results:
+                prompt += "\n\nPrevious tool results:\n"
+                for tr in tool_results:
+                    prompt += f"Tool '{tr['tool']}' returned: {tr['result']}\n"
+                prompt += "\nNow formulate your final response using the real data above. Do NOT make up any information. Use only the tool results.\n"
+
+            prompt += f"\n{conversation}"
+
+            llm_response = await self._local_inference(prompt)
+
+            # Check if the LLM wants to call a tool
+            tool_call, remaining_text = extract_tool_call(llm_response)
+
+            if tool_call and "tool" in tool_call:
+                tool_name = tool_call["tool"]
+                tool_args = tool_call.get("args", {})
+                logger.info(f"TOOL CALL: {tool_name}({tool_args})")
+
+                result = execute_tool(tool_name, tool_args)
+                tool_results.append({
+                    "tool": tool_name,
+                    "args": tool_args,
+                    "result": result,
+                })
+                audit.log("tool_call", "orchestrator", {"tool": tool_name, "args": tool_args})
+                continue
+            else:
+                # No tool call, this is the final response
+                if remaining_text:
+                    return remaining_text
+                return llm_response
+
+        # If we exhausted tool calls, formulate final response
+        prompt = (
+            f"{self.persona['personality']}\n\n"
+            f"The user asked: {user_input}\n\n"
+            f"Here are the results from tools you used:\n"
+        )
+        for tr in tool_results:
+            prompt += f"Tool '{tr['tool']}' returned: {tr['result']}\n"
+        prompt += "\nFormulate a concise, natural response using ONLY this real data. Never guess or make up information.\nAssistant:"
+
+        return await self._local_inference(prompt)
 
     async def process(self, user_input: str) -> str:
         self.session.add_message("user", user_input)
@@ -217,73 +232,21 @@ class Eva:
             persona=self.session.persona,
         )
 
-        # Check for self-queries first (bypass IRIS for these)
+        # Self-queries bypass everything
         if self._is_self_query(user_input):
-            audit.log("route", "MIRROR", {"type": "self_query", "input_preview": user_input[:100]})
+            audit.log("route", "MIRROR", {"type": "self_query"})
             response = await self._handle_self_query(user_input)
 
-        # Check for FORGE commands
+        # FORGE commands
         elif self._is_forge_command(user_input):
-            audit.log("route", "FORGE", {"type": "forge_command", "input_preview": user_input[:100]})
+            audit.log("route", "FORGE", {"type": "forge_command"})
             response = await self._handle_forge_command(user_input)
 
         else:
-            # Normal IRIS routing
-            classification = await self.router.classify(user_input)
-            category = classification["category"]
-            target_skill = classification.get("skill")
-
-            audit.log("route", "IRIS", {
-                "category": category,
-                "skill": target_skill,
-                "input_preview": user_input[:100],
-            })
-            self.pulse.publish("input", {
-                "event": "user_input",
-                "category": category,
-                "skill": target_skill,
-            })
-
-            try:
-                if category == TaskCategory.TRIVIAL:
-                    response = await self._local_inference(
-                        f"{self.persona['personality']}\n\nUser: {user_input}\nAssistant:"
-                    )
-                elif category == TaskCategory.ROUTINE:
-                    if target_skill and target_skill in self._skills:
-                        response = await self._skills[target_skill].execute(user_input, self)
-                    else:
-                        response = await self._local_inference(
-                            f"{self.persona['personality']}\n\nUser: {user_input}\nAssistant:"
-                        )
-                elif category == TaskCategory.COMPLEX:
-                    if self._cloud_available:
-                        messages = self.session.get_recent_messages(limit=10)
-                        try:
-                            response = self._cloud_inference(messages)
-                        except BudgetExhaustedError:
-                            response = await self._local_inference(
-                                f"{self.persona['personality']}\n\nUser: {user_input}\nAssistant:"
-                            )
-                    else:
-                        response = await self._local_inference(
-                            f"{self.persona['personality']}\n\nUser: {user_input}\nAssistant:"
-                        )
-                elif category == TaskCategory.SENSITIVE:
-                    response = await self._local_inference(
-                        f"{self.persona['personality']}\n\n[SENSITIVE MODE: Local only.]\n\nUser: {user_input}\nAssistant:"
-                    )
-                elif category == TaskCategory.SKILL_MISSING:
-                    # FORGE takes over
-                    response = await self.forge.propose_skill(user_input, self)
-                else:
-                    response = await self._local_inference(
-                        f"{self.persona['personality']}\n\nUser: {user_input}\nAssistant:"
-                    )
-            except Exception as e:
-                logger.error(f"Processing error: {e}")
-                audit.log("error", "orchestrator", {"error": str(e)})
-                response = f"My apologies, sir. Something went wrong: {e}"
+            # Everything goes through the tool-augmented pipeline
+            # The LLM decides whether it needs tools or can answer directly
+            audit.log("route", "orchestrator", {"type": "tool_augmented"})
+            response = await self._tool_augmented_response(user_input)
 
         # Store response
         self.session.add_message("assistant", response)
@@ -293,8 +256,5 @@ class Eva:
             content=response,
             persona=self.session.persona,
         )
-        self.pulse.publish("output", {
-            "event": "response",
-            "length": len(response),
-        })
+        self.pulse.publish("output", {"event": "response", "length": len(response)})
         return response

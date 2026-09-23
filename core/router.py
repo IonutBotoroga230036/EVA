@@ -20,15 +20,19 @@ Classify the user input into exactly ONE category and identify which skill handl
 
 Categories:
 - TRIVIAL: greetings, simple facts, timers, quick math, casual chat
-- ROUTINE: calendar ops, email drafting, file management, web search
-- COMPLEX: multi-step reasoning, code generation, research, creative writing
+- ROUTINE: calendar ops, email drafting, file management, web search, opening apps, URLs, computer control
+- COMPLEX: multi-step reasoning, code generation, research, creative writing, analysis
 - SKILL_MISSING: user wants something no available skill can do
 - SENSITIVE: contains passwords, financial details, health info, private data
 
 Available skills: {skills}
 
+Skill hints:
+- web_search: when the user wants current information, news, weather, prices, or anything requiring internet
+- computer_control: when the user wants to open a website, launch an app, take a screenshot, or control the computer
+
 Respond with ONLY valid JSON:
-{{"category": "trivial|routine|complex|skill_missing|sensitive", "skill": null, "reason": "one sentence"}}
+{{"category": "trivial|routine|complex|skill_missing|sensitive", "skill": "skill_name_or_null", "reason": "one sentence"}}
 
 User input: {input}"""
 
