@@ -1,8 +1,7 @@
 """
-E.V.A. Web Server - FastAPI with WebSocket and TTS audio serving.
+E.V.A. Web Server - Tool-calling with single-response TTS.
 """
 
-import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
@@ -12,9 +11,9 @@ from fastapi.responses import FileResponse
 from loguru import logger
 
 from core.orchestrator import Eva
-from voice.tts import synthesize, cleanup_old_audio
+from voice.tts import synthesize
 
-app = FastAPI(title="E.V.A. API", version="0.1.0")
+app = FastAPI(title="E.V.A. API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,7 +24,6 @@ app.add_middleware(
 )
 
 eva: Eva | None = None
-connected_clients: list[WebSocket] = []
 
 
 @app.on_event("startup")
@@ -33,7 +31,6 @@ async def startup():
     global eva
     eva = Eva()
     eva.pulse.start_listening()
-    await cleanup_old_audio()
     logger.info("E.V.A. Web Server online")
 
 
@@ -46,8 +43,7 @@ async def shutdown():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    connected_clients.append(websocket)
-    logger.info(f"Client connected. Total: {len(connected_clients)}")
+    logger.info("Client connected")
 
     await websocket.send_text(json.dumps({
         "type": "system_init",
@@ -76,7 +72,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 response = await eva.process(user_text)
 
-                # Generate audio
                 persona_key = eva.config["personas"]["default"]
                 audio_path = await synthesize(response, persona_key)
                 audio_url = None
@@ -107,13 +102,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 }))
 
     except WebSocketDisconnect:
-        connected_clients.remove(websocket)
-        logger.info(f"Client disconnected. Total: {len(connected_clients)}")
+        logger.info("Client disconnected")
 
 
 @app.get("/api/audio/{filename}")
 async def serve_audio(filename: str):
-    """Serve generated audio files."""
     path = Path(f"./data/audio/{filename}")
     if not path.exists():
         return {"error": "not found"}
@@ -128,8 +121,3 @@ async def health():
         "persona": eva.persona["name"] if eva else "offline",
         "timestamp": datetime.now().isoformat(),
     }
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("interfaces.web.server:app", host="0.0.0.0", port=8000, reload=True)

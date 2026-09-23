@@ -34,7 +34,6 @@ def _get_pipeline():
 
 
 async def synthesize(text: str, persona: str = "eva") -> str | None:
-    """Convert text to speech. Returns path to audio file."""
     voice = VOICE_MAP.get(persona, VOICE_MAP["eva"])
 
     text_hash = hashlib.md5(f"{voice}:{text}".encode()).hexdigest()[:12]
@@ -61,7 +60,6 @@ async def synthesize(text: str, persona: str = "eva") -> str | None:
         except Exception as e:
             logger.warning(f"ECHO: Kokoro failed ({e}), trying fallback")
 
-    # Fallback to edge-tts
     try:
         import edge_tts
         mp3_path = output_path.with_suffix(".mp3")

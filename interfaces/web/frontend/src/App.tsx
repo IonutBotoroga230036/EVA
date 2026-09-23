@@ -10,7 +10,6 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen bg-eva-bg p-4 flex flex-col gap-4 overflow-hidden">
-      {/* Top bar */}
       <header className="flex items-center justify-between px-2">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 rounded-full bg-eva-cyan animate-pulse" />
@@ -20,14 +19,10 @@ export default function App() {
         </div>
         <div className="flex items-center gap-4">
           {voice.listening && (
-            <span className="text-xs font-mono text-eva-danger animate-pulse">
-              LISTENING...
-            </span>
+            <span className="text-xs font-mono text-eva-danger animate-pulse">LISTENING...</span>
           )}
           {voice.speaking && (
-            <span className="text-xs font-mono text-eva-accent animate-pulse">
-              SPEAKING...
-            </span>
+            <span className="text-xs font-mono text-eva-accent animate-pulse">SPEAKING...</span>
           )}
           <span className="text-xs font-mono text-eva-text-dim">
             v{system.version} :: {system.connected ? "CONNECTED" : "RECONNECTING..."}
@@ -35,7 +30,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main grid */}
       <div className="flex-1 grid grid-cols-4 grid-rows-3 gap-4 min-h-0">
         <div className="col-span-3 row-span-3 flex flex-col min-h-0">
           <ChatWidget
@@ -48,7 +42,6 @@ export default function App() {
             onAutoSpeakToggle={setAutoSpeak}
           />
         </div>
-
         <div className="col-span-1 row-span-3 flex flex-col gap-4 min-h-0">
           <ClockWidget />
           <StatusWidget system={system} />
