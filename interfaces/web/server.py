@@ -115,9 +115,10 @@ async def websocket_endpoint(websocket: WebSocket):
 async def serve_audio(filename: str):
     """Serve generated audio files."""
     path = Path(f"./data/audio/{filename}")
-    if not path.exists() or not path.suffix == ".mp3":
+    if not path.exists():
         return {"error": "not found"}
-    return FileResponse(path, media_type="audio/mpeg")
+    media = "audio/wav" if path.suffix == ".wav" else "audio/mpeg"
+    return FileResponse(path, media_type=media)
 
 
 @app.get("/api/health")
