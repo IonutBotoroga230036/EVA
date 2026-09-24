@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from loguru import logger
 
-from core.orchestrator_stream import StreamOrchestrator
+from core.orchestrator_hybrid import HybridOrchestrator as StreamOrchestrator
 
 app = FastAPI(title="E.V.A. Stream", version="0.2.0")
 app.add_middleware(

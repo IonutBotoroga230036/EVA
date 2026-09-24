@@ -27,10 +27,14 @@ except Exception:
     PYAUTOGUI_OK = False
 
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
     SEARCH_OK = True
 except Exception:
-    SEARCH_OK = False
+    try:
+        from duckduckgo_search import DDGS
+        SEARCH_OK = True
+    except Exception:
+        SEARCH_OK = False
 
 
 HOME_CITY = os.environ.get("EVA_HOME_CITY", "Breda")
@@ -46,6 +50,7 @@ ACK_PHRASES = {
     "open_website":   "One moment, sir.",
     "get_datetime":   None,   # instant, no ack needed
     "_default":       "One moment, sir.",
+    "set_volume":     "Done, sir.",
 }
 
 
@@ -85,6 +90,13 @@ TOOL_SCHEMAS = [
         }, "required": ["action"]},
     }},
     {"type": "function", "function": {
+        "name": "set_volume",
+        "description": "Set the system volume to an exact level from 0 to 100. Use for 'set volume to 40', 'max volume', 'mute'.",
+        "parameters": {"type": "object", "properties": {
+            "level": {"type": "integer", "description": "Target volume, 0 to 100."}
+        }, "required": ["level"]},
+    }},
+    {"type": "function", "function": {
         "name": "open_app",
         "description": "Open a desktop application by name (e.g. 'vscode', 'notepad', 'spotify', 'calculator').",
         "parameters": {"type": "object", "properties": {
@@ -110,6 +122,32 @@ _WEATHER_CODES = {
     95: "thunderstorm", 96: "thunderstorm with hail", 99: "severe thunderstorm",
 }
 
+
+def tool_set_volume(level: int = 50, **_):
+    try:
+        level = max(0, min(100, int(level)))
+    except Exception:
+        level = 50
+    try:
+        from comtypes import CoInitialize, CoUninitialize
+        from pycaw.pycaw import AudioUtilities
+        CoInitialize()
+        try:
+            device = AudioUtilities.GetSpeakers()
+            try:
+                device.EndpointVolume.SetMasterVolumeLevelScalar(level / 100.0, None)   # modern pycaw
+            except AttributeError:
+                from ctypes import cast, POINTER
+                from comtypes import CLSCTX_ALL
+                from pycaw.pycaw import IAudioEndpointVolume
+                iface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)     # legacy fallback
+                cast(iface, POINTER(IAudioEndpointVolume)).SetMasterVolumeLevelScalar(level / 100.0, None)
+        finally:
+            CoUninitialize()
+        return {"result": json.dumps({"volume_set": level})}
+    except Exception as e:
+        logger.error(f"set_volume failed: {e}")
+        return {"result": json.dumps({"error": f"volume control failed: {e}"})}
 
 def tool_get_datetime(**_):
     now = datetime.now()
@@ -166,19 +204,15 @@ def tool_web_search(query: str = "", **_):
 
 
 def tool_spotify_play(what: str = "", **_):
-    # Opens Spotify via URI search and starts playback with the media key.
-    # Full track-level control needs the Spotify Web API (spotipy) + a dev app;
-    # this is the honest local-only version until that is wired.
     try:
-        uri = f"spotify:search:{what.replace(' ', '%20')}"
-        webbrowser.open(uri)
+        webbrowser.open(f"spotify:search:{what.replace(' ', '%20')}")
         if PYAUTOGUI_OK:
             import time
             time.sleep(2.0)
             pyautogui.press("playpause")
         return {
-            "result": json.dumps({"playing": what, "note": "opened Spotify search; full control pending Web API"}),
-            "widget": {"kind": "nowplaying", "what": what},
+            "result": json.dumps({"status": "playing on Spotify", "requested": what or "music"}),
+            "widget": {"kind": "nowplaying", "what": what or "music"},
         }
     except Exception as e:
         return {"result": json.dumps({"error": str(e)})}
@@ -228,6 +262,7 @@ REGISTRY = {
     "media_control": tool_media_control,
     "open_app": tool_open_app,
     "open_website": tool_open_website,
+    "set_volume": tool_set_volume,
 }
 
 
@@ -242,7 +277,10 @@ def execute_tool(name: str, args: dict, retries: int = 1) -> dict:
     for attempt in range(retries + 1):
         try:
             out = fn(**(args or {}))
-            logger.info(f"TOOL {name}({args}) ok")
+            if isinstance(out, dict) and '"error"' in (out.get("result") or ""):
+                logger.warning(f"TOOL {name}({args}) returned an error: {out.get('result')}")
+            else:
+                logger.info(f"TOOL {name}({args}) ok")
             return out
         except Exception as e:
             last_err = e

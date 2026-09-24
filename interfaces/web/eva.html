@@ -111,7 +111,7 @@
 
 <script>
 "use strict";
-/* ===== Reactor core (identical visuals to the prototype) ===== */
+/* ===== Reactor core (unchanged visuals) ===== */
 const cv=document.getElementById('core'),ctx=cv.getContext('2d');
 let DPR=Math.min(window.devicePixelRatio||1,2);
 function sizeCore(){const s=Math.min(innerWidth,innerHeight)*(innerWidth<520?0.74:0.52);
@@ -146,7 +146,7 @@ draw();
 function setMode(m){STATE.mode=m;STATE.target=m==='idle'?0.12:m==='listening'?0.6:m==='thinking'?0.85:1.0;
   document.getElementById('statelabel').textContent=m==='idle'?'standby':m;}
 
-/* ===== Caption + widgets ===== */
+/* ===== Caption + widgets (unchanged) ===== */
 const captionEl=document.getElementById('caption');
 function say(t,h){captionEl.innerHTML=t+(h?`<br><span class="hint">${h}</span>`:'');}
 const deck=document.getElementById('deck');
@@ -166,17 +166,35 @@ function renderWidget(d){
   else if(d.title)widgetHTML(`<div class="wtitle">${d.title}</div><div style="font-size:15px">${d.text||''}</div>`);
 }
 
-/* ===== Browser voice out (queued: ack then answer) ===== */
-let evaVoice=null;
+/* ===== Speech recognition primitives ===== */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null,followRec=null,wakeRec=null,wakeMode=false,lastWasVoice=false,lastSpoken="";
+function stopAllListening(){       // half-duplex: never listen while she speaks
+  for(const r of [rec,followRec,wakeRec]){ if(r){ try{r.onend=null;r.stop();}catch(_){}}}
+  rec=followRec=wakeRec=null;
+}
+
+/* ===== Voice out (queued ack -> answer, then a callback) ===== */
+let evaVoice=null,afterSpeech=null;
 function pickVoice(){const vs=speechSynthesis.getVoices();
   evaVoice=vs.find(v=>/en.*(aria|jenny|libby|female|zira|samantha)/i.test(v.name))||vs.find(v=>/en-GB/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||vs[0]||null;}
 if('speechSynthesis'in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
-function speak(text,{interrupt=false}={}){
+function speak(text,{interrupt=false,then=null}={}){
   if(!('speechSynthesis'in window)||!text)return;
+  if(text===lastSpoken){ if(then) afterSpeech=then; return; }   // guard against rare duplicate
+  lastSpoken=text;
   if(interrupt)speechSynthesis.cancel();
+  if(then) afterSpeech=then;
+  stopAllListening();
   const u=new SpeechSynthesisUtterance(text);if(evaVoice)u.voice=evaVoice;u.rate=1.02;u.pitch=1.02;
   u.onstart=()=>setMode('speaking');
-  u.onend=()=>{if(!speechSynthesis.speaking&&STATE.mode==='speaking')setMode('idle');};
+  u.onend=()=>{
+    if(!speechSynthesis.pending && !speechSynthesis.speaking){
+      const cb=afterSpeech; afterSpeech=null; setMode('idle');
+      lastSpoken="";
+      if(cb) cb(); else if(wakeMode) ensureWake();
+    }
+  };
   speechSynthesis.speak(u);
 }
 
@@ -193,55 +211,83 @@ function connect(){
     if(ev.type==='ack'){setMode('thinking');say(ev.text);speak(ev.text);}
     else if(ev.type==='token'){streamBuf+=ev.text;setMode('speaking');say(streamBuf);}
     else if(ev.type==='widget'){renderWidget(ev.data);}
-    else if(ev.type==='final'){const t=ev.text||streamBuf;say(t);speak(t);streamBuf='';}
+    else if(ev.type==='final'){
+      const t=ev.text||streamBuf;say(t);
+      const follow=(lastWasVoice||wakeMode);
+      speak(t,{then: follow?startFollowUp:null});
+      streamBuf='';
+    }
   };
 }
 function sendToEva(text){
   if(!text)return;
-  say(text,'heard');streamBuf='';
-  speechSynthesis.cancel();          // interrupt any current speech on new input
+  say(text,'heard');streamBuf='';lastSpoken="";
+  speechSynthesis.cancel();stopAllListening();
   if(connected&&ws&&ws.readyState===1){setMode('thinking');ws.send(JSON.stringify({type:'message',text}));}
   else{demoRoute(text);}
 }
-
-/* ===== Offline demo fallback (works if backend isn't running) ===== */
 function demoOnly(){connected=false;say("Running in preview mode, sir.","backend not connected");}
-function demoRoute(input){
-  const q=input.toLowerCase();setMode('thinking');
-  const reply=(t,w)=>setTimeout(()=>{say(t);speak(t);if(w)renderWidget(w);},500);
+function demoRoute(input){setMode('thinking');
   const now=new Date(),hm=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-  if(/\b(time|clock|hour)\b/.test(q))reply(`It's ${hm}, sir.`,{kind:'clock',time:hm,date:now.toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'})});
-  else if(/\b(hi|hello|hey)\b/.test(q))reply("Good to see you, sir. How can I help?");
+  const reply=(t,w)=>setTimeout(()=>{say(t);speak(t,{then:(lastWasVoice||wakeMode)?startFollowUp:null});if(w)renderWidget(w);},500);
+  if(/\b(time|clock|hour)\b/.test(input.toLowerCase()))reply(`It's ${hm}, sir.`,{kind:'clock',time:hm,date:now.toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'})});
   else reply("Preview mode has no backend, sir. Start the server to bring me fully online.");
 }
 
-/* ===== Voice in ===== */
-const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null,wakeMode=false,wakeRec=null;
-function listenOnce(){if(!SR){say("Voice input needs Chrome, sir.","use the keyboard");return;}
-  speechSynthesis.cancel();rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;
+/* ===== Listen once (mic tap / hold) ===== */
+function listenOnce(){
+  if(!SR){say("Voice input needs Chrome, sir.","use the keyboard");return;}
+  speechSynthesis.cancel();stopAllListening();
+  rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;
   let fin='';setMode('listening');say("Listening…");
   rec.onresult=e=>{let itm='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;
     if(e.results[i].isFinal)fin+=t;else itm+=t;}say(fin||itm||"Listening…");};
   rec.onerror=()=>setMode('idle');
-  rec.onend=()=>{if(fin.trim())sendToEva(fin.trim());else if(STATE.mode==='listening'){setMode('idle');say("Go on, sir.");}};
-  rec.start();}
-function toggleWake(){if(!SR){say("Wake word needs Chrome, sir.");return;}
+  rec.onend=()=>{const done=fin.trim();rec=null;if(done){lastWasVoice=true;sendToEva(done);}else{setMode('idle');if(wakeMode)ensureWake();}};
+  rec.start();
+}
+
+/* ===== Follow-up: listen right after she speaks, NO wake word, short window ===== */
+function startFollowUp(){
+  if(!SR){if(wakeMode)ensureWake();return;}
+  stopAllListening();
+  followRec=new SR();followRec.lang='en-US';followRec.interimResults=true;followRec.continuous=false;
+  let fin='',heard=false;setMode('listening');say("","listening…");
+  const timer=setTimeout(()=>{try{followRec&&followRec.stop();}catch(_){}} ,7000);
+  followRec.onresult=e=>{heard=true;let itm='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;
+    if(e.results[i].isFinal)fin+=t;else itm+=t;}say(fin||itm||"");};
+  followRec.onerror=()=>{clearTimeout(timer);};
+  followRec.onend=()=>{clearTimeout(timer);const done=fin.trim();followRec=null;
+    if(done){lastWasVoice=true;sendToEva(done);}else{setMode('idle');if(wakeMode)ensureWake();}};
+  try{followRec.start();}catch(_){setMode('idle');if(wakeMode)ensureWake();}
+}
+
+/* ===== Wake word (continuous) ===== */
+function ensureWake(){ if(wakeMode && SR && !wakeRec && !speechSynthesis.speaking && STATE.mode!=='listening') startWake(); }
+function toggleWake(){
+  if(!SR){say("Wake word needs Chrome, sir.");return;}
   wakeMode=!wakeMode;document.getElementById('wakeBtn').classList.toggle('on',wakeMode);
   if(wakeMode){startWake();say("Always listening, sir.","say “Eva” to wake me");}
-  else{if(wakeRec){wakeRec.stop();wakeRec=null;}setMode('idle');say("Wake word off, sir.");}}
-function startWake(){wakeRec=new SR();wakeRec.lang='en-US';wakeRec.interimResults=true;wakeRec.continuous=true;let armed=false;
+  else{stopAllListening();setMode('idle');say("Wake word off, sir.");}
+}
+function startWake(){
+  if(wakeRec)return;
+  wakeRec=new SR();wakeRec.lang='en-US';wakeRec.interimResults=true;wakeRec.continuous=true;let armed=false;
   wakeRec.onresult=e=>{const last=e.results[e.results.length-1],t=last[0].transcript.toLowerCase();
-    if(!armed&&/\b(eva|eve|ava|hey eva)\b/.test(t)){armed=true;setMode('listening');say("Yes, sir?");speak("Yes, sir?");}
-    else if(armed&&last.isFinal){const cmd=t.replace(/\b(eva|eve|ava|hey eva)\b/,'').trim();if(cmd.length>2){armed=false;sendToEva(cmd);}}};
-  wakeRec.onend=()=>{if(wakeMode){try{wakeRec.start();}catch(_){}}};wakeRec.onerror=()=>{};try{wakeRec.start();}catch(_){}}
+    if(!armed&&/\b(eva|eve|ava|hey eva)\b/.test(t)){armed=true;say("Yes, sir?");speak("Yes, sir?",{then:startFollowUp});}
+    else if(armed&&last.isFinal){const cmd=t.replace(/\b(eva|eve|ava|hey eva)\b/,'').trim();if(cmd.length>2){armed=false;lastWasVoice=true;sendToEva(cmd);}}};
+  wakeRec.onerror=()=>{};
+  wakeRec.onend=()=>{wakeRec=null;setTimeout(ensureWake,400);};   // browser auto-stops; restart when idle
+  try{wakeRec.start();}catch(_){wakeRec=null;}
+}
 
 /* ===== Wiring ===== */
-document.getElementById('micBtn').addEventListener('click',()=>{STATE.mode==='listening'?rec&&rec.stop():listenOnce();});
+document.getElementById('micBtn').addEventListener('click',()=>{STATE.mode==='listening'?stopAllListening():listenOnce();});
 document.getElementById('wakeBtn').addEventListener('click',toggleWake);
 cv.addEventListener('click',()=>{(STATE.mode==='idle'||STATE.mode==='speaking')&&listenOnce();});
 const textbar=document.getElementById('textbar'),textin=document.getElementById('textin');
 document.getElementById('kbBtn').addEventListener('click',()=>{textbar.classList.toggle('show');textbar.classList.contains('show')&&textin.focus();});
-function sendText(){const v=textin.value.trim();if(!v)return;textin.value='';sendToEva(v);}
+function sendText(){const v=textin.value.trim();if(!v)return;textin.value='';lastWasVoice=false;sendToEva(v);}
 document.getElementById('send').addEventListener('click',sendText);
 textin.addEventListener('keydown',e=>{e.key==='Enter'&&sendText();});
 function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
