@@ -18,16 +18,43 @@ from __future__ import annotations
 from pathlib import Path
 
 EVA_MD = Path("EVA.md")
+EVA_LOCAL_MD = Path("EVA.local.md")     # git-ignored: private context and vocabulary
 MAX_EVA_MD_CHARS = 3000
+VOCAB_SECTION = "## Vocabulary"
 SECTION = "## Standing instructions"
 
 
-def load_eva_md() -> str:
+def _read(path: Path) -> str:
     try:
-        text = EVA_MD.read_text(encoding="utf-8").strip()
+        return path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         return ""
-    return text[:MAX_EVA_MD_CHARS]
+
+
+def _without_vocab(text: str) -> str:
+    """The Vocabulary section is for speech correction, not for the model's prompt."""
+    if VOCAB_SECTION not in text:
+        return text
+    head, _, tail = text.partition(VOCAB_SECTION)
+    nxt = tail.find("\n## ")
+    return (head + (tail[nxt:] if nxt != -1 else "")).strip()
+
+
+def load_eva_md() -> str:
+    """EVA.md, then EVA.local.md (private, git-ignored), minus vocabulary lists."""
+    parts = [_without_vocab(_read(EVA_MD)), _without_vocab(_read(EVA_LOCAL_MD))]
+    return "\n\n".join(p for p in parts if p)[:MAX_EVA_MD_CHARS]
+
+
+def vocabulary_text() -> str:
+    """Raw Vocabulary sections from both files, for core.vocab."""
+    out = []
+    for text in (_read(EVA_MD), _read(EVA_LOCAL_MD)):
+        if VOCAB_SECTION in text:
+            tail = text.partition(VOCAB_SECTION)[2]
+            nxt = tail.find("\n## ")
+            out.append(tail if nxt == -1 else tail[:nxt])
+    return "\n".join(out)
 
 
 def add_standing_instruction(instruction: str) -> dict:
@@ -77,7 +104,8 @@ def build_decision_system(tool_list_text: str, skill_bodies: list[str], gathered
         "yourself or what you can do, and anything you can answer from the conversation.\n"
         "- Choose \"unavailable\" when the request needs an ability none of the tools has "
         "(for example calendar, email, messages, smart lights, alarms). Never substitute an "
-        "unrelated tool such as web_search or the screen for a missing ability.",
+        "unrelated tool such as web_search or the screen for a missing ability.\n"
+        "- Tools named mcp_<server>_<tool> come from connected services (for example a calendar).",
         "Tools:\n" + tool_list_text,
     ]
     if skill_bodies:

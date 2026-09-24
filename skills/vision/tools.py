@@ -60,8 +60,10 @@ def see_screen(question: str = "", **_):
         return {"result": json.dumps({"error": f"vision model unavailable ({e}). "
                                               f"Run: ollama pull {cfg['vision_model']}"})}
     audit.log("see_screen", "vision", {"screenshot": str(path)})
-    return {"result": json.dumps({"screen": answer}),
-            "widget": {"kind": "vision", "title": "On your screen", "text": answer[:280]}}
+    first = " ".join(answer.split())[:220]
+    return {"result": json.dumps({"you_just_looked_at_the_screen": True, "what_you_see": answer}),
+            "widget": {"kind": "vision", "title": "On your screen", "text": answer[:280]},
+            "say": f"Here's what I see, sir: {first}"}
 
 
 FUNCTIONS = {"see_screen": see_screen}

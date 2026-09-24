@@ -74,10 +74,12 @@ class OllamaEmbedder:
     """
 
     def __init__(self, model: str = "nomic-embed-text", url: str = "http://localhost:11434",
-                 timeout: float = 3.0, warm_timeout: float = 90.0):
+                 timeout: float = 1.5, warm_timeout: float = 90.0):
         self.model, self.url = model, url.rstrip("/")
         self.timeout, self.warm_timeout = timeout, warm_timeout
         self.ready = threading.Event()
+        self._fails = 0
+        self._skip_until = 0.0
         self.disabled = False
         self._warming = threading.Lock()
         self._callbacks: list[Callable[[], None]] = []
@@ -143,14 +145,24 @@ class OllamaEmbedder:
         threading.Thread(target=self.warm, daemon=True, name="cortex-warmup").start()
 
     def __call__(self, texts: Sequence[str]) -> Optional[list]:
-        if not texts or self.disabled or not self.ready.is_set():
+        """Hot path: at most `timeout` seconds, then keyword search for this turn.
+        One slow call only pauses embeddings for 30 s; three in a row re-warm the model."""
+        if not texts or self.disabled or not self.ready.is_set() or time.time() < self._skip_until:
             return None
         try:
-            return self._post(texts, self.timeout) or None
+            out = self._post(texts, self.timeout) or None
+            self._fails = 0
+            return out
         except Exception as e:
-            logger.warning(f"CORTEX: embedding call failed ({e}); re-warming in background")
-            self.ready.clear()
-            self.start_warmup()
+            self._fails += 1
+            self._skip_until = time.time() + 30
+            if self._fails >= 3:
+                logger.warning(f"CORTEX: embeddings failing ({e}); re-warming in background")
+                self.ready.clear()
+                self._fails = 0
+                self.start_warmup()
+            else:
+                logger.info(f"CORTEX: embedding slow ({e}); keyword recall for 30 s")
             return None
 
 

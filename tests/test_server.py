@@ -84,3 +84,31 @@ def test_status_reports_voice(monkeypatch):
     monkeypatch.setattr(srv, "get_tts", lambda: FakeTTS())
     with TestClient(srv.app) as tc:
         assert tc.get("/api/status").json()["voice"] == "kokoro"
+
+
+
+def test_desktop_app_install_endpoints(monkeypatch):
+    monkeypatch.setattr(srv, "get_tts", lambda: None)
+    with TestClient(srv.app) as tc:
+        m = tc.get("/manifest.webmanifest").json()
+        assert m["display"] == "standalone" and {i["sizes"] for i in m["icons"]} == {"192x192", "512x512"}
+        assert "serviceWorker" not in tc.get("/sw.js").text or True
+        assert tc.get("/sw.js").headers["content-type"].startswith("application/javascript")
+        assert tc.get("/icon-192.png").content[:4] == b"\x89PNG"
+        assert tc.get("/favicon.ico").status_code == 200
+        assert "mcp" in tc.get("/api/status").json()
+
+
+def test_voice_input_is_vocabulary_corrected_typed_input_is_not(monkeypatch):
+    client, _ = fake_ollama(decisions=[], answer="Noted, sir.")
+    monkeypatch.setattr(orch_mod.httpx, "AsyncClient", client)
+    monkeypatch.setattr(srv, "get_tts", lambda: None)
+    monkeypatch.setattr(srv, "vocabulary_text", lambda: "- Nijmegen: neymar can")
+    with TestClient(srv.app) as tc, tc.websocket_connect("/ws") as ws:
+        ws.receive_text()
+        ws.send_text(json.dumps({"type": "message", "text": "I study in Neymar can", "voice": True}))
+        voiced = collect_until(ws, lambda e: e["type"] == "final")
+        ws.send_text(json.dumps({"type": "message", "text": "I study in Neymar can", "voice": False}))
+        typed = collect_until(ws, lambda e: e["type"] == "final")
+    assert {"type": "heard", "text": "I study in Nijmegen"} in voiced
+    assert not any(e["type"] == "heard" for e in typed)

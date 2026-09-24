@@ -15,9 +15,15 @@ WebSocket protocol (server -> browser):
     audio       {"turn": n, "seq": k, "audio": b64}    one WAV per sentence, in order
     audio_end   {"turn": n, "count": N}                all audio for turn n has been sent
 
+    heard       {"text": "..."}                        the transcript after vocabulary correction
+
 Browser -> server:
-    {"type": "message", "text": "..."}                 a new request (cancels any reply in progress)
+    {"type": "message", "text": "...", "voice": bool}  a new request (cancels any reply in progress);
+                                                       voice=true applies vocabulary correction
     {"type": "stop"}                                   barge-in: stop talking now
+
+Also served: /manifest.webmanifest, /sw.js and icons, so Chrome or Edge can install
+E.V.A. as a desktop app (address bar -> "Install E.V.A.").
 
 Each reply runs as its own task, so a new message or a stop cancels it mid-sentence.
 """
@@ -36,16 +42,21 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from loguru import logger
 
 from core.events.bus import get_bus
+from core.mcp_client import get_mcp
+from core.prompt_builder import vocabulary_text
+from core.settings import get_settings
+from core.vocab import correct as vocab_correct
 from core.memory.cortex import close_cortex, get_cortex
 from core.orchestrator_hybrid import HybridOrchestrator
 from skills.registry import get_registry
 from voice.speech import SentenceChunker, TurnSpeaker, get_tts
 
 UI_FILE = Path(__file__).parent / "eva.html"
+STATIC = Path(__file__).parent / "static"
 PORT = 8001
 STARTED = time.time()
 WAKE_PHRASE = "Yes, sir?"
@@ -60,9 +71,13 @@ async def lifespan(_app: FastAPI):
     tts = get_tts()
     if tts:                               # load Kokoro off the startup path
         threading.Thread(target=tts.warm, daemon=True, name="kokoro-warmup").start()
+    mcp = get_mcp()
+    await mcp.start(get_settings().get("mcp", {}).get("servers", []) or [])
     logger.info(f"E.V.A. online: {cortex.stats()['facts']} facts, {len(registry.enabled())} skills, "
+                f"{sum(s.connected for s in mcp.servers.values())} MCP servers, "
                 f"voice: {'Kokoro' if tts else 'browser'}")
     yield
+    await mcp.stop()
     bus.stop()
     close_cortex()
 
@@ -76,6 +91,40 @@ async def index():
     return HTMLResponse(UI_FILE.read_text(encoding="utf-8"))
 
 
+MANIFEST = {
+    "name": "E.V.A.", "short_name": "E.V.A.", "start_url": "/", "scope": "/", "display": "standalone",
+    "background_color": "#08060f", "theme_color": "#08060f", "description": "Your local AI assistant",
+    "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+              {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}],
+}
+SERVICE_WORKER = """// Installability only. No caching: the UI must always be the one the server serves.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', () => {});
+"""
+
+
+@app.get("/manifest.webmanifest")
+async def manifest():
+    return JSONResponse(MANIFEST, media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+async def service_worker():
+    return Response(SERVICE_WORKER, media_type="application/javascript")
+
+
+@app.get("/icon-{size}.png")
+async def icon(size: int):
+    path = STATIC / f"icon-{size}.png"
+    return FileResponse(path) if path.exists() else Response(status_code=404)
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return FileResponse(STATIC / "icon-192.png", media_type="image/png")
+
+
 @app.get("/api/status")
 async def status():
     return JSONResponse({
@@ -83,6 +132,7 @@ async def status():
         "memory": get_cortex().stats(),
         "skills": get_registry().status(),
         "voice": "kokoro" if get_tts() else "browser",
+        "mcp": get_mcp().status(),
         "recent_events": get_bus().recent(20),
     })
 
@@ -170,6 +220,12 @@ class Connection:
                         continue
                     await self.interrupt()
                     self.turn += 1
+                    if data.get("voice"):
+                        fixed, changes = vocab_correct(text, vocabulary_text())
+                        if changes:
+                            logger.info(f"VOCAB: {' | '.join(f'{a!r} -> {b!r}' for a, b in changes)}")
+                            text = fixed
+                            await self.send({"type": "heard", "text": text})
                     logger.info(f"USER: {text}")
                     self.current = asyncio.create_task(self.reply(text, self.turn))
         finally:

@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>E.V.A.</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="#08060f">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -79,6 +83,11 @@
   .textbar input::placeholder{color:var(--dim)}
   .textbar button{border:none;border-radius:11px;padding:9px 14px;cursor:pointer;
     background:linear-gradient(135deg,var(--violet),var(--magenta));color:#fff;font-family:"Chakra Petch",sans-serif;font-size:13px}
+  .wbtns{display:flex;gap:10px;margin-top:14px}
+  .wbtn{flex:1;border:1px solid var(--panel-line);border-radius:12px;padding:10px 0;cursor:pointer;
+    background:rgba(255,255,255,.04);color:var(--ice);font-family:"Chakra Petch",sans-serif;font-size:14px;letter-spacing:.04em}
+  .wbtn.yes{background:linear-gradient(135deg,var(--violet),var(--magenta));border-color:transparent;color:#fff}
+  .wbtn:focus-visible{outline:2px solid var(--plasma);outline-offset:2px}
   .label{font-family:"Chakra Petch",sans-serif;font-size:10px;letter-spacing:.18em;color:var(--dim)}
   @media (prefers-reduced-motion: reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important}}
 </style>
@@ -172,6 +181,11 @@ function renderWidget(d){
   else if(d.kind==='nowplaying')widgetHTML(`<div class="nowplaying"><div class="npart">♪</div>
     <div><div class="wtitle" style="margin-bottom:4px">Now playing</div><div style="font-size:15px">${esc(d.what)}</div>
     <div class="bars"><span></span><span></span><span></span><span></span><span></span></div></div></div>`);
+  else if(d.kind==='confirm'){
+    widgetHTML(`<div class="wtitle">${esc(d.title||'Confirm')}</div><div style="font-size:15px">${esc(d.text)}</div>
+      <div class="wbtns"><button class="wbtn yes" data-reply="yes">Go ahead</button><button class="wbtn" data-reply="no">Cancel</button></div>`,60000);
+    deck.querySelectorAll('.wbtn').forEach(b=>b.addEventListener('click',()=>{lastWasVoice=false;clearWidgets();sendToEva(b.dataset.reply);}));
+  }
   else if(d.kind==='calendar'&&Array.isArray(d.events))widgetHTML(`<div class="wtitle">Today</div>`+
     d.events.map(ev=>`<div class="wrow"><span class="t">${esc(ev.time)}</span><span class="l">${esc(ev.title)}</span></div>`).join(''));
   else if(d.title)widgetHTML(`<div class="wtitle">${esc(d.title)}</div><div style="font-size:15px">${esc(d.text)}</div>`);
@@ -287,6 +301,7 @@ function connect(){
       case 'hello': ttsMode=ev.tts||'browser'; break;
       case 'phrase': if(ev.key==='wake')decodeWav(ev.audio).then(b=>{Player.wake=b;}); break;
       case 'turn_start': beginTurn(ev.turn); streamBuf=''; break;
+      case 'heard': say(ev.text,'heard'); break;
       case 'audio': onAudio(ev); break;
       case 'audio_end': onAudioEnd(ev); break;
       case 'ack': setMode('thinking'); say(ev.text); if(ttsMode!=='kokoro')speak(ev.text); break;
@@ -310,7 +325,7 @@ function sendToEva(text){
   if(!text)return;
   say(text,'heard');streamBuf='';lastSpoken="";
   stopAudio();stopAllListening();
-  if(connected&&ws&&ws.readyState===1){setMode('thinking');ws.send(JSON.stringify({type:'message',text}));}
+  if(connected&&ws&&ws.readyState===1){setMode('thinking');ws.send(JSON.stringify({type:'message',text,voice:!!lastWasVoice}));}
   else{demoRoute(text);}
 }
 function demoOnly(){connected=false;say("Running in preview mode, sir.","backend not connected");}
@@ -383,6 +398,7 @@ document.getElementById('send').addEventListener('click',sendText);
 textin.addEventListener('keydown',e=>{e.key==='Enter'&&sendText();});
 function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
 tick();setInterval(tick,10000);setMode('idle');connect();
+if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}   // makes her installable as an app
 </script>
 </body>
 </html>

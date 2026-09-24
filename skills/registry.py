@@ -56,6 +56,8 @@ class Skill:
     functions: dict[str, Callable] = field(default_factory=dict)
     acks: dict[str, str] = field(default_factory=dict)
     actions: set[str] = field(default_factory=set)
+    guards: dict[str, str] = field(default_factory=dict)
+    confirm: dict[str, str] = field(default_factory=dict)
     vec: Optional[np.ndarray] = None
 
 
@@ -119,6 +121,8 @@ class SkillRegistry:
         sk.functions = dict(getattr(mod, "FUNCTIONS", {}))
         sk.acks = dict(getattr(mod, "ACKS", {}))
         sk.actions = set(getattr(mod, "ACTIONS", []))
+        sk.guards = dict(getattr(mod, "GUARDS", {}))
+        sk.confirm = dict(getattr(mod, "CONFIRM", {}))
         declared = {t["function"]["name"] for t in sk.tools}
         missing = declared - set(sk.functions)
         if missing:
@@ -150,6 +154,12 @@ class SkillRegistry:
 
     def acks(self) -> dict[str, str]:
         return {k: v for s in self.enabled() for k, v in s.acks.items()}
+
+    def guards(self) -> dict[str, str]:
+        return {k: v for s in self.enabled() for k, v in s.guards.items()}
+
+    def confirmations(self) -> dict[str, str]:
+        return {k: v for s in self.enabled() for k, v in s.confirm.items()}
 
     def actions(self) -> set[str]:
         """Tools that change something; a successful one ends the tool loop."""

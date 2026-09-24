@@ -1,7 +1,10 @@
-"""Memory skill tools. Thin wrappers over CORTEX and EVA.md."""
+"""Memory skill tools. Thin wrappers over CORTEX, EVA.md, and (for recall) the notes vault."""
 
+import importlib.util
 import json
 import re
+from datetime import datetime
+from pathlib import Path
 
 from core.memory.cortex import get_cortex
 from core.prompt_builder import add_standing_instruction
@@ -16,7 +19,8 @@ TOOLS = [
         }, "required": ["text"]}}},
     {"type": "function", "function": {
         "name": "recall_memory",
-        "description": "Look up what you remember about the user. Empty query lists the main facts.",
+        "description": ("Look up what the user told you before: remembered facts, past conversations, and "
+                        "notes. Use for 'what did I tell you about X', 'do you remember X'. Empty query lists main facts."),
         "parameters": {"type": "object", "properties": {"query": {"type": "string"}}}}},
     {"type": "function", "function": {
         "name": "forget_memory",
@@ -60,25 +64,80 @@ def to_third_person(text: str) -> str:
 
 
 def remember_fact(text: str = "", category: str = "general", **_):
-    return {"result": json.dumps(get_cortex().remember(to_third_person(text), category=category, source="user"))}
+    res = get_cortex().remember(to_third_person(text), category=category, source="user")
+    says = {"added": "Noted, sir.", "duplicate": "I already knew that, sir.",
+            "refused": "I don't store passwords, keys, or card numbers, sir.",
+            "ignored": "I didn't catch what to remember, sir."}
+    say = f"Updated, sir. I had it as: {res.get('replaced')}." if res.get("status") == "updated" \
+        else says.get(res.get("status"), "Noted, sir.")
+    return {"result": json.dumps(res), "say": say}
+
+
+_META_Q = re.compile(r"\b(what did i (tell|say)|do you remember|what do you (know|remember))\b", re.I)
+_notes_mod = None
+
+
+def _notes_search(query: str) -> list[dict]:
+    """Borrow the obsidian skill's search if it is installed; memory must work without it."""
+    global _notes_mod
+    try:
+        if _notes_mod is None:
+            path = Path(__file__).resolve().parents[1] / "obsidian" / "tools.py"
+            spec = importlib.util.spec_from_file_location("eva_notes_for_recall", path)
+            _notes_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(_notes_mod)
+        return json.loads(_notes_mod.obsidian_search(query)["result"]).get("results", [])[:3]
+    except Exception:
+        return []
 
 
 def recall_memory(query: str = "", **_):
-    facts = get_cortex().recall(query, k=8)
-    return {"result": json.dumps({"facts": [f["text"] for f in facts]} if facts
-                                 else {"facts": [], "note": "nothing remembered on this yet"})}
+    cortex = get_cortex()
+    facts = [f["text"] for f in cortex.recall(query, k=8)]
+    said, seen = [], set()
+    if query.strip():
+        for ep in cortex.search_episodes(query, limit=12):
+            text = ep["content"].strip()
+            if ep["role"] != "user" or _META_Q.search(text) or text.lower() in seen:
+                continue
+            seen.add(text.lower())
+            said.append({"when": datetime.fromtimestamp(ep["ts"]).strftime("%a %d %b %H:%M"), "you_said": text[:200]})
+            if len(said) == 3:
+                break
+    notes = _notes_search(query) if query.strip() else []
+    if not (facts or said or notes):
+        return {"result": json.dumps({"facts": [], "note": "nothing remembered on this yet; say so plainly"})}
+    return {"result": json.dumps({"facts": facts, "from_past_conversations": said, "from_notes": notes})}
 
 
 def forget_memory(query: str = "", **_):
-    return {"result": json.dumps(get_cortex().forget(query))}
+    res = get_cortex().forget(query)
+    st = res.get("status")
+    if st == "forgotten":
+        say = f"Forgotten, sir: {res['text']}."
+    elif st == "ambiguous":
+        say = "Which one, sir? I have: " + "; ".join(res["candidates"]) + "."
+    elif st == "need_query":
+        say = "Which fact should I forget, sir?"
+    else:
+        say = "I don't have anything like that stored, sir."
+    return {"result": json.dumps(res), "say": say}
 
 
 def forget_recent_facts(minutes: int = 15, **_):
-    return {"result": json.dumps(get_cortex().forget_recent(minutes or 15))}
+    res = get_cortex().forget_recent(minutes or 15)
+    n = len(res.get("forgotten", []))
+    say = f"Done, sir. I've forgotten the last {n} thing{'s' if n != 1 else ''} I learned." if n \
+        else "There was nothing new to forget, sir."
+    return {"result": json.dumps(res), "say": say}
 
 
 def add_instruction(text: str = "", **_):
-    return {"result": json.dumps(add_standing_instruction(text))}
+    res = add_standing_instruction(text)
+    say = {"added": "Understood, sir. That's now a standing instruction.",
+           "duplicate": "That's already one of my standing instructions, sir."}.get(res.get("status"),
+                                                                                    "I didn't catch the instruction, sir.")
+    return {"result": json.dumps(res), "say": say}
 
 
 FUNCTIONS = {"remember_fact": remember_fact, "recall_memory": recall_memory,
@@ -86,3 +145,13 @@ FUNCTIONS = {"remember_fact": remember_fact, "recall_memory": recall_memory,
              "add_instruction": add_instruction}
 ACKS = {}          # memory operations are instant; no spoken ack
 ACTIONS = ["remember_fact", "forget_memory", "forget_recent_facts", "add_instruction"]
+
+# An action only runs if the user's words ask for it (stops "how do you like it" -> add_instruction).
+GUARDS = {
+    "remember_fact": r"\b(remember|keep in mind|don'?t forget|store|save|note that i|memori[sz]e)\b",
+    "forget_memory": r"\b(forget|delete|remove|erase|wipe)\b",
+    "forget_recent_facts": r"\b(forget|delete|remove|erase|wipe|undo)\b",
+    "add_instruction": r"\b(from now on|going forward|always|never|don'?t ever|stop (doing|saying|using)|in the future)\b",
+}
+# Asks "shall I go ahead?" first; {minutes} is filled from the arguments.
+CONFIRM = {"forget_recent_facts": "forget everything I learned in the last {minutes} minutes"}

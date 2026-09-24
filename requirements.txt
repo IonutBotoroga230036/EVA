@@ -49,3 +49,4 @@ comtypes; sys_platform == "win32"
 kokoro               # local TTS, wired into streaming in the next milestone
 pytest>=8.0
 pytest-asyncio>=0.24
+mcp>=1.2             # MCP client (servers are configured in settings.yaml)

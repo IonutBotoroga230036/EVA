@@ -111,29 +111,36 @@ def obsidian_quick_note(text: str = "", **_):
                        encoding="utf-8")
     with day.open("a", encoding="utf-8") as f:
         f.write(f"- {now:%H:%M} {text}\n")
-    return _ok({"status": "noted", "note": f"{_daily_folder()}/{day.name}", "text": text},
-               f"Noted · {now:%d %b %H:%M}", text)
+    out = _ok({"status": "noted", "note": f"{_daily_folder()}/{day.name}", "text": text},
+              f"Noted · {now:%d %b %H:%M}", text)
+    out["say"] = "Noted in today's log, sir."
+    return out
 
 
 def obsidian_write(title: str = "", content: str = "", folder: str = "Inbox", **_):
     if not (title or "").strip():
         return _err("a note needs a title")
-    if not (content or "").strip():
-        return _err("nothing to write")
     root = vault_root()
     existing = _find(root, title)
     same = existing is not None and existing.stem.lower() == safe_title(title).lower()
     path = existing if same else _note_path(root, title, folder)
     path.parent.mkdir(parents=True, exist_ok=True)
+    body = (content or "").strip()
     if path.exists():
+        if not body:
+            return {"result": json.dumps({"status": "exists", "note": path.relative_to(root).as_posix()}),
+                    "say": f"You already have a note called {path.stem}, sir."}
         with path.open("a", encoding="utf-8") as f:
-            f.write(f"\n{content.strip()}\n")
+            f.write(f"\n{body}\n")
         status = "appended"
     else:
-        path.write_text(_frontmatter(path.stem) + content.strip() + "\n", encoding="utf-8")
+        path.write_text(_frontmatter(path.stem) + (body + "\n" if body else ""), encoding="utf-8")
         status = "created"
     rel = path.relative_to(root).as_posix()
-    return _ok({"status": status, "note": rel}, f"{status.capitalize()} · {path.stem}", content)
+    out = _ok({"status": status, "note": rel}, f"{status.capitalize()} · {path.stem}", body or "(empty, ready for you)")
+    out["say"] = (f"Created a note called {path.stem} in {path.parent.name}, sir." if status == "created"
+                  else f"Added to {path.stem}, sir.")
+    return out
 
 
 def obsidian_search(query: str = "", **_):
@@ -188,10 +195,11 @@ TOOLS = [
         "name": "obsidian_write",
         "description": "Create a named note, or append to it if it exists, in the Obsidian vault.",
         "parameters": {"type": "object", "properties": {
-            "title": {"type": "string", "description": "Short note title, e.g. 'ZippZapp branding'."},
-            "content": {"type": "string"},
+            "title": {"type": "string", "description": "Short note title from the user's words."},
+            "content": {"type": "string", "description": "ONLY the words the user asked to put in the note, copied "
+                                                         "exactly. Leave empty if they gave none. Never invent text."},
             "folder": {"type": "string", "enum": ["Inbox", "Projects", "People", "Ideas"]}},
-            "required": ["title", "content"]}}},
+            "required": ["title"]}}},
     {"type": "function", "function": {
         "name": "obsidian_search",
         "description": "Search the user's notes by keywords when they ask what they noted or wrote about something.",
@@ -205,3 +213,7 @@ FUNCTIONS = {"obsidian_quick_note": obsidian_quick_note, "obsidian_write": obsid
              "obsidian_search": obsidian_search, "obsidian_read": obsidian_read}
 ACKS = {"obsidian_search": "Checking your notes, sir.", "obsidian_read": "Opening it, sir."}
 ACTIONS = ["obsidian_quick_note", "obsidian_write"]
+GUARDS = {
+    "obsidian_quick_note": r"\b(note|notes|jot|write (it |that |this )?down|log|obsidian)\b",
+    "obsidian_write": r"\b(note|notes|write|obsidian|document|page)\b",
+}

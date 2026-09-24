@@ -55,6 +55,30 @@ obsidian:
 weather:
   model: "auto"                        # auto = KNMI HARMONIE for NL/BE/LU, Open-Meteo best match elsewhere
 
+mcp:
+  # Each MCP server becomes a set of tools. Read-only tools run freely; anything that
+  # changes things asks "shall I go ahead?" unless listed in trusted_tools.
+  servers:
+    # Google Calendar (Milestone F, MCP-first). One-time setup:
+    #   1. Google Cloud Console: new project, enable "Google Calendar API", OAuth consent screen
+    #      (External, add yourself as test user), Credentials -> OAuth client ID -> Desktop app,
+    #      download the JSON to D:/Project E.V.A/secrets/gcp-oauth.keys.json (OUTSIDE the repo).
+    #   2. PowerShell:  $env:GOOGLE_OAUTH_CREDENTIALS="D:/Project E.V.A/secrets/gcp-oauth.keys.json"
+    #                   npx @cocal/google-calendar-mcp auth
+    #   3. Set enabled: true and restart E.V.A.
+    - name: calendar
+      enabled: false
+      transport: stdio
+      command: npx
+      args: ["-y", "@cocal/google-calendar-mcp"]
+      env:
+        GOOGLE_OAUTH_CREDENTIALS: "D:/Project E.V.A/secrets/gcp-oauth.keys.json"
+        ENABLED_TOOLS: "list-events,search-events,create-event,get-current-time"
+      tools: ["list-events", "search-events", "create-event", "get-current-time"]
+      read_only_tools: ["list-events", "search-events", "get-current-time"]
+      trusted_tools: []                  # create-event asks first
+      timeout: 90                        # first start downloads the package via npx
+
 skills:
   dir: "skills"
   match_threshold: 0.62                # cosine needed to load a SKILL.md body into the prompt

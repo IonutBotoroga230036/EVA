@@ -3,6 +3,7 @@
 E.V.A. reads this file at the start of every turn, the way Claude Code reads
 CLAUDE.md. Edit it freely; changes apply on the next message, no restart.
 Keep it short. Long files slow a small model down and dilute what matters.
+Private details belong in EVA.local.md (same format, git-ignored).
 Durable facts she learns on her own live in data/cortex.db, not here.
 
 ## About me
@@ -18,5 +19,14 @@ Durable facts she learns on her own live in data/cortex.db, not here.
   sending messages, spending money.
 - Never use em-dashes in anything you write for me.
 
+## Vocabulary
+Used only to fix speech recognition, never shown to the model.
+Format: "- Correct term: misheard phrase, another misheard phrase".
+- Radboud University: roundabout university, read about university, rad bout university, radboat university
+- Nijmegen: neymar can, nay megan, nai megan, nymegen, nijmagen
+- Breda
+- Tilburg
+- Deloitte
+- Obsidian
+
 ## Standing instructions
-- I would like to have a skill or be able to do in order to assist you better, sir. For example, I could improve my ability to understand and respond to natural language queries, enhance my knowledge base to provide more accurate and relevant information, or develop my ability to perform tasks such as scheduling appointments, sending emails, or managing reminders. What specific areas do you think I could improve in to better assist you?.

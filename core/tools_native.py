@@ -1,7 +1,13 @@
 """
 Built-in tools for E.V.A.
 
-Each tool returns {"result": <JSON string for the model>, "widget": <optional UI card>}.
+Each tool returns {"result": <JSON string for the model>, "widget": <optional UI card>,
+"say": <optional exact spoken confirmation>}. When a turn used only actions that
+returned "say", the orchestrator speaks those lines verbatim and skips the LLM:
+faster, and she can never misreport what she did ("Volume set to 0" after a pause).
+
+GUARDS: an action only runs if the user's words plausibly ask for it. This stops
+a small model from opening a website because a sentence was cut off.
 ACK_PHRASES give the "phone call" feel: a short line spoken the instant a tool is
 chosen, before it runs. ACTION_TOOLS change the world (volume, media, apps); after a
 successful action the orchestrator stops the tool loop instead of chaining more calls.
@@ -14,10 +20,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import time
 import webbrowser
 from datetime import datetime
+from urllib.parse import quote_plus, urlparse
 
 from loguru import logger
 
@@ -54,6 +63,15 @@ ACK_PHRASES = {
 }
 
 ACTION_TOOLS = {"spotify_play", "media_control", "set_volume", "open_app", "open_website"}
+
+# The user's message must match before an action runs (case-insensitive search).
+GUARDS = {
+    "open_app": r"\b(open|launch|start|run|fire up|pull up)\b",
+    "open_website": r"\b(open|go to|visit|pull up|show me|load|launch|browse)\b",
+    "spotify_play": r"\b(play|music|song|songs|spotify|playlist|album|listen|artist|put on)\b",
+    "set_volume": r"\b(volume|louder|quieter|loud|quiet|sound|hear|mute|unmute|max)\b",
+    "media_control": r"\b(pause|stop|play|resume|skip|next|previous|back|mute|unmute|track|song|music)\b",
+}
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {
@@ -102,12 +120,16 @@ TOOL_SCHEMAS = [
             "required": ["level"]}}},
     {"type": "function", "function": {
         "name": "open_app",
-        "description": "Open a desktop application by name (vscode, notepad, spotify, calculator, chrome, terminal).",
-        "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
+        "description": "Open a desktop application (vscode, notepad, spotify, calculator, chrome, terminal, explorer).",
+        "parameters": {"type": "object", "properties": {
+            "app": {"type": "string", "description": "The application the user named, e.g. 'vscode'."}},
+            "required": ["app"]}}},
     {"type": "function", "function": {
         "name": "open_website",
-        "description": "Open a website in the browser when the user asks to open or go to a site (youtube, gmail, a URL).",
-        "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
+        "description": "Open a website in the browser when the user asks to open or go to a site.",
+        "parameters": {"type": "object", "properties": {
+            "site": {"type": "string", "description": "The site the user named, e.g. 'youtube', 'github.com', or a URL."}},
+            "required": ["site"]}}},
 ]
 
 
@@ -162,7 +184,7 @@ def tool_spotify_play(what: str = "", **_):
             time.sleep(2.0)
             pyautogui.press("playpause")
         return {"result": json.dumps({"status": "playing on Spotify", "requested": what}),
-                "widget": {"kind": "nowplaying", "what": what}}
+                "widget": {"kind": "nowplaying", "what": what}, "say": f"Playing {what} on Spotify, sir."}
     except Exception as e:
         return {"result": json.dumps({"error": str(e)})}
 
@@ -174,7 +196,9 @@ def tool_media_control(action: str = "playpause", **_):
         return {"result": json.dumps({"error": "media keys unavailable (pyautogui not installed)"})}
     try:
         pyautogui.press(keymap.get(action, "playpause"))
-        return {"result": json.dumps({"done": action})}
+        says = {"playpause": "Done, sir.", "next": "Skipping ahead, sir.", "previous": "Going back a track, sir.",
+                "volup": "A little louder, sir.", "voldown": "A little quieter, sir.", "mute": "Mute toggled, sir."}
+        return {"result": json.dumps({"done": action}), "say": says.get(action, "Done, sir.")}
     except Exception as e:
         return {"result": json.dumps({"error": str(e)})}
 
@@ -203,38 +227,78 @@ def tool_set_volume(level: int = 50, **_):
                 ev.SetMute(0, None)       # a muted endpoint stays silent at any level
         finally:
             CoUninitialize()
-        return {"result": json.dumps({"volume_set": level, "muted": level == 0})}
+        return {"result": json.dumps({"volume_set": level, "muted": level == 0}),
+                "say": "Muted, sir." if level == 0 else f"Volume at {level}, sir."}
     except Exception as e:
         logger.error(f"set_volume failed: {e}")
         return {"result": json.dumps({"error": f"volume control failed: {e}"})}
 
 
-_APPS = {"notepad": "notepad.exe", "calculator": "calc.exe", "vscode": "code", "vs code": "code",
-         "spotify": "spotify", "chrome": "chrome", "explorer": "explorer.exe", "terminal": "wt.exe"}
-_SITES = {"youtube": "https://youtube.com", "gmail": "https://mail.google.com",
-          "github": "https://github.com", "calendar": "https://calendar.google.com",
-          "spotify": "https://open.spotify.com", "whatsapp": "https://web.whatsapp.com"}
+_APPS = {"notepad": "notepad.exe", "calculator": "calc.exe", "calc": "calc.exe", "vscode": "code",
+         "vs code": "code", "visual studio code": "code", "spotify": "spotify:", "chrome": "chrome",
+         "edge": "msedge", "explorer": "explorer.exe", "file explorer": "explorer.exe", "files": "explorer.exe",
+         "terminal": "wt.exe", "powershell": "powershell.exe", "settings": "ms-settings:",
+         "obsidian": "obsidian:", "discord": "discord:", "task manager": "taskmgr.exe", "paint": "mspaint.exe"}
+_SITES = {"youtube": "https://youtube.com", "gmail": "https://mail.google.com", "google": "https://google.com",
+          "github": "https://github.com", "calendar": "https://calendar.google.com", "maps": "https://maps.google.com",
+          "google maps": "https://maps.google.com", "drive": "https://drive.google.com", "spotify": "https://open.spotify.com",
+          "whatsapp": "https://web.whatsapp.com", "linkedin": "https://linkedin.com", "reddit": "https://reddit.com",
+          "netflix": "https://netflix.com", "x": "https://x.com", "twitter": "https://x.com",
+          "instagram": "https://instagram.com", "facebook": "https://facebook.com", "claude": "https://claude.ai",
+          "outlook": "https://outlook.live.com", "notion": "https://notion.so", "wikipedia": "https://wikipedia.org",
+          "amazon": "https://amazon.nl", "bol": "https://bol.com", "brightspace": "https://brightspace.ru.nl"}
+_HOST = re.compile(r"^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$")
+_SHELL_META = re.compile(r"[&|;<>^%$`\"'()]")
+_TOOL_NAMES = {"open_app", "open_website", "spotify_play", "media_control", "set_volume", "web_search",
+               "get_weather", "get_datetime"}
 
 
-def tool_open_app(name: str = "", **_):
-    if not name.strip():
-        return {"result": json.dumps({"error": "no app name was given"})}
-    exe = _APPS.get(name.lower().strip(), name)
+def resolve_site(site: str) -> tuple[str | None, str]:
+    """-> (url, how). Known names, real URLs and real hostnames only; anything else goes
+    through DuckDuckGo's first result instead of guessing www.<name>.com."""
+    s = (site or "").strip().strip(".").lower()
+    s = re.sub(r"^(the |my )", "", s)
+    s = re.sub(r"\s+(website|site|page|web ?site)$", "", s).strip()
+    if not s or s in _TOOL_NAMES or len(s) > 200:
+        return None, "invalid"
+    if s in _SITES:
+        return _SITES[s], "known"
+    if s.startswith(("http://", "https://")):
+        host = (urlparse(s).hostname or "")
+        return (site.strip(), "url") if _HOST.match(host) else (None, "invalid")
+    bare = s.removeprefix("www.")
+    if _HOST.match(bare):
+        return f"https://{bare}", "domain"
+    return f"https://duckduckgo.com/?q=%5C{quote_plus(site.strip())}", "search"   # "\" = go to first result
+
+
+def tool_open_app(app: str = "", **_):
+    name = (app or "").strip().lower()
+    if not name or name in _TOOL_NAMES or _SHELL_META.search(name):
+        return {"result": json.dumps({"error": f"no valid app name was given ({app!r})"})}
+    target = _APPS.get(name) or shutil.which(name)
+    if not target:
+        return {"result": json.dumps({"error": f"I don't know an app called {app}"})}
     try:
-        subprocess.Popen(exe, shell=True)
-        return {"result": json.dumps({"opened": name})}
+        if target.endswith(":") and hasattr(os, "startfile"):
+            os.startfile(target)                        # URI protocols like spotify: or ms-settings:
+        elif target.endswith(":"):
+            webbrowser.open(target)
+        else:
+            subprocess.Popen([target], shell=False)     # never shell=True with model-provided text
+        return {"result": json.dumps({"opened": app}), "say": f"Opening {app}, sir."}
     except Exception as e:
         return {"result": json.dumps({"error": str(e)})}
 
 
-def tool_open_website(name: str = "", **_):
-    if not name.strip():
-        return {"result": json.dumps({"error": "no website was given"})}
-    low = name.lower().strip()
-    url = _SITES.get(low) or (name if name.startswith("http") else
-                              (f"https://{name}" if "." in name else f"https://www.{low}.com"))
+def tool_open_website(site: str = "", **_):
+    url, how = resolve_site(site)
+    if not url:
+        return {"result": json.dumps({"error": f"that isn't a website I can open ({site!r})"})}
     webbrowser.open(url)
-    return {"result": json.dumps({"opened": url})}
+    shown = site.strip() if how == "search" else (urlparse(url).hostname or url).removeprefix("www.")
+    say = f"Opening the top result for {shown}, sir." if how == "search" else f"Opening {shown}, sir."
+    return {"result": json.dumps({"opened": url, "how": how}), "say": say}
 
 
 REGISTRY = {
