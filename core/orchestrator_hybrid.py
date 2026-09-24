@@ -1,180 +1,245 @@
 """
-orchestrator_hybrid.py  ->  core/orchestrator_hybrid.py
+HybridOrchestrator: E.V.A.'s brain (v0.2, Milestone B).
 
-Milestone A: reliable tool-calling on a small local model.
+Per turn:
+  1. Embed the message ONCE (Ollama nomic-embed-text). That one vector drives
+     both CORTEX memory recall and SKILL.md matching.
+  2. FAST PATH for unambiguous commands (time, volume, media, remember/forget,
+     screen). No LLM call. Anything else falls through to the model, so nuance
+     is never capped.
+  3. CONSTRAINED DECISION: the model picks a tool by emitting JSON constrained
+     to a schema built automatically from every loaded tool (built-ins + skills).
+     Adding a skill never requires editing this file.
+  4. BOUNDED TOOL LOOP (max 3), with a guard against repeating the same call.
+  5. STREAMED ANSWER with persona + EVA.md + relevant facts + matched skill
+     instructions + real tool data.
+  6. AFTER the answer: log both turns to CORTEX and extract durable facts in
+     the background, so memory never adds latency.
 
-Design (harvested from im4peace/Jarvis intent_router.py + our constrained decoding):
-
-  1. FAST PATH. A tiny table of unambiguous snap commands (time, volume,
-     transport) runs the tool directly with NO llm call. Anything that
-     doesn't match falls through to the model, so nuance is never capped:
-     "weather tomorrow in Portugal" is not a snap command, so it goes to
-     the LLM with full understanding.
-
-  2. CONSTRAINED DECISION. For everything else, the model picks a tool by
-     emitting JSON that is *constrained* to a fixed schema via Ollama's
-     `format` parameter. Constrained decoding masks any token that would
-     break the schema, so the model can no longer ramble instead of
-     choosing. This is what fixes the "sometimes it works" problem, and
-     it's also faster because no tokens are spent on formatting.
-
-  3. BOUNDED TOOL LOOP. After a tool runs, the model may choose another
-     (composite tasks), up to MAX_TOOL_ITERS. When the bound is hit we
-     answer with what we have, so it never hangs.
-
-  4. STREAMED ANSWER. The final reply streams token by token. The decision
-     step emits JSON (not speech), so there is no "double speaking" where
-     she narrates a step and the tool also announces it.
-
-Same class interface as before (process_stream yielding ack/token/widget/final),
-so server_stream.py only needs its import line changed.
+Event interface is unchanged (ack / token / widget / final), so the server and
+UI keep working as before.
 """
 
 from __future__ import annotations
+
+import asyncio
 import json
-from pydoc import text
 import re
+import uuid
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 import httpx
 import yaml
 from loguru import logger
 
-from core.tools_native import TOOL_SCHEMAS, REGISTRY, execute_tool, ack_for
+from core.events.bus import get_bus
+from core.memory.cortex import Cortex, get_cortex
+from core.memory.extractor import extract_and_store
+from core.prompt_builder import build_answer_system, build_decision_system
+from core.security.audit import audit
+from core.settings import get_settings, local_cfg
+from core.tools_native import REGISTRY as BUILTIN_FUNCS
+from core.tools_native import TOOL_SCHEMAS as BUILTIN_SCHEMAS
+from core.tools_native import ack_for as builtin_ack
+from core.tools_native import execute_tool as builtin_execute
+from skills.registry import SkillRegistry, get_registry
 
-OLLAMA_URL = "http://localhost:11434"
-DECISION_MODEL = "qwen2.5:3b-instruct"   # fits your 6GB, fast; constrained so it's reliable
-ANSWER_MODEL = "qwen2.5:3b-instruct"     # same model phrases the reply
-KEEP_ALIVE = "30m"
 MAX_TOOL_ITERS = 3
 MAX_HISTORY = 12
 
-TOOL_NAMES = [t["function"]["name"] for t in TOOL_SCHEMAS]
-TOOL_LIST_TEXT = "\n".join(
-    f"- {t['function']['name']}: {t['function']['description']}" for t in TOOL_SCHEMAS
-)
-
-# Flat schema (flat on purpose: small models choke on deeply nested schemas).
-# The model picks a tool and fills only the fields that tool needs.
-DECISION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "tool": {"type": "string", "enum": TOOL_NAMES + ["none"]},
-        "city": {"type": "string"},
-        "query": {"type": "string"},
-        "what": {"type": "string"},
-        "name": {"type": "string"},
-        "level": {"type": "integer"},
-        "action": {"type": "string",
-                   "enum": ["playpause", "next", "previous", "volup", "voldown", "mute"]},
-    },
-    "required": ["tool"],
-}
-
-DECISION_SYSTEM = (
-    "You are the tool-router for E.V.A. Decide whether a tool is needed to "
-    "answer the user's latest message. Choose exactly one tool from the list, "
-    'or "none" to answer directly without a tool. Fill only the parameter '
-    "fields the chosen tool needs. Do not answer the user here; only choose.\n\n"
-    f"Tools:\n{TOOL_LIST_TEXT}"
-)
-
 STYLE_RULES = (
-    "\n\nRESPONSE RULES:\n"
+    "RESPONSE RULES:\n"
     "- Reply in one or two short sentences. Every word earns its place.\n"
     "- Give ONLY the final answer. Never narrate your steps or which tool you used.\n"
-    "- Use the real data provided. Never invent facts, times, or weather.\n"
-    "- If a tool result shows an action was completed, confirm it plainly and briefly, "
-    "for example 'Volume set to 85, sir.' or 'Playing on Spotify, sir.'\n"
+    "- Use the real data provided. Never invent facts, times, weather, or memories.\n"
+    "- If a tool result shows an action was completed, confirm it plainly, for example "
+    "'Volume set to 85, sir.' or 'Noted, sir.'\n"
     "- Never tell the user to do it themselves, and never say you cannot do something "
     "that a tool result shows was already done.\n"
+    "- Use remembered facts only when they genuinely help; don't recite them unprompted.\n"
     "- Address the user as 'sir'."
 )
+MISSING_SKILL = ("I don't have a skill for that yet, sir. Once FORGE is live I can build "
+                 "one, with your approval.")
+_CAPABILITY_Q = re.compile(r"what can you do|your (capabilities|skills)|what are you able", re.I)
+_WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+)?(?:eva\b|e\.v\.a\.?)[\s,:!.-]*", re.I)
 
 
-def _load_persona(name: str = "eva") -> str:
+def load_persona(name: str = "eva") -> str:
     try:
-        return yaml.safe_load(Path(f"personas/{name}.yaml").read_text())["personality"]
+        return yaml.safe_load(Path(f"personas/{name}.yaml").read_text(encoding="utf-8"))["personality"]
     except Exception:
         return "You are E.V.A., a concise JARVIS-style assistant. Address the user as 'sir'."
 
 
-# --- fast path: only unambiguous commands; everything else -> the model ------
-FAST_PATHS = [
-    (re.compile(r"what time is it|what'?s the time|^\s*time\s*\??$", re.I), ("get_datetime", {})),
-    (re.compile(r"\bvolume up\b|\blouder\b|\bturn it up\b", re.I), ("media_control", {"action": "volup"})),
-    (re.compile(r"\bvolume down\b|\bquieter\b|\bturn it down\b", re.I), ("media_control", {"action": "voldown"})),
-    (re.compile(r"\b(mute|unmute)\b", re.I), ("media_control", {"action": "mute"})),
-    (re.compile(r"\b(pause|resume)\b", re.I), ("media_control", {"action": "playpause"})),
-    (re.compile(r"\bnext (track|song)\b|\bskip( this)?( song| track)?\b", re.I), ("media_control", {"action": "next"})),
-    (re.compile(r"\b(previous|last) (track|song)\b|\bgo back a (track|song)\b", re.I), ("media_control", {"action": "previous"})),
-]
+# ============================================================ tool belt
+class ToolBelt:
+    """One view over built-in tools and skill tools: schemas, acks, execution."""
+
+    def __init__(self, registry: SkillRegistry | None = None):
+        self.registry = registry
+        self.skill_funcs: dict[str, Callable] = registry.functions() if registry else {}
+        self.skill_acks: dict[str, str] = registry.acks() if registry else {}
+        skill_schemas = registry.tool_schemas() if registry else []
+        builtin_names = {t["function"]["name"] for t in BUILTIN_SCHEMAS}
+        # built-ins win on a name collision, so a skill can never shadow a trusted tool
+        self.schemas = list(BUILTIN_SCHEMAS) + [t for t in skill_schemas
+                                                if t["function"]["name"] not in builtin_names]
+        self.by_name = {t["function"]["name"]: t for t in self.schemas}
+
+    def has(self, name: str) -> bool:
+        return name in self.by_name
+
+    def names(self) -> list[str]:
+        return list(self.by_name)
+
+    def list_text(self) -> str:
+        return "\n".join(f"- {n}: {t['function']['description']}" for n, t in self.by_name.items())
+
+    def ack(self, name: str) -> str | None:
+        if name in BUILTIN_FUNCS:
+            return builtin_ack(name)
+        return self.skill_acks.get(name)
+
+    def execute(self, name: str, args: dict) -> dict:
+        audit.log("tool_call", "orchestrator", {"tool": name, "args": args})
+        if name in BUILTIN_FUNCS:
+            return builtin_execute(name, args)
+        fn = self.skill_funcs.get(name)
+        if fn is None:
+            return {"result": json.dumps({"missing_skill": name}), "missing": True}
+        last = None
+        for attempt in range(2):
+            try:
+                out = fn(**(args or {}))
+                if '"error"' in (out.get("result") or ""):
+                    logger.warning(f"TOOL {name}({args}) returned an error: {out.get('result')}")
+                else:
+                    logger.info(f"TOOL {name}({args}) ok")
+                return out
+            except Exception as e:
+                last = e
+                logger.warning(f"TOOL {name} attempt {attempt + 1} failed: {e}")
+        return {"result": json.dumps({"error": str(last)}), "failed": True}
 
 
-def _args_for(tool: str, d: dict) -> dict:
-    if tool == "get_weather": return {"city": d.get("city", "")}
-    if tool == "web_search": return {"query": d.get("query", "")}
-    if tool == "spotify_play": return {"what": d.get("what", "")}
-    if tool == "media_control": return {"action": d.get("action", "playpause")}
-    if tool == "open_app": return {"name": d.get("name", "")}
-    if tool == "open_website": return {"name": d.get("name", "")}
-    if tool == "set_volume": return {"level": d.get("level", 50)}
-    return {}
+def build_decision_schema(schemas: list[dict]) -> dict:
+    """Flat union of every tool's parameters (flat on purpose: small models
+    struggle with nested schemas). Enums survive only if no other tool reuses
+    the same parameter name with a different meaning."""
+    props: dict[str, dict] = {}
+    owners: dict[str, int] = {}
+    for t in schemas:
+        for pname, spec in t["function"].get("parameters", {}).get("properties", {}).items():
+            owners[pname] = owners.get(pname, 0) + 1
+            if pname not in props:
+                entry = {"type": spec.get("type", "string")}
+                if "enum" in spec:
+                    entry["enum"] = list(spec["enum"])
+                props[pname] = entry
+            elif props[pname].get("enum") != spec.get("enum"):
+                props[pname].pop("enum", None)
+    names = [t["function"]["name"] for t in schemas]
+    return {"type": "object",
+            "properties": {"tool": {"type": "string", "enum": names + ["none"]}, **props},
+            "required": ["tool"]}
 
 
+def args_for(schema: dict, decision: dict) -> dict:
+    """Keep only the parameters the chosen tool declares, dropping empty values."""
+    allowed = schema["function"].get("parameters", {}).get("properties", {})
+    return {k: v for k, v in decision.items() if k in allowed and v not in ("", None)}
+
+
+# ============================================================ fast path
+def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
+    t = _WAKE_PREFIX.sub("", text).strip()
+    m = re.search(r"(?:set |turn |change )?(?:the )?volume (?:to |at )?(\d{1,3})\s*%?", t, re.I)
+    if m and belt.has("set_volume"):
+        return "set_volume", {"level": int(m.group(1))}
+    if belt.has("set_volume") and re.search(r"\b(max|full|maximum) volume\b", t, re.I):
+        return "set_volume", {"level": 100}
+
+    m = re.match(r"remember(?: that)?\s+(.{4,})$", t, re.I)
+    if m and belt.has("remember_fact") and not re.match(r"remember (to|when)\b", t, re.I):
+        return "remember_fact", {"text": m.group(1).strip()}
+    m = re.match(r"(?:from now on|going forward)[,\s]+(.{4,})$", t, re.I)
+    if m and belt.has("add_instruction"):
+        return "add_instruction", {"text": m.group(1).strip()}
+    m = re.match(r"forget(?: that| about)?\s+(.{4,})$", t, re.I)
+    if m and belt.has("forget_memory") and m.group(1).lower() not in ("about it", "it", "that"):
+        return "forget_memory", {"query": m.group(1).strip()}
+    if belt.has("recall_memory") and re.search(r"what do you (?:know|remember) about me", t, re.I):
+        return "recall_memory", {"query": ""}
+
+    if belt.has("see_screen") and re.search(
+            r"\b(what'?s on|look at|read|check|describe) (?:my |the |this )?screen\b"
+            r"|what am i looking at", t, re.I):
+        return "see_screen", {"question": t}
+
+    simple = [
+        (r"what time is it|what'?s the time|^\s*time\s*\??$", "get_datetime", {}),
+        (r"\bvolume up\b|\blouder\b|\bturn it up\b", "media_control", {"action": "volup"}),
+        (r"\bvolume down\b|\bquieter\b|\bturn it down\b", "media_control", {"action": "voldown"}),
+        (r"^\s*(mute|unmute)\b", "media_control", {"action": "mute"}),
+        (r"^\s*(pause|resume)\b", "media_control", {"action": "playpause"}),
+        (r"\bnext (track|song)\b|^\s*skip\b", "media_control", {"action": "next"}),
+        (r"\b(previous|last) (track|song)\b", "media_control", {"action": "previous"}),
+    ]
+    for rx, tool, args in simple:
+        if belt.has(tool) and re.search(rx, t, re.I):
+            return tool, args
+    return None
+
+
+# ============================================================ orchestrator
 class HybridOrchestrator:
-    def __init__(self, persona: str = "eva"):
-        self.persona = _load_persona(persona)
-        self.history: list[dict] = []
+    def __init__(self, persona: str = "eva", session_id: str | None = None,
+                 cortex: Cortex | None = None, registry: SkillRegistry | None = None):
+        self.cfg = local_cfg()
+        self.mem_cfg = get_settings().get("memory", {})
+        self.persona = load_persona(persona)
+        self.session_id = session_id or uuid.uuid4().hex[:12]
+        self.cortex = cortex or get_cortex()
+        self.registry = registry or get_registry()
+        self.belt = ToolBelt(self.registry)
+        self.schema = build_decision_schema(self.belt.schemas)
+        self.bus = get_bus()
+        self._bg: set[asyncio.Task] = set()
+        hours = float(self.mem_cfg.get("continuity_hours", 24))
+        self.history: list[dict] = self.cortex.recent_turns(limit=6, within_hours=hours)
+        if self.history:
+            logger.info(f"CORTEX: resumed {len(self.history)} recent turns")
 
-    def _fast_path(self, text: str):
-        m = re.search(r"(?:set |turn |change )?(?:the )?volume (?:to |at )?(\d{1,3})", text, re.I)
-        if m:
-            return ("set_volume", {"level": int(m.group(1))})
-        if re.search(r"\b(max|full|maximum) volume\b|\bvolume (?:all the way )?up\b", text, re.I):
-            return ("set_volume", {"level": 100})
-        for rx, action in FAST_PATHS:
-            if rx.search(text):
-                return action
-        return None
-
-    async def _decide(self, client, gathered: list) -> dict:
-        context = ""
-        if gathered:
-            context = ("\n\nData already gathered (do NOT call the same tool "
-                       'again; if this answers the user, choose "none"):\n'
-                       + "\n".join(out["result"] for _, out in gathered))
-        messages = [
-            {"role": "system", "content": DECISION_SYSTEM + context},
-            *self.history[-MAX_HISTORY:],
-        ]
+    # ------------------------------------------------------------ llm calls
+    async def _decide(self, client, skill_bodies, gathered) -> dict:
+        system = build_decision_system(self.belt.list_text(), skill_bodies,
+                                       [out["result"] for _, out in gathered])
         try:
-            r = await client.post(f"{OLLAMA_URL}/api/chat", json={
-                "model": DECISION_MODEL, "messages": messages, "stream": False,
-                "format": DECISION_SCHEMA, "keep_alive": KEEP_ALIVE,
-                "options": {"temperature": 0},
+            r = await client.post(f"{self.cfg['base_url']}/api/chat", json={
+                "model": self.cfg["decision_model"], "stream": False, "format": self.schema,
+                "keep_alive": self.cfg["keep_alive"], "options": {"temperature": 0},
+                "messages": [{"role": "system", "content": system}, *self.history[-MAX_HISTORY:]],
             })
-            content = r.json()["message"]["content"]
-            return json.loads(content)
+            return json.loads(r.json()["message"]["content"])
         except Exception as e:
             logger.warning(f"decision failed, answering directly: {e}")
             return {"tool": "none"}
 
-    async def _final_answer(self, client, gathered: list) -> AsyncIterator[dict]:
-        data = ""
-        if gathered:
-            data = "\n\nReal data to use in your answer:\n" + "\n".join(
-                out["result"] for _, out in gathered)
-        messages = [
-            {"role": "system", "content": self.persona + STYLE_RULES + data},
-            *self.history[-MAX_HISTORY:],
-        ]
-        full = []
+    async def _answer(self, client, facts, skill_bodies, gathered, user_input) -> AsyncIterator[dict]:
+        persona = self.persona
+        if _CAPABILITY_Q.search(user_input):
+            persona += "\n\nYour current tools:\n" + self.belt.list_text() + \
+                       "\n\nYour skills:\n" + self.registry.index_text()
+        system = build_answer_system(persona, STYLE_RULES, facts, skill_bodies,
+                                     [out["result"] for _, out in gathered])
+        full: list[str] = []
         try:
-            async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json={
-                "model": ANSWER_MODEL, "messages": messages, "stream": True,
-                "keep_alive": KEEP_ALIVE, "options": {"temperature": 0.3},
+            async with client.stream("POST", f"{self.cfg['base_url']}/api/chat", json={
+                "model": self.cfg["answer_model"], "stream": True,
+                "keep_alive": self.cfg["keep_alive"], "options": {"temperature": 0.3},
+                "messages": [{"role": "system", "content": system}, *self.history[-MAX_HISTORY:]],
             }) as resp:
                 async for line in resp.aiter_lines():
                     if not line.strip():
@@ -188,72 +253,97 @@ class HybridOrchestrator:
                         break
         except Exception as e:
             logger.error(f"answer stream failed: {e}")
-        answer = "".join(full).strip() or "I had trouble forming that reply, sir."
-        self.history.append({"role": "assistant", "content": answer})
-        yield {"type": "final", "text": answer}
+        yield {"type": "final", "text": "".join(full).strip() or "I had trouble forming that reply, sir."}
 
+    # ------------------------------------------------------------ helpers
+    def _run(self, tool: str, args: dict, gathered: list) -> tuple[list[dict], dict]:
+        events = []
+        ack = self.belt.ack(tool)
+        if ack:
+            events.append({"type": "ack", "text": ack})
+        out = self.belt.execute(tool, args)
+        self.bus.publish("tool.executed", {"tool": tool, "args": args,
+                                           "ok": '"error"' not in (out.get("result") or "")})
+        if out.get("widget"):
+            events.append({"type": "widget", "data": out["widget"]})
+        gathered.append((tool, out))
+        return events, out
+
+    def _finish(self, user_input: str, answer: str) -> None:
+        self.history.append({"role": "assistant", "content": answer})
+        self.cortex.log_turn(self.session_id, "user", user_input)
+        self.cortex.log_turn(self.session_id, "assistant", answer)
+        self.bus.publish("turn.completed", {"session": self.session_id})
+        if self.mem_cfg.get("extract_facts", True):
+            task = asyncio.create_task(self._extract(user_input))
+            self._bg.add(task)
+            task.add_done_callback(self._bg.discard)
+
+    async def _extract(self, user_input: str) -> None:
+        stored = await extract_and_store(self.cortex, user_input, model=self.cfg["decision_model"],
+                                         base_url=self.cfg["base_url"], keep_alive=self.cfg["keep_alive"])
+        for f in stored:
+            self.bus.publish("memory.fact_stored", f)
+
+    # ------------------------------------------------------------ main loop
     async def process_stream(self, user_input: str) -> AsyncIterator[dict]:
         self.history.append({"role": "user", "content": user_input})
+        self.bus.publish("turn.user", {"session": self.session_id, "text": user_input})
         gathered: list = []
 
+        qvec = self.cortex.embed_query(user_input)
+        facts = self.cortex.recall(user_input, k=int(self.mem_cfg.get("recall_k", 6)), query_vec=qvec)
+        skill_bodies = self.registry.bodies(self.registry.match(user_input, qvec))
+
         async with httpx.AsyncClient(timeout=120) as client:
-            # 1. fast path (no LLM)
-            fp = self._fast_path(user_input)
+            fp = fast_path(user_input, self.belt)
             if fp:
-                tool, args = fp
-                if ack_for(tool):
-                    yield {"type": "ack", "text": ack_for(tool)}
-                out = execute_tool(tool, args)
-                if out.get("widget"):
-                    yield {"type": "widget", "data": out["widget"]}
-                gathered.append((tool, out))
-                async for ev in self._final_answer(client, gathered):
+                events, _ = self._run(fp[0], fp[1], gathered)
+                for ev in events:
                     yield ev
-                return
+            else:
+                called = set()
+                for _ in range(MAX_TOOL_ITERS):
+                    decision = await self._decide(client, skill_bodies, gathered)
+                    tool = decision.get("tool", "none")
+                    if tool == "none" or not self.belt.has(tool):
+                        break
+                    args = args_for(self.belt.by_name[tool], decision)
+                    sig = (tool, json.dumps(args, sort_keys=True))
+                    if sig in called:
+                        break
+                    called.add(sig)
+                    events, out = self._run(tool, args, gathered)
+                    for ev in events:
+                        yield ev
+                    if out.get("missing"):
+                        self._finish(user_input, MISSING_SKILL)
+                        yield {"type": "final", "text": MISSING_SKILL}
+                        return
 
-            # 2. bounded constrained-decision loop
-            called = set()
-            for _ in range(MAX_TOOL_ITERS):
-                decision = await self._decide(client, gathered)
-                tool = decision.get("tool", "none")
-                if tool == "none" or tool not in REGISTRY:
-                    break
-                args = _args_for(tool, decision)
-                sig = (tool, json.dumps(args, sort_keys=True))
-                if sig in called:      # already have this exact result
-                    break
-                called.add(sig)
-                if ack_for(tool):
-                    yield {"type": "ack", "text": ack_for(tool)}
-                out = execute_tool(tool, args)
-                if out.get("missing"):
-                    text = ("I don't have a skill for that yet, sir. "
-                            "Once FORGE is live I can build one, with your approval.")
-                    self.history.append({"role": "assistant", "content": text})
-                    yield {"type": "final", "text": text}
-                    return
-                if out.get("widget"):
-                    yield {"type": "widget", "data": out["widget"]}
-                gathered.append((tool, out))
-
-            # 3. streamed final answer
-            async for ev in self._final_answer(client, gathered):
+            answer = ""
+            async for ev in self._answer(client, facts, skill_bodies, gathered, user_input):
+                if ev["type"] == "final":
+                    answer = ev["text"]
                 yield ev
+        self._finish(user_input, answer)
 
 
 # quick manual test:  python -m core.orchestrator_hybrid
 if __name__ == "__main__":
-    import asyncio
-
     async def main():
         eva = HybridOrchestrator()
-        for q in ["what time is it", "what's the weather in Breda right now",
-                  "search the web for news about the Netherlands", "pause"]:
+        for q in ["what time is it", "remember that my favourite music for work is jazz",
+                  "what do you know about me", "what's the weather in Breda right now"]:
             print(f"\n>>> {q}")
             async for ev in eva.process_stream(q):
-                if ev["type"] == "ack": print(f"[ack] {ev['text']}")
-                elif ev["type"] == "token": print(ev["text"], end="", flush=True)
-                elif ev["type"] == "widget": print(f"\n[widget:{ev['data'].get('kind')}]")
+                if ev["type"] == "ack":
+                    print(f"[ack] {ev['text']}")
+                elif ev["type"] == "token":
+                    print(ev["text"], end="", flush=True)
+                elif ev["type"] == "widget":
+                    print(f"\n[widget:{ev['data'].get('kind')}]")
             print()
+        await asyncio.sleep(2)   # let background fact extraction finish
 
     asyncio.run(main())

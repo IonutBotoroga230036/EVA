@@ -1,9 +1,12 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 data/
 config/secrets.env
 node_modules/
 dist/
 *.log
 .DS_Store
+# EVA.md is committed on purpose. To keep it private instead, uncomment:
+# EVA.md

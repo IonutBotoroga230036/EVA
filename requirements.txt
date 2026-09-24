@@ -1,8 +1,8 @@
-﻿# Core
+# Core
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-celery[redis]==5.4.0
-redis==5.2.1
+# celery[redis]==5.4.0   # legacy v0.1 only; PULSE v0.2 is in-process
+# redis==5.2.1   # legacy v0.1 only; PULSE v0.2 is in-process
 pydantic==2.10.3
 pydantic-settings==2.7.0
 pyyaml==6.0.2
@@ -14,8 +14,8 @@ openai==1.59.4
 anthropic==0.42.0
 
 # Memory
-chromadb==0.5.23
-sentence-transformers==3.3.1
+chromadb==0.5.23   # legacy v0.1 only; CORTEX v0.2 uses SQLite + Ollama embeddings
+sentence-transformers==3.3.1   # legacy v0.1 only; CORTEX v0.2 uses SQLite + Ollama embeddings
 
 # Voice
 faster-whisper==1.1.0
@@ -39,3 +39,13 @@ cryptography==44.0.0
 rich==13.9.4
 click==8.1.7
 loguru==0.7.3
+
+# v0.2 additions
+ddgs                 # web search (renamed from duckduckgo-search)
+pyautogui>=0.9.54    # media keys, screenshots for the vision skill
+pillow>=10.0         # screenshot resizing
+pycaw; sys_platform == "win32"    # exact system volume (new EndpointVolume API)
+comtypes; sys_platform == "win32"
+kokoro               # local TTS, wired into streaming in the next milestone
+pytest>=8.0
+pytest-asyncio>=0.24

@@ -1,6 +1,6 @@
 system:
   name: "E.V.A."
-  version: "0.1.0"
+  version: "0.2.0"
   log_level: "INFO"
   data_dir: "./data"
 
@@ -14,6 +14,12 @@ inference:
   local:
     provider: "ollama"
     base_url: "http://localhost:11434"
+    # v0.2 models (6 GB VRAM). The 3B fits fully on the GPU; the 7B spilled to CPU.
+    decision_model: "qwen2.5:3b-instruct"
+    answer_model: "qwen2.5:3b-instruct"
+    vision_model: "qwen2.5vl:3b"        # loaded only when she looks, unloaded right after
+    keep_alive: "30m"
+    # legacy v0.1 keys, still read by core/orchestrator.py
     router_model: "llama3.2:3b"
     general_model: "llama3.1:8b"
     code_model: "deepseek-coder-v2:6.7b"
@@ -29,10 +35,22 @@ budget:
   track_file: "./data/budget.json"
 
 memory:
+  # v0.2 CORTEX: one SQLite file for turns, facts, and fact vectors
+  cortex_path: "./data/cortex.db"
+  embed_model: "nomic-embed-text"      # ollama pull nomic-embed-text ; remove to use keyword-only recall
+  dedup_threshold: 0.88                # similarity above which a new fact replaces an old one
+  recall_k: 6                          # facts injected into each turn, at most
+  continuity_hours: 24                 # a new session resumes turns from within this window
+  extract_facts: true                  # learn facts in the background after each answer
+  # legacy v0.1 keys, still read by core/orchestrator.py
   chromadb_path: "./data/chromadb"
   sqlite_path: "./data/sqlite/eva.db"
   embedding_model: "all-MiniLM-L6-v2"
   session_ttl_hours: 24
+
+skills:
+  dir: "skills"
+  match_threshold: 0.62                # cosine needed to load a SKILL.md body into the prompt
 
 voice:
   stt:
@@ -40,15 +58,16 @@ voice:
     language: "en"
     device: "cuda"
   tts:
-    engine: "edge-tts"
-    voice_eva: "en-US-AriaNeural"
-    voice_kira: "en-US-GuyNeural"
+    engine: "kokoro"
+    voice_eva: "af_heart"
+    voice_kira: "am_adam"
   wake_word:
     engine: "openwakeword"
     words:
       - "eva"
     threshold: 0.7
 
+# legacy: only used by the v0.1 Redis bus. PULSE v0.2 runs in-process, no Redis needed.
 redis:
   host: "localhost"
   port: 6379
