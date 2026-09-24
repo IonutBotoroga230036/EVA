@@ -48,6 +48,13 @@ memory:
   embedding_model: "all-MiniLM-L6-v2"
   session_ttl_hours: 24
 
+obsidian:
+  vault_path: "./data/vault"           # git-ignored. Or your existing vault, e.g. "D:/Obsidian/Second Brain"
+  daily_folder: "Daily"
+
+weather:
+  model: "auto"                        # auto = KNMI HARMONIE for NL/BE/LU, Open-Meteo best match elsewhere
+
 skills:
   dir: "skills"
   match_threshold: 0.62                # cosine needed to load a SKILL.md body into the prompt
@@ -58,9 +65,12 @@ voice:
     language: "en"
     device: "cuda"
   tts:
-    engine: "kokoro"
+    engine: "kokoro"                   # "kokoro" = her real voice from the server; anything else = browser voice
     voice_eva: "af_heart"
     voice_kira: "am_adam"
+    lang_code: "a"                     # a = American English, b = British English
+    speed: 1.0
+    device: "cpu"                      # keeps all VRAM for the LLM; try "cuda" if replies feel slow
   wake_word:
     engine: "openwakeword"
     words:

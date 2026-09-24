@@ -146,24 +146,35 @@ draw();
 function setMode(m){STATE.mode=m;STATE.target=m==='idle'?0.12:m==='listening'?0.6:m==='thinking'?0.85:1.0;
   document.getElementById('statelabel').textContent=m==='idle'?'standby':m;}
 
-/* ===== Caption + widgets (unchanged) ===== */
+/* ===== Caption + widgets ===== */
 const captionEl=document.getElementById('caption');
-function say(t,h){captionEl.innerHTML=t+(h?`<br><span class="hint">${h}</span>`:'');}
+function say(t,h){captionEl.innerHTML=esc(t)+(h?`<br><span class="hint">${esc(h)}</span>`:'');}
+function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 const deck=document.getElementById('deck');
 function clearWidgets(){[...deck.children].forEach(w=>{w.classList.add('out');setTimeout(()=>w.remove(),380);});}
 function widgetHTML(html,ttl=14000){clearWidgets();const w=document.createElement('div');w.className='widget';w.innerHTML=html;
   deck.appendChild(w);if(ttl)setTimeout(()=>{w.classList.add('out');setTimeout(()=>w.remove(),380);},ttl);}
 function renderWidget(d){
   if(!d||!d.kind)return;
-  if(d.kind==='clock')widgetHTML(`<div class="wtitle">Time</div><div class="wbig">${d.time}</div><div class="wsub">${d.date}</div>`);
-  else if(d.kind==='weather')widgetHTML(`<div class="wtitle">Weather · ${d.city||''}</div><div class="wbig">${d.temp_c}°</div>
-    <div class="wsub">${d.conditions||''} · high ${d.high_c}° low ${d.low_c}° · rain ${d.rain_chance_pct}% · wind ${d.wind_kmh} km/h</div>`);
+  if(d.kind==='clock')widgetHTML(`<div class="wtitle">Time</div><div class="wbig">${esc(d.time)}</div><div class="wsub">${esc(d.date)}</div>`);
+  else if(d.kind==='weather'){
+    const bits=[d.conditions];
+    if(d.feels_like_c!=null&&d.feels_like_c!==d.temp_c)bits.push(`feels ${d.feels_like_c}°`);
+    if(d.high_c!=null)bits.push(`${d.high_c}° / ${d.low_c}°`);
+    if(d.rain_chance_pct!=null)bits.push(`rain ${d.rain_chance_pct}%`);
+    else if(d.rain_mm!=null)bits.push(`${d.rain_mm} mm rain`);
+    if(d.wind_kmh!=null)bits.push(`wind ${d.wind_kmh} km/h`);
+    const big=d.temp_c!=null?d.temp_c:d.high_c;
+    widgetHTML(`<div class="wtitle">${esc(d.when||'Weather')} · ${esc(d.city)}</div><div class="wbig">${esc(big)}°</div>
+      <div class="wsub">${bits.filter(Boolean).map(esc).join(' · ')}</div>${d.note?`<div class="wsub">${esc(d.note)}</div>`:''}
+      ${d.source?`<div class="wsub" style="opacity:.6;font-size:11px;margin-top:8px">${esc(d.source)}</div>`:''}`);
+  }
   else if(d.kind==='nowplaying')widgetHTML(`<div class="nowplaying"><div class="npart">♪</div>
-    <div><div class="wtitle" style="margin-bottom:4px">Now playing</div><div style="font-size:15px">${d.what||''}</div>
+    <div><div class="wtitle" style="margin-bottom:4px">Now playing</div><div style="font-size:15px">${esc(d.what)}</div>
     <div class="bars"><span></span><span></span><span></span><span></span><span></span></div></div></div>`);
   else if(d.kind==='calendar'&&Array.isArray(d.events))widgetHTML(`<div class="wtitle">Today</div>`+
-    d.events.map(ev=>`<div class="wrow"><span class="t">${ev.time}</span><span class="l">${ev.title}</span></div>`).join(''));
-  else if(d.title)widgetHTML(`<div class="wtitle">${d.title}</div><div style="font-size:15px">${d.text||''}</div>`);
+    d.events.map(ev=>`<div class="wrow"><span class="t">${esc(ev.time)}</span><span class="l">${esc(ev.title)}</span></div>`).join(''));
+  else if(d.title)widgetHTML(`<div class="wtitle">${esc(d.title)}</div><div style="font-size:15px">${esc(d.text)}</div>`);
 }
 
 /* ===== Speech recognition primitives ===== */
@@ -174,14 +185,78 @@ function stopAllListening(){       // half-duplex: never listen while she speaks
   rec=followRec=wakeRec=null;
 }
 
-/* ===== Voice out (queued ack -> answer, then a callback) ===== */
+/* ===== Voice out ===================================================================
+   'kokoro'  : her real voice. The server streams one WAV per sentence; we play them
+               strictly in seq order and drop audio from any turn we've moved past.
+   'browser' : fallback (Kokoro not installed, or backend offline): speechSynthesis.
+   ================================================================================== */
+let ttsMode='browser';
+const Player={ctx:null,accept:-1,expect:0,bufs:new Map(),total:null,src:null,playing:false,then:null,wake:null,watchdog:null};
+function actx(){
+  if(!Player.ctx){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;Player.ctx=new C();}
+  if(Player.ctx.state==='suspended')Player.ctx.resume();
+  return Player.ctx;
+}
+['click','keydown','touchstart'].forEach(n=>addEventListener(n,()=>actx(),{passive:true}));   // autoplay policy
+function b64ToArrayBuffer(b64){const bin=atob(b64),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u.buffer;}
+function decodeWav(b64){
+  const c=actx(); if(!c)return Promise.resolve(null);
+  return new Promise(res=>{try{c.decodeAudioData(b64ToArrayBuffer(b64),res,()=>res(null));}catch(_){res(null);}});
+}
+function isSpeaking(){return Player.playing||('speechSynthesis'in window&&speechSynthesis.speaking);}
+function playBuffer(buf,onend){
+  const c=actx(); if(!c||!buf){onend&&onend();return;}
+  stopAllListening(); setMode('speaking');
+  const src=c.createBufferSource(); src.buffer=buf; src.connect(c.destination);
+  src.onended=()=>{ if(Player.src===src){Player.src=null;Player.playing=false;onend&&onend();} };
+  Player.src=src; Player.playing=true; src.start();
+}
+function stopAudio(){
+  Player.accept=-1; Player.bufs.clear(); Player.total=null; Player.then=null; clearTimeout(Player.watchdog);
+  if(Player.src){const s=Player.src;Player.src=null;try{s.onended=null;s.stop();}catch(_){}}
+  Player.playing=false;
+  if('speechSynthesis'in window)speechSynthesis.cancel();
+}
+function beginTurn(turn){
+  stopAudio(); Player.accept=turn; Player.expect=0;
+  Player.then=(lastWasVoice||wakeMode)?startFollowUp:null;
+}
+function kick(){                          // inactivity watchdog: only fires if audio truly stopped
+  clearTimeout(Player.watchdog);
+  Player.watchdog=setTimeout(()=>{ if(!Player.playing&&Player.accept>=0&&Player.total===null)finishSpeech(); },12000);
+}
+function onAudio(ev){
+  if(ev.turn!==Player.accept)return;
+  kick();
+  decodeWav(ev.audio).then(buf=>{ if(ev.turn!==Player.accept)return; Player.bufs.set(ev.seq,buf); pump(); });
+}
+function onAudioEnd(ev){ if(ev.turn!==Player.accept)return; Player.total=ev.count; pump(); }
+function pump(){
+  if(Player.playing||Player.accept<0)return;
+  if(Player.bufs.has(Player.expect)){
+    const buf=Player.bufs.get(Player.expect); Player.bufs.delete(Player.expect); Player.expect++;
+    if(!buf){pump();return;}                      // a chunk that failed to decode: skip it
+    playBuffer(buf,()=>{kick();pump();}); return;
+  }
+  if(Player.total!==null&&Player.expect>=Player.total)finishSpeech();
+}
+function finishSpeech(){
+  const cb=Player.then; Player.then=null; Player.total=null; Player.accept=-1; clearTimeout(Player.watchdog);
+  setMode('idle'); if(cb)cb(); else if(wakeMode)ensureWake();
+}
+function playWake(then){
+  if(ttsMode==='kokoro'&&Player.wake){stopAudio();playBuffer(Player.wake,()=>{setMode('listening');then&&then();});}
+  else speak("Yes, sir?",{then});
+}
+
+/* browser fallback voice */
 let evaVoice=null,afterSpeech=null;
 function pickVoice(){const vs=speechSynthesis.getVoices();
   evaVoice=vs.find(v=>/en.*(aria|jenny|libby|female|zira|samantha)/i.test(v.name))||vs.find(v=>/en-GB/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||vs[0]||null;}
 if('speechSynthesis'in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
 function speak(text,{interrupt=false,then=null}={}){
-  if(!('speechSynthesis'in window)||!text)return;
-  if(text===lastSpoken){ if(then) afterSpeech=then; return; }   // guard against rare duplicate
+  if(!('speechSynthesis'in window)||!text){then&&then();return;}
+  if(text===lastSpoken){ if(then) afterSpeech=then; return; }
   lastSpoken=text;
   if(interrupt)speechSynthesis.cancel();
   if(then) afterSpeech=then;
@@ -190,8 +265,7 @@ function speak(text,{interrupt=false,then=null}={}){
   u.onstart=()=>setMode('speaking');
   u.onend=()=>{
     if(!speechSynthesis.pending && !speechSynthesis.speaking){
-      const cb=afterSpeech; afterSpeech=null; setMode('idle');
-      lastSpoken="";
+      const cb=afterSpeech; afterSpeech=null; setMode('idle'); lastSpoken="";
       if(cb) cb(); else if(wakeMode) ensureWake();
     }
   };
@@ -201,28 +275,41 @@ function speak(text,{interrupt=false,then=null}={}){
 /* ===== WebSocket to the local backend ===== */
 let ws=null,connected=false,streamBuf='';
 function connect(){
-  try{ws=new WebSocket(`ws://${location.host}/ws`);}catch(_){demoOnly();return;}
+  const proto=location.protocol==='https:'?'wss':'ws';
+  try{ws=new WebSocket(`${proto}://${location.host}/ws`);}catch(_){demoOnly();return;}
   ws.onopen=()=>{connected=true;document.getElementById('conn').classList.add('live');
     say("Good to see you, sir.","Tap the core or hold the mic to speak.");};
-  ws.onclose=()=>{connected=false;document.getElementById('conn').classList.remove('live');setTimeout(connect,2500);};
+  ws.onclose=()=>{connected=false;ttsMode='browser';document.getElementById('conn').classList.remove('live');setTimeout(connect,2500);};
   ws.onerror=()=>{};
   ws.onmessage=(e)=>{
     const ev=JSON.parse(e.data);
-    if(ev.type==='ack'){setMode('thinking');say(ev.text);speak(ev.text);}
-    else if(ev.type==='token'){streamBuf+=ev.text;setMode('speaking');say(streamBuf);}
-    else if(ev.type==='widget'){renderWidget(ev.data);}
-    else if(ev.type==='final'){
-      const t=ev.text||streamBuf;say(t);
-      const follow=(lastWasVoice||wakeMode);
-      speak(t,{then: follow?startFollowUp:null});
-      streamBuf='';
+    switch(ev.type){
+      case 'hello': ttsMode=ev.tts||'browser'; break;
+      case 'phrase': if(ev.key==='wake')decodeWav(ev.audio).then(b=>{Player.wake=b;}); break;
+      case 'turn_start': beginTurn(ev.turn); streamBuf=''; break;
+      case 'audio': onAudio(ev); break;
+      case 'audio_end': onAudioEnd(ev); break;
+      case 'ack': setMode('thinking'); say(ev.text); if(ttsMode!=='kokoro')speak(ev.text); break;
+      case 'token': streamBuf+=ev.text; say(streamBuf); break;
+      case 'widget': renderWidget(ev.data); break;
+      case 'final': {
+        const t=ev.text||streamBuf; say(t); streamBuf='';
+        if(ttsMode!=='kokoro'){ speak(t,{then:(lastWasVoice||wakeMode)?startFollowUp:null}); }
+        else kick();                                          // never leave the core stuck
+        break;
+      }
     }
   };
+}
+function bargeIn(){                        // stop her mid-sentence
+  const busy=isSpeaking()||STATE.mode==='thinking';
+  stopAudio();
+  if(busy&&connected&&ws&&ws.readyState===1)ws.send(JSON.stringify({type:'stop'}));
 }
 function sendToEva(text){
   if(!text)return;
   say(text,'heard');streamBuf='';lastSpoken="";
-  speechSynthesis.cancel();stopAllListening();
+  stopAudio();stopAllListening();
   if(connected&&ws&&ws.readyState===1){setMode('thinking');ws.send(JSON.stringify({type:'message',text}));}
   else{demoRoute(text);}
 }
@@ -237,7 +324,7 @@ function demoRoute(input){setMode('thinking');
 /* ===== Listen once (mic tap / hold) ===== */
 function listenOnce(){
   if(!SR){say("Voice input needs Chrome, sir.","use the keyboard");return;}
-  speechSynthesis.cancel();stopAllListening();
+  bargeIn();stopAllListening();
   rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;
   let fin='';setMode('listening');say("Listening…");
   rec.onresult=e=>{let itm='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;
@@ -252,9 +339,9 @@ function startFollowUp(){
   if(!SR){if(wakeMode)ensureWake();return;}
   stopAllListening();
   followRec=new SR();followRec.lang='en-US';followRec.interimResults=true;followRec.continuous=false;
-  let fin='',heard=false;setMode('listening');say("","listening…");
+  let fin='';setMode('listening');say("","listening…");
   const timer=setTimeout(()=>{try{followRec&&followRec.stop();}catch(_){}} ,7000);
-  followRec.onresult=e=>{heard=true;let itm='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;
+  followRec.onresult=e=>{let itm='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;
     if(e.results[i].isFinal)fin+=t;else itm+=t;}say(fin||itm||"");};
   followRec.onerror=()=>{clearTimeout(timer);};
   followRec.onend=()=>{clearTimeout(timer);const done=fin.trim();followRec=null;
@@ -263,7 +350,7 @@ function startFollowUp(){
 }
 
 /* ===== Wake word (continuous) ===== */
-function ensureWake(){ if(wakeMode && SR && !wakeRec && !speechSynthesis.speaking && STATE.mode!=='listening') startWake(); }
+function ensureWake(){ if(wakeMode && SR && !wakeRec && !isSpeaking() && STATE.mode!=='listening') startWake(); }
 function toggleWake(){
   if(!SR){say("Wake word needs Chrome, sir.");return;}
   wakeMode=!wakeMode;document.getElementById('wakeBtn').classList.toggle('on',wakeMode);
@@ -274,7 +361,11 @@ function startWake(){
   if(wakeRec)return;
   wakeRec=new SR();wakeRec.lang='en-US';wakeRec.interimResults=true;wakeRec.continuous=true;let armed=false;
   wakeRec.onresult=e=>{const last=e.results[e.results.length-1],t=last[0].transcript.toLowerCase();
-    if(!armed&&/\b(eva|eve|ava|hey eva)\b/.test(t)){armed=true;say("Yes, sir?");speak("Yes, sir?",{then:startFollowUp});}
+    if(!armed&&/\b(eva|eve|ava|hey eva)\b/.test(t)){
+      const cmd=t.replace(/.*\b(hey eva|eva|eve|ava)\b[\s,]*/,'').trim();
+      if(last.isFinal&&cmd.length>2){lastWasVoice=true;sendToEva(cmd);return;}   // "Eva, what time is it" in one breath
+      armed=true;say("Yes, sir?");playWake(startFollowUp);
+    }
     else if(armed&&last.isFinal){const cmd=t.replace(/\b(eva|eve|ava|hey eva)\b/,'').trim();if(cmd.length>2){armed=false;lastWasVoice=true;sendToEva(cmd);}}};
   wakeRec.onerror=()=>{};
   wakeRec.onend=()=>{wakeRec=null;setTimeout(ensureWake,400);};   // browser auto-stops; restart when idle
@@ -284,7 +375,7 @@ function startWake(){
 /* ===== Wiring ===== */
 document.getElementById('micBtn').addEventListener('click',()=>{STATE.mode==='listening'?stopAllListening():listenOnce();});
 document.getElementById('wakeBtn').addEventListener('click',toggleWake);
-cv.addEventListener('click',()=>{(STATE.mode==='idle'||STATE.mode==='speaking')&&listenOnce();});
+cv.addEventListener('click',()=>{(STATE.mode==='idle'||STATE.mode==='speaking'||STATE.mode==='thinking')&&listenOnce();});
 const textbar=document.getElementById('textbar'),textin=document.getElementById('textin');
 document.getElementById('kbBtn').addEventListener('click',()=>{textbar.classList.toggle('show');textbar.classList.contains('show')&&textin.focus();});
 function sendText(){const v=textin.value.trim();if(!v)return;textin.value='';lastWasVoice=false;sendToEva(v);}

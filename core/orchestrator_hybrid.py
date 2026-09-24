@@ -10,7 +10,12 @@ Per turn:
   3. CONSTRAINED DECISION: the model picks a tool by emitting JSON constrained
      to a schema built automatically from every loaded tool (built-ins + skills).
      Adding a skill never requires editing this file.
-  4. BOUNDED TOOL LOOP (max 3), with a guard against repeating the same call.
+  4. BOUNDED TOOL LOOP (max 3). Information tools may chain (datetime, then
+     weather); a successful ACTION ends the loop, so "stop the music" can't
+     also skip a track. Identical repeat calls are refused. If a required
+     argument came back empty, a second tiny call constrained to THAT tool's
+     schema fills it (argument repair). "unavailable" is an explicit choice
+     that leads to the honest no-skill answer instead of improvising.
   5. STREAMED ANSWER with persona + EVA.md + relevant facts + matched skill
      instructions + real tool data.
   6. AFTER the answer: log both turns to CORTEX and extract durable facts in
@@ -39,10 +44,12 @@ from core.memory.extractor import extract_and_store
 from core.prompt_builder import build_answer_system, build_decision_system
 from core.security.audit import audit
 from core.settings import get_settings, local_cfg
+from core.tools_native import ACTION_TOOLS as BUILTIN_ACTIONS
 from core.tools_native import REGISTRY as BUILTIN_FUNCS
 from core.tools_native import TOOL_SCHEMAS as BUILTIN_SCHEMAS
 from core.tools_native import ack_for as builtin_ack
 from core.tools_native import execute_tool as builtin_execute
+from core.tools_native import snip
 from skills.registry import SkillRegistry, get_registry
 
 MAX_TOOL_ITERS = 3
@@ -58,11 +65,14 @@ STYLE_RULES = (
     "- Never tell the user to do it themselves, and never say you cannot do something "
     "that a tool result shows was already done.\n"
     "- Use remembered facts only when they genuinely help; don't recite them unprompted.\n"
+    "- For weather, always say the place and the time the numbers are for, use the numbers "
+    "exactly as given, and if the data says a time was assumed, say that time.\n"
     "- Address the user as 'sir'."
 )
 MISSING_SKILL = ("I don't have a skill for that yet, sir. Once FORGE is live I can build "
                  "one, with your approval.")
-_CAPABILITY_Q = re.compile(r"what can you do|your (capabilities|skills)|what are you able", re.I)
+_CAPABILITY_Q = re.compile(r"what (?:else )?can you (?:do|help)|what (?:else )?are you (?:able|capable)"
+                           r"|your (?:capabilities|skills|features|abilities)|what do you do\b", re.I)
 _WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+)?(?:eva\b|e\.v\.a\.?)[\s,:!.-]*", re.I)
 
 
@@ -81,6 +91,7 @@ class ToolBelt:
         self.registry = registry
         self.skill_funcs: dict[str, Callable] = registry.functions() if registry else {}
         self.skill_acks: dict[str, str] = registry.acks() if registry else {}
+        self.actions: set[str] = set(BUILTIN_ACTIONS) | (registry.actions() if registry else set())
         skill_schemas = registry.tool_schemas() if registry else []
         builtin_names = {t["function"]["name"] for t in BUILTIN_SCHEMAS}
         # built-ins win on a name collision, so a skill can never shadow a trusted tool
@@ -93,6 +104,12 @@ class ToolBelt:
 
     def names(self) -> list[str]:
         return list(self.by_name)
+
+    def is_action(self, name: str) -> bool:
+        return name in self.actions
+
+    def required(self, name: str) -> list[str]:
+        return list(self.by_name[name]["function"].get("parameters", {}).get("required", []))
 
     def list_text(self) -> str:
         return "\n".join(f"- {n}: {t['function']['description']}" for n, t in self.by_name.items())
@@ -116,7 +133,7 @@ class ToolBelt:
                 if '"error"' in (out.get("result") or ""):
                     logger.warning(f"TOOL {name}({args}) returned an error: {out.get('result')}")
                 else:
-                    logger.info(f"TOOL {name}({args}) ok")
+                    logger.info(f"TOOL {name}({args}) ok -> {snip(out.get('result'))}")
                 return out
             except Exception as e:
                 last = e
@@ -142,8 +159,20 @@ def build_decision_schema(schemas: list[dict]) -> dict:
                 props[pname].pop("enum", None)
     names = [t["function"]["name"] for t in schemas]
     return {"type": "object",
-            "properties": {"tool": {"type": "string", "enum": names + ["none"]}, **props},
+            "properties": {"tool": {"type": "string", "enum": names + ["none", "unavailable"]}, **props},
             "required": ["tool"]}
+
+
+def tool_arg_schema(schema: dict) -> dict:
+    """Schema containing ONLY one tool's parameters, all its required ones enforced."""
+    params = schema["function"].get("parameters", {})
+    return {"type": "object", "properties": dict(params.get("properties", {})),
+            "required": list(params.get("required", []))}
+
+
+def missing_required(schema: dict, args: dict) -> list[str]:
+    req = schema["function"].get("parameters", {}).get("required", [])
+    return [r for r in req if args.get(r) in (None, "")]
 
 
 def args_for(schema: dict, decision: dict) -> dict:
@@ -161,15 +190,29 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     if belt.has("set_volume") and re.search(r"\b(max|full|maximum) volume\b", t, re.I):
         return "set_volume", {"level": 100}
 
-    m = re.match(r"remember(?: that)?\s+(.{4,})$", t, re.I)
-    if m and belt.has("remember_fact") and not re.match(r"remember (to|when)\b", t, re.I):
-        return "remember_fact", {"text": m.group(1).strip()}
+    polite = r"(?:(?:i want you to|i need you to|can you|could you|please|and|also|don't forget)\s+)*"
+    if belt.has("forget_recent_facts") and re.search(
+            r"\b(?:delete|forget|remove|erase)\b.{0,40}\b(?:just|recently)\s+"
+            r"(?:remembered|learned|saved|stored|noted)", t, re.I):
+        return "forget_recent_facts", {"minutes": 15}
+    m = re.match(polite + r"remember(?: that)?\s+(.{4,})$", t, re.I)
+    if m and belt.has("remember_fact") and not re.match(r"(to|when|what|who|where|if|how)\b", m.group(1), re.I):
+        return "remember_fact", {"text": m.group(1).strip().rstrip("?.!")}
     m = re.match(r"(?:from now on|going forward)[,\s]+(.{4,})$", t, re.I)
     if m and belt.has("add_instruction"):
         return "add_instruction", {"text": m.group(1).strip()}
-    m = re.match(r"forget(?: that| about)?\s+(.{4,})$", t, re.I)
-    if m and belt.has("forget_memory") and m.group(1).lower() not in ("about it", "it", "that"):
-        return "forget_memory", {"query": m.group(1).strip()}
+    m = re.match(polite + r"(?:forget|delete|remove)(?: the fact| that| about)?\s+(.{4,})$", t, re.I)
+    vague = ("about it", "it", "that", "this", "that one", "all of it", "everything")
+    if m and belt.has("forget_memory") and m.group(1).lower().strip(" .!?") not in vague:
+        return "forget_memory", {"query": m.group(1).strip().rstrip("?.!")}
+    m = re.match(polite + r"(?:note that|make a note(?: that)?|take a note(?: that)?|add a note(?: that)?|"
+                 r"jot down(?: that)?|write down(?: that)?)[:,]?\s+(.{3,})$", t, re.I)
+    if m and belt.has("obsidian_quick_note"):
+        return "obsidian_quick_note", {"text": m.group(1).strip()}
+    m = re.search(r"(?:search|check|look (?:in|through)) my notes (?:for|about|on) (.{2,})$"
+                  r"|what (?:did|have) i (?:note|noted|written|write|jotted)(?: down)? (?:about|on) (.{2,})$", t, re.I)
+    if m and belt.has("obsidian_search"):
+        return "obsidian_search", {"query": (m.group(1) or m.group(2)).strip().rstrip("?.!")}
     if belt.has("recall_memory") and re.search(r"what do you (?:know|remember) about me", t, re.I):
         return "recall_memory", {"query": ""}
 
@@ -184,6 +227,8 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
         (r"\bvolume down\b|\bquieter\b|\bturn it down\b", "media_control", {"action": "voldown"}),
         (r"^\s*(mute|unmute)\b", "media_control", {"action": "mute"}),
         (r"^\s*(pause|resume)\b", "media_control", {"action": "playpause"}),
+        (r"\b(stop|pause) (the |this )?(music|song|playback)\b|\bstop playing\b", "media_control",
+         {"action": "playpause"}),
         (r"\bnext (track|song)\b|^\s*skip\b", "media_control", {"action": "next"}),
         (r"\b(previous|last) (track|song)\b", "media_control", {"action": "previous"}),
     ]
@@ -227,6 +272,25 @@ class HybridOrchestrator:
             logger.warning(f"decision failed, answering directly: {e}")
             return {"tool": "none"}
 
+    async def _repair_args(self, client, tool: str) -> dict:
+        """Second tiny call constrained to ONE tool's schema, so required fields get filled."""
+        fn = self.belt.by_name[tool]["function"]
+        params = fn.get("parameters", {}).get("properties", {})
+        spec = "\n".join(f"- {k}: {v.get('description', v.get('type', 'string'))}" for k, v in params.items())
+        system = (f"Fill in the arguments for the tool '{tool}' ({fn['description']}) from the user's "
+                  f"latest message and the conversation. Parameters:\n{spec}")
+        try:
+            r = await client.post(f"{self.cfg['base_url']}/api/chat", json={
+                "model": self.cfg["decision_model"], "stream": False,
+                "format": tool_arg_schema(self.belt.by_name[tool]),
+                "keep_alive": self.cfg["keep_alive"], "options": {"temperature": 0},
+                "messages": [{"role": "system", "content": system}, *self.history[-MAX_HISTORY:]],
+            })
+            return json.loads(r.json()["message"]["content"])
+        except Exception as e:
+            logger.warning(f"argument repair failed for {tool}: {e}")
+            return {}
+
     async def _answer(self, client, facts, skill_bodies, gathered, user_input) -> AsyncIterator[dict]:
         persona = self.persona
         if _CAPABILITY_Q.search(user_input):
@@ -269,12 +333,13 @@ class HybridOrchestrator:
         gathered.append((tool, out))
         return events, out
 
-    def _finish(self, user_input: str, answer: str) -> None:
+    def _finish(self, user_input: str, answer: str, used: set[str] | None = None) -> None:
         self.history.append({"role": "assistant", "content": answer})
         self.cortex.log_turn(self.session_id, "user", user_input)
         self.cortex.log_turn(self.session_id, "assistant", answer)
         self.bus.publish("turn.completed", {"session": self.session_id})
-        if self.mem_cfg.get("extract_facts", True):
+        memory_ops = {"remember_fact", "forget_memory", "forget_recent_facts", "add_instruction", "recall_memory"}
+        if self.mem_cfg.get("extract_facts", True) and not (used and used & memory_ops):
             task = asyncio.create_task(self._extract(user_input))
             self._bg.add(task)
             task.add_done_callback(self._bg.discard)
@@ -295,39 +360,58 @@ class HybridOrchestrator:
         facts = self.cortex.recall(user_input, k=int(self.mem_cfg.get("recall_k", 6)), query_vec=qvec)
         skill_bodies = self.registry.bodies(self.registry.match(user_input, qvec))
 
+        used: set[str] = set()
         async with httpx.AsyncClient(timeout=120) as client:
             fp = fast_path(user_input, self.belt)
             if fp:
+                used.add(fp[0])
                 events, _ = self._run(fp[0], fp[1], gathered)
                 for ev in events:
                     yield ev
-            else:
-                called = set()
+            elif not _CAPABILITY_Q.search(user_input):      # capability questions need no tools
+                called, succeeded = set(), set()
                 for _ in range(MAX_TOOL_ITERS):
                     decision = await self._decide(client, skill_bodies, gathered)
                     tool = decision.get("tool", "none")
-                    if tool == "none" or not self.belt.has(tool):
-                        break
-                    args = args_for(self.belt.by_name[tool], decision)
+                    if tool == "unavailable":
+                        logger.info(f"no tool covers: {user_input!r}")
+                        self.bus.publish("capability.missing", {"request": user_input})
+                        self._finish(user_input, MISSING_SKILL, used)
+                        yield {"type": "final", "text": MISSING_SKILL}
+                        return
+                    if tool == "none" or not self.belt.has(tool) or tool in succeeded:
+                        break                      # a tool that already answered is not asked again
+                    schema = self.belt.by_name[tool]
+                    args = args_for(schema, decision)
+                    if missing_required(schema, args):
+                        args = {**args, **args_for(schema, await self._repair_args(client, tool))}
+                        if missing_required(schema, args):
+                            logger.warning(f"{tool}: still missing {missing_required(schema, args)}; skipping")
+                            break
                     sig = (tool, json.dumps(args, sort_keys=True))
                     if sig in called:
                         break
                     called.add(sig)
+                    used.add(tool)
                     events, out = self._run(tool, args, gathered)
                     for ev in events:
                         yield ev
                     if out.get("missing"):
-                        self._finish(user_input, MISSING_SKILL)
+                        self._finish(user_input, MISSING_SKILL, used)
                         yield {"type": "final", "text": MISSING_SKILL}
                         return
+                    ok = '"error"' not in (out.get("result") or "")
+                    if ok:
+                        succeeded.add(tool)
+                    if self.belt.is_action(tool) and ok:
+                        break                      # an action is the whole job; don't chain more
 
             answer = ""
             async for ev in self._answer(client, facts, skill_bodies, gathered, user_input):
                 if ev["type"] == "final":
                     answer = ev["text"]
                 yield ev
-        self._finish(user_input, answer)
-
+        self._finish(user_input, answer, used)
 
 # quick manual test:  python -m core.orchestrator_hybrid
 if __name__ == "__main__":

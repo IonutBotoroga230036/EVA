@@ -71,9 +71,13 @@ def build_answer_system(persona: str, style_rules: str, facts: list[dict],
 def build_decision_system(tool_list_text: str, skill_bodies: list[str], gathered: list[str]) -> str:
     parts = [
         "You are the tool-router for E.V.A. Decide whether a tool is needed to answer "
-        "the user's latest message. Choose exactly one tool from the list, or \"none\" to "
-        "answer directly. Fill only the parameter fields the chosen tool needs. Do not "
-        "answer the user here; only choose.",
+        "the user's latest message. Choose exactly one tool from the list and fill the "
+        "parameter fields it needs. Do not answer the user here; only choose.\n"
+        "- Choose \"none\" for greetings, small talk, thanks, opinions, questions about "
+        "yourself or what you can do, and anything you can answer from the conversation.\n"
+        "- Choose \"unavailable\" when the request needs an ability none of the tools has "
+        "(for example calendar, email, messages, smart lights, alarms). Never substitute an "
+        "unrelated tool such as web_search or the screen for a missing ability.",
         "Tools:\n" + tool_list_text,
     ]
     if skill_bodies:

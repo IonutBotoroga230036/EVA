@@ -55,6 +55,7 @@ class Skill:
     tools: list[dict] = field(default_factory=list)
     functions: dict[str, Callable] = field(default_factory=dict)
     acks: dict[str, str] = field(default_factory=dict)
+    actions: set[str] = field(default_factory=set)
     vec: Optional[np.ndarray] = None
 
 
@@ -117,6 +118,7 @@ class SkillRegistry:
         sk.tools = list(getattr(mod, "TOOLS", []))
         sk.functions = dict(getattr(mod, "FUNCTIONS", {}))
         sk.acks = dict(getattr(mod, "ACKS", {}))
+        sk.actions = set(getattr(mod, "ACTIONS", []))
         declared = {t["function"]["name"] for t in sk.tools}
         missing = declared - set(sk.functions)
         if missing:
@@ -127,7 +129,8 @@ class SkillRegistry:
         if not self.embed:
             return
         todo = [s for s in self.enabled() if s.description]
-        vecs = self.embed([f"search_document: {s.name}: {s.description}" for s in todo]) if todo else None
+        embed = getattr(self.embed, "embed_blocking", self.embed)    # startup work may wait longer
+        vecs = embed([f"search_document: {s.name}: {s.description}" for s in todo]) if todo else None
         if not vecs:
             return
         for s, v in zip(todo, vecs):
@@ -147,6 +150,10 @@ class SkillRegistry:
 
     def acks(self) -> dict[str, str]:
         return {k: v for s in self.enabled() for k, v in s.acks.items()}
+
+    def actions(self) -> set[str]:
+        """Tools that change something; a successful one ends the tool loop."""
+        return {a for s in self.enabled() for a in s.actions}
 
     def match(self, query: str, query_vec: Optional[np.ndarray] = None, k: int = 2) -> list[Skill]:
         """Skills whose instructions should be loaded for this request."""
@@ -194,6 +201,9 @@ def get_registry() -> SkillRegistry:
         from core.memory.cortex import get_cortex
         from core.settings import get_settings
         cfg = get_settings().get("skills", {})
-        _registry = SkillRegistry(cfg.get("dir", "skills"), embedder=get_cortex().embed,
+        embedder = get_cortex().embed
+        _registry = SkillRegistry(cfg.get("dir", "skills"), embedder=embedder,
                                   match_threshold=float(cfg.get("match_threshold", 0.62))).discover()
+        if hasattr(embedder, "on_ready"):          # embed descriptions once the model is warm
+            embedder.on_ready(_registry._embed_descriptions)
     return _registry

@@ -82,3 +82,50 @@ def test_episode_search(tmp_path):
     c.log_turn("s", "user", "what's the weather")
     hits = c.search_episodes("Deloitte")
     assert len(hits) == 1 and "Deloitte" in hits[0]["content"]
+
+
+def test_forget_needs_a_query(tmp_path):
+    c = Cortex(str(tmp_path / "c.db"))
+    c.remember("Height is 165 cm")
+    assert c.forget("")["status"] == "need_query" and c.stats()["facts"] == 1
+
+
+def test_keyword_forget_matches_partial_description(tmp_path):
+    c = Cortex(str(tmp_path / "c.db"))
+    c.remember("Studies at Neymar University")
+    c.remember("Height is 165 cm")
+    assert c.forget("the one about Neymar")["status"] == "forgotten"
+    assert [f["text"] for f in c.all_facts()] == ["Height is 165 cm"]
+
+
+def test_forget_recent_only_removes_new_facts(tmp_path):
+    import time as _t
+    c = Cortex(str(tmp_path / "c.db"))
+    c.remember("Old fact about Rome")
+    c._db.execute("UPDATE facts SET created = ?", (_t.time() - 3600,))
+    c._db.commit()
+    c.remember("New fact about Paris")
+    res = c.forget_recent(15)
+    assert res["forgotten"] == ["New fact about Paris"]
+    assert [f["text"] for f in c.all_facts()] == ["Old fact about Rome"]
+
+
+def test_unready_embedder_never_blocks_and_falls_back(tmp_path):
+    import threading
+
+    class Slow(FakeEmbedder):
+        def __init__(self):
+            self.ready = threading.Event()
+            self.calls = 0
+
+        def __call__(self, texts):
+            if not self.ready.is_set():
+                return None
+            self.calls += 1
+            return super().__call__(texts)
+    emb = Slow()
+    c = Cortex(str(tmp_path / "c.db"), embedder=emb)
+    c.remember("Prefers jazz music while working")
+    assert c.stats()["recall"] == "keyword" and "jazz" in c.recall("jazz music")[0]["text"]
+    emb.ready.set()
+    assert c.stats()["recall"] == "semantic"

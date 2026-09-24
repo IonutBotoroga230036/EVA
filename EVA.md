@@ -19,3 +19,4 @@ Durable facts she learns on her own live in data/cortex.db, not here.
 - Never use em-dashes in anything you write for me.
 
 ## Standing instructions
+- I would like to have a skill or be able to do in order to assist you better, sir. For example, I could improve my ability to understand and respond to natural language queries, enhance my knowledge base to provide more accurate and relevant information, or develop my ability to perform tasks such as scheduling appointments, sending emails, or managing reminders. What specific areas do you think I could improve in to better assist you?.

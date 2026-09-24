@@ -49,32 +49,108 @@ def _norm(text: str) -> str:
     return " ".join(_WORD_RX.findall(text.lower()))
 
 
+_STOP = {"the", "a", "an", "to", "and", "or", "of", "for", "in", "on", "at", "my", "me", "is",
+         "it", "that", "this", "what", "you", "i", "about", "one", "do", "did", "can", "please"}
+
+
+def _containment(query: str, text: str) -> float:
+    q = set(_WORD_RX.findall(query.lower())) - _STOP
+    t = set(_WORD_RX.findall(text.lower()))
+    return len(q & t) / len(q) if q else 0.0
+
+
 def _jaccard(a: str, b: str) -> float:
     sa, sb = set(_WORD_RX.findall(a.lower())), set(_WORD_RX.findall(b.lower()))
     return len(sa & sb) / len(sa | sb) if sa and sb else 0.0
 
 
 class OllamaEmbedder:
-    """Sync embedding client. Fails soft: returns None and backs off for 60s."""
+    """Embedding client that never makes a turn wait.
+
+    A background warm-up loads the model with a generous timeout. Until it
+    succeeds, calls return None instantly and CORTEX uses keyword search. A
+    missing model (HTTP 404) disables embeddings with a clear instruction
+    instead of retrying forever.
+    """
 
     def __init__(self, model: str = "nomic-embed-text", url: str = "http://localhost:11434",
-                 timeout: float = 4.0):
-        self.model, self.url, self.timeout = model, url.rstrip("/"), timeout
-        self._down_until = 0.0
+                 timeout: float = 3.0, warm_timeout: float = 90.0):
+        self.model, self.url = model, url.rstrip("/")
+        self.timeout, self.warm_timeout = timeout, warm_timeout
+        self.ready = threading.Event()
+        self.disabled = False
+        self._warming = threading.Lock()
+        self._callbacks: list[Callable[[], None]] = []
 
-    def __call__(self, texts: Sequence[str]) -> Optional[list]:
-        if not texts or time.time() < self._down_until:
+    def on_ready(self, fn: Callable[[], None]) -> None:
+        """Run fn once embeddings work (immediately if they already do)."""
+        if self.ready.is_set():
+            fn()
+        else:
+            self._callbacks.append(fn)
+
+    def _post(self, texts: Sequence[str], timeout: float) -> list:
+        r = httpx.post(f"{self.url}/api/embed",
+                       json={"model": self.model, "input": list(texts), "keep_alive": "30m"},
+                       timeout=timeout)
+        if r.status_code == 404:
+            raise LookupError(r.text)
+        r.raise_for_status()
+        return [np.asarray(v, dtype=np.float32) for v in r.json().get("embeddings", [])]
+
+    def warm(self, attempts: int = 5, pause: float = 30.0) -> bool:
+        """Blocking warm-up. Run it in a background thread."""
+        if not self._warming.acquire(blocking=False):
+            return self.ready.is_set()
+        try:
+            for i in range(attempts):
+                if self.disabled:
+                    return False
+                try:
+                    self._post(["warm up"], self.warm_timeout)
+                    self.ready.set()
+                    logger.info(f"CORTEX: embeddings ready ({self.model}), semantic recall on")
+                    for fn in self._callbacks:
+                        try:
+                            fn()
+                        except Exception as e:
+                            logger.error(f"CORTEX: on_ready callback failed: {e}")
+                    self._callbacks.clear()
+                    return True
+                except LookupError:
+                    self.disabled = True
+                    logger.warning(f"CORTEX: embedding model '{self.model}' is not installed. "
+                                   f"Run: ollama pull {self.model}  (keyword recall until then)")
+                    return False
+                except Exception as e:
+                    logger.warning(f"CORTEX: embedding warm-up attempt {i + 1} failed ({e})")
+                    time.sleep(pause)
+            return False
+        finally:
+            self._warming.release()
+
+    def embed_blocking(self, texts: Sequence[str]) -> Optional[list]:
+        """Patient variant for background work (skill descriptions), never used on a turn."""
+        if not texts or self.disabled or not self.ready.is_set():
             return None
         try:
-            r = httpx.post(f"{self.url}/api/embed",
-                           json={"model": self.model, "input": list(texts), "keep_alive": "30m"},
-                           timeout=self.timeout)
-            r.raise_for_status()
-            vecs = r.json().get("embeddings")
-            return [np.asarray(v, dtype=np.float32) for v in vecs] if vecs else None
+            return self._post(texts, self.warm_timeout) or None
         except Exception as e:
-            logger.warning(f"CORTEX: embeddings unavailable ({e}); using keyword search for 60s")
-            self._down_until = time.time() + 60
+            logger.warning(f"CORTEX: background embedding failed ({e})")
+            return None
+
+    def start_warmup(self) -> None:
+        threading.Thread(target=self.warm, daemon=True, name="cortex-warmup").start()
+
+    def __call__(self, texts: Sequence[str]) -> Optional[list]:
+        if not texts or self.disabled or not self.ready.is_set():
+            return None
+        try:
+            return self._post(texts, self.timeout) or None
+        except Exception as e:
+            logger.warning(f"CORTEX: embedding call failed ({e}); re-warming in background")
+            self.ready.clear()
+            self.start_warmup()
             return None
 
 
@@ -91,8 +167,8 @@ class Cortex:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._fts = self._init_schema()
-        logger.info(f"CORTEX: {self.stats()['facts']} facts, {self.stats()['episodes']} turns "
-                    f"({'semantic' if embedder else 'keyword'} recall)")
+        st = self.stats()
+        logger.info(f"CORTEX: {st['facts']} facts, {st['episodes']} turns")
 
     # ------------------------------------------------------------------ schema
     def _init_schema(self) -> bool:
@@ -254,21 +330,22 @@ class Cortex:
             if qv is not None and r["embedding"] is not None:
                 s = float(np.dot(qv, np.frombuffer(r["embedding"], dtype=np.float32)))
             else:
-                s = _jaccard(query, r["text"])
-                s = s if s >= 0.15 else 0.0
+                s = _containment(query, r["text"])
             scored.append((s, r))
-        floor = min_score if qv is not None else 0.15
+        floor = min_score if qv is not None else 0.34
         scored = [(s, r) for s, r in scored if s >= floor]
         scored.sort(key=lambda x: (x[0], x[1]["hits"]), reverse=True)
         return [{**self._fact(r), "score": round(s, 3)} for s, r in scored[:k]]
 
     def forget(self, query: str, threshold: float = 0.6) -> dict:
         """Delete the single best-matching fact if the match is clear; else return candidates."""
+        if not (query or "").strip():
+            return {"status": "need_query", "reason": "say which fact to forget"}
         matches = self.recall(query, k=3, min_score=0.0)
         if not matches:
             return {"status": "not_found"}
         top = matches[0]
-        clear = top.get("score", 0) >= (threshold if self.embed else 0.4)
+        clear = top.get("score", 0) >= (threshold if self._semantic() else 0.4)
         if not clear:
             return {"status": "ambiguous", "candidates": [m["text"] for m in matches]}
         with self._lock:
@@ -276,6 +353,21 @@ class Cortex:
             self._db.commit()
         logger.info(f"CORTEX: forgot '{top['text']}'")
         return {"status": "forgotten", "text": top["text"]}
+
+    def forget_recent(self, minutes: float = 15) -> dict:
+        """Delete facts created in the last N minutes (undo for 'forget what you just learned')."""
+        since = time.time() - float(minutes) * 60
+        rows = self._db.execute("SELECT id, text FROM facts WHERE created >= ?", (since,)).fetchall()
+        with self._lock:
+            self._db.execute("DELETE FROM facts WHERE created >= ?", (since,))
+            self._db.commit()
+        texts = [r["text"] for r in rows]
+        logger.info(f"CORTEX: forgot {len(texts)} recent facts")
+        return {"status": "forgotten" if texts else "nothing_recent", "forgotten": texts}
+
+    def _semantic(self) -> bool:
+        e = self.embed
+        return bool(e) and (not hasattr(e, "ready") or e.ready.is_set())
 
     def all_facts(self, limit: int = 200) -> list[dict]:
         rows = self._db.execute("SELECT * FROM facts ORDER BY updated DESC LIMIT ?", (limit,)).fetchall()
@@ -290,13 +382,20 @@ class Cortex:
         f = self._db.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
         e = self._db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
         return {"facts": f, "episodes": e, "db": str(self.db_path),
-                "recall": "semantic" if self.embed else "keyword"}
+                "recall": "semantic" if self._semantic() else "keyword"}
 
     def close(self) -> None:
         self._db.close()
 
 
 _cortex: Cortex | None = None
+
+
+def close_cortex() -> None:
+    global _cortex
+    if _cortex is not None:
+        _cortex.close()
+        _cortex = None
 
 
 def get_cortex() -> Cortex:
@@ -312,4 +411,6 @@ def get_cortex() -> Cortex:
                                       url=local.get("base_url", "http://localhost:11434"))
         _cortex = Cortex(db_path=mem.get("cortex_path", "./data/cortex.db"), embedder=embedder,
                          dedup_threshold=float(mem.get("dedup_threshold", 0.88)))
+        if embedder:
+            embedder.start_warmup()     # never blocks startup or a turn
     return _cortex

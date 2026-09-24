@@ -1,6 +1,6 @@
 # E.V.A. Build Spec (v0.2, corrected)
 
-Last updated: September 24, 2026, end of Milestone B.
+Last updated: September 24, 2026, end of Milestone E (with weather trust fixes).
 This replaces the earlier one-shot build prompt. It describes the project as it
 actually is, the decisions already made, and the order to build the rest in.
 Any session working on E.V.A. (this chat, Claude Code, or another model) should
@@ -31,18 +31,20 @@ read this file and `EVA.md` first.
 | File | Role |
 |---|---|
 | `core/orchestrator_hybrid.py` | The brain. Fast path, constrained-decoding tool choice, bounded tool loop (3), streamed answer, memory + skills + EVA.md in the prompt, background fact extraction. |
-| `core/tools_native.py` | Built-in tools: datetime, weather (Open-Meteo), web search (ddgs), Spotify URI launch, media keys, exact volume (pycaw), open app/website. |
+| `core/tools_native.py` | Built-in tools: datetime, weather, web search (ddgs, retries once), Spotify URI launch, media keys, exact volume with unmute (pycaw), open app/website. Exports ACTION_TOOLS. |
+| `core/weather.py` | Weather v2: current, hourly, and daily forecasts up to 16 days, day/hour parsing, country to capital, city-local time. |
+| `voice/speech.py` | ECHO v0.2: speech normalizer, sentence chunker, Kokoro engine (CPU), per-turn streaming speaker. |
 | `core/memory/cortex.py` | CORTEX. One SQLite file `data/cortex.db`: every turn, every fact, fact vectors. Dedup, recall, forget, secret filter. |
 | `core/memory/extractor.py` | Learns facts in the background after each answer (constrained JSON). |
 | `core/prompt_builder.py` | Loads `EVA.md` each turn; assembles prompts; appends standing instructions. |
 | `core/events/bus.py` | PULSE, in-process pub/sub. No Redis. |
 | `core/settings.py` | Single loader for `config/settings.yaml`. |
 | `skills/registry.py` | SKILL.md discovery, trust gate, semantic matching, tool loading. |
-| `skills/memory/`, `skills/vision/`, `skills/morning-briefing/` | First three skills. |
-| `interfaces/web/server_stream.py` | FastAPI + WebSocket on port 8001; `GET /api/status`. |
-| `interfaces/web/eva.html` | Purple core UI, half-duplex browser voice, follow-up window, widgets. |
+| `skills/memory/`, `skills/vision/`, `skills/morning-briefing/`, `skills/obsidian/` | Shipped skills. Obsidian: quick daily notes, named notes, search, read; sandboxed to the vault. |
+| `interfaces/web/server_stream.py` | FastAPI + WebSocket on port 8001; streams Kokoro audio per sentence; barge-in; `GET /api/status`. |
+| `interfaces/web/eva.html` | Purple core UI; ordered Kokoro audio player (browser voice as fallback); half-duplex mic, follow-up window, barge-in by tap; escaped widgets. |
 | `EVA.md` | Standing context and instructions, read every turn (like CLAUDE.md). |
-| `tests/` | 44 tests, all passing. |
+| `tests/` | 159 tests, all passing, isolated from `data/`. Browser player verified separately in Node. |
 
 ### Legacy v0.1 files (keep, do not build on)
 
@@ -59,6 +61,7 @@ The legacy orchestrator still runs because the new PULSE bus accepts the old
 | Decisions + answers | `qwen2.5:3b-instruct` | Fits fully on the GPU. The 7B spilled to CPU (70 s per turn). |
 | Embeddings | `nomic-embed-text` | ~270 MB. Drives memory recall and skill matching. Optional; keyword fallback. |
 | Vision | `qwen2.5vl:3b` | ~3.2 GB. Loaded per request, unloaded immediately (`keep_alive: 0`). |
+| Voice | Kokoro-82M, `af_heart` | Runs on the CPU by default so all VRAM stays with the LLM. |
 
 Constrained decoding (Ollama `format` = JSON schema) is what makes the 3B
 reliable at choosing tools. It guarantees valid, on-menu output; it does not
@@ -102,6 +105,24 @@ skills/<name>/
   FORGE-generated skills are written with `trusted: false` and stay inert until
   Ionut approves them.
 
+### Tool loop rules (B.1, from real usage logs)
+
+- Information tools may chain; a successful action tool ends the loop.
+- A missing required argument triggers one repair call constrained to that tool's schema.
+- `unavailable` is a decision option: no tool covers the request, so give the honest
+  no-skill answer and publish `capability.missing` on PULSE (FORGE listens here later).
+- Capability questions ("what else can you do") skip tools entirely.
+- A tool that already succeeded is not called again in the same turn (retries only after an error).
+- The terminal logs every tool result and every final answer (`EVA: ...`), so answers can be checked against data.
+
+### Voice protocol (Milestone C)
+
+Server to browser: `hello` (tts kokoro|browser), `phrase` (cached "Yes, sir?"),
+`turn_start`, text events (`ack`, `token`, `widget`, `final`), `audio` (one base64 WAV
+per sentence with `turn` and `seq`), `audio_end` (`count`). Browser to server:
+`message`, `stop`. The browser plays audio strictly by `seq` and drops any turn it has
+moved past, so an interrupted answer can never talk over the next one.
+
 ### CORTEX memory
 
 - One SQLite file, WAL mode. FTS5 for episode search.
@@ -128,6 +149,14 @@ skills/<name>/
 - **Mine im4peace/Jarvis (MIT), don't fork it.** Already harvested: hybrid router
   pattern, bounded loop, see_screen. Still to harvest: deep-research engine,
   registry confirmation gate. Keep the MIT notice on lifted code.
+
+### Weather trust rules
+
+- NL/BE/LU use KNMI HARMONIE (`knmi_seamless`); elsewhere Open-Meteo `best_match`. Override with `weather.model`.
+- A bare hour 1 to 6 ("at 6", "6:00", even a model-written "06:00") means the evening; the report carries
+  `assumed` and she says the time, so a wrong guess is visible.
+- Reports always name place, time, date, and source. Missing rain probability falls back to millimetres.
+- Debug: `GET /api/weather?city=Tilburg&day=tomorrow&hour=6` returns exactly what she receives.
 
 ## Hard facts that constrain the roadmap
 
@@ -165,9 +194,10 @@ skills/<name>/
 |---|---|---|
 | A | Hybrid orchestrator | Done. |
 | B | Foundation | Done. PULSE in-process, CORTEX persistent memory, EVA.md, SKILL.md registry, vision skill, 44 tests. |
-| C | Kokoro streaming TTS | Server splits streamed tokens at sentence ends, synthesizes each with Kokoro (`af_heart`), sends base64 WAV over the WebSocket; browser plays an ordered queue. Acks synthesized first. Also fixes voice on the phone. |
-| D | Weather v2 | Forecast by day and hour ("tomorrow at 18:00 in Tilburg"), any city, from Open-Meteo hourly/daily data. |
-| E | Obsidian skill | Local only: create, search, read, append, daily note. Vault path in settings. |
+| B.1 | Log fixes | Done. Argument repair, action stop, unavailable, unmute, non-blocking embeddings, real phrasings. |
+| C | Kokoro streaming TTS (done) | Server splits streamed tokens at sentence ends, synthesizes each with Kokoro (`af_heart`), sends base64 WAV over the WebSocket; browser plays an ordered queue. Acks synthesized first. Also fixes voice on the phone. |
+| D | Weather v2 (done) | Forecast by day and hour ("tomorrow at 18:00 in Tilburg"), any city, from Open-Meteo hourly/daily data. |
+| E | Obsidian skill (done) | Local only: create, search, read, append, daily note. Vault path in settings. |
 | F | TEMPO calendar | Google Calendar: today, range, create, delete (confirm), plan week. Calendar widget. |
 | G | SCRIBE email | Gmail unread, search, read, draft reply for approval. Email widget. |
 | H | Spotify skill | spotipy: play, pause, skip, queue, volume, now playing with real metadata. Premium check at setup. |
@@ -176,6 +206,29 @@ skills/<name>/
 | K | ORACLE | Proactive reminders, do-not-disturb, gap detection, hooks from PULSE. |
 | L | Pipecat voice | Local Whisper STT, turn detection, barge-in, echo handling. |
 | M | HERALD | Phone calls/SMS via Twilio on Pipecat. |
+
+Ideas backlog (brainstorm Sep 24, with assessment):
+
+- **MCP client.** Harvest `mcp_client.py` from im4peace (MIT) so any MCP server's tools appear in the
+  ToolBelt like skill tools. Evaluate MCP-first for F and G: existing Google Calendar and Gmail MCP
+  servers could save most of the build. Each server gets an allowlist entry and confirmation for actions.
+- **Desktop app.** Step 1 (small): make eva.html an installable PWA (manifest + service worker). Chrome or
+  Edge then gives her own window and taskbar icon, and the mic keeps working because localhost counts as
+  secure. Step 2: a native shell (pywebview or Tauri) only after Whisper STT lands, because embedded
+  webviews don't support the browser speech API.
+- **Phone app with screen-off wake word.** Needs a native Android app (Flutter or Kotlin) with a
+  foreground service and an on-device wake word model, streaming to E.V.A. over Tailscale. iOS does not
+  allow third-party screen-off wake words. Interim: the PWA over Tailscale HTTPS gives a screen-on phone
+  E.V.A. almost for free. Pipecat and LiveKit both ship mobile client SDKs for the real app.
+- **UI design overhaul.** A dedicated design milestone; keep the single-core concept, rethink widgets,
+  panels, history, and settings.
+- **Her own git account.** A machine GitHub account with a fine-grained token scoped to her repos,
+  stored in AEGIS. She pushes to branches and opens pull requests, never to main; Ionut reviews and
+  merges. This becomes FORGE's delivery path: build, test in the sandbox, open a PR.
+
+Backlog: a wake word trained on Ionut's voice (openWakeWord custom model plus speaker
+verification), and Whisper STT with hint words so names like Radboud and Nijmegen stop
+being misheard. Both belong with Milestone L.
 
 Remaining small items: VAULT must count local Ollama calls at EUR 0 (the current
 `record_usage` bills unknown models at Sonnet rates), a settings/history panel in
