@@ -83,6 +83,9 @@ mcp:
       trusted_tools: []                  # create-event asks first
       timeout: 90                        # first start downloads the package via npx
 
+spotify:
+  client_id: ""                        # put yours in settings.local.yaml (see docs/SPOTIFY_SETUP.md)
+
 telegram:
   enabled: true                        # needs TELEGRAM_BOT_TOKEN in config/secrets.env (from @BotFather)
   proactive: "always"                  # always | when_away (only if no E.V.A. window is open) | never
@@ -135,5 +138,3 @@ calendar:
   sources:
     - "google"
     - "microsoft"
-
-

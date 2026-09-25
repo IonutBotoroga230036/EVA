@@ -54,10 +54,10 @@ read this file and `EVA.md` first.
 | `skills/registry.py` | SKILL.md discovery, trust gate, semantic matching, tool loading. |
 | `skills/memory/`, `skills/vision/`, `skills/morning-briefing/`, `skills/obsidian/` | Shipped skills. Obsidian: quick daily notes, named notes, search, read; sandboxed to the vault. |
 | `interfaces/web/server_stream.py` | FastAPI + WebSocket on port 8001; streams Kokoro audio per sentence; barge-in; `GET /api/status`. |
-| `interfaces/web/eva.html` | Purple core UI; ordered Kokoro audio player (browser voice as fallback); half-duplex mic, follow-up window, barge-in by tap; escaped widgets. |
+| `interfaces/web/eva.html` | Claude Design interface (untouched) + bridge script (WebSocket, Kokoro audio with level and spoken-caption progress, speech recognition, UI events). `eva_classic.html` at /classic. |
 | `EVA.md` | Standing context, instructions, and speech vocabulary, read every turn (like CLAUDE.md). |
 | `EVA.local.md` | Private companion to EVA.md, git-ignored. Names, projects, private vocabulary. |
-| `tests/` | 319 tests, all passing, isolated from `data/`, including MCP against a real server process. Browser player verified in Node. |
+| `tests/` | 335 tests, all passing, isolated from `data/`, including MCP against a real server process. Browser player verified in Node. |
 
 ### Legacy v0.1 files (keep, do not build on)
 

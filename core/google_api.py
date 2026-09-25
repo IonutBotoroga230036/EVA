@@ -146,6 +146,11 @@ class GoogleClient:
                 "end": {"dateTime": end.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": self.tz}}
         return self.cal.events().insert(calendarId="primary", body=body).execute()
 
+    def move_event(self, event_id: str, start: datetime, end: datetime) -> None:
+        self.cal.events().patch(calendarId="primary", eventId=event_id, body={
+            "start": {"dateTime": start.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": self.tz},
+            "end": {"dateTime": end.strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": self.tz}}).execute()
+
     def delete_event(self, event_id: str) -> None:
         self.cal.events().delete(calendarId="primary", eventId=event_id).execute()
 

@@ -69,7 +69,7 @@ permissions:
   FUNCTIONS = {"tool_name": function}
   ACKS = {"tool_name": "One moment, sir."}      (optional, for slow tools)
   ACTIONS = ["tool_name", ...]                   (tools that change something)
-  GUARDS = {"tool_name": r"regex of words the user's request must contain"}   (for every action)
+  GUARDS = {"tool_name": r"regex of words the user's request must contain"}   (for EVERY tool)
   CONFIRM = {"tool_name": "what it will do, e.g. delete {name}"}              (for irreversible actions)
   Every function takes keyword arguments with defaults plus **_ and returns
   {"result": json.dumps({...}), "say": "<one short spoken sentence ending with ', sir.'>"}.
@@ -380,7 +380,8 @@ class Forge:
             raise FileExistsError(f"a skill called {name} already exists")
         shutil.move(str(src), str(dst))
         md = (dst / "SKILL.md").read_text(encoding="utf-8")
-        (dst / "SKILL.md").write_text(re.sub(r"(?m)^trusted:\s*false\s*$", "trusted: true", md), encoding="utf-8")
+        md = re.sub(r"(?m)^trusted:\s*false\s*$", "trusted: true\nsource: forge", md)
+        (dst / "SKILL.md").write_text(md, encoding="utf-8")
         p.status = "installed"
         self._save_state()
         audit.log("forge_installed", "forge", {"name": name})

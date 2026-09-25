@@ -62,10 +62,11 @@ ACK_PHRASES = {
     "_default": "One moment, sir.",
 }
 
-ACTION_TOOLS = {"spotify_play", "media_control", "set_volume", "open_app", "open_website"}
+ACTION_TOOLS = {"spotify_play", "media_control", "set_volume", "open_app", "open_website", "send_to_phone"}
 
 # Information tools whose "say" line IS the answer (exact data, no LLM rephrasing).
-EXACT_TOOLS = {"get_weather", "get_datetime", "calculate", "budget_status", "set_brain_mode"}
+EXACT_TOOLS = {"get_weather", "get_datetime", "calculate", "budget_status", "set_brain_mode", "convert_currency",
+               "crypto_price"}
 
 # Before a tool runs, the user's own words can fill or correct its arguments.
 ARG_FILLERS = {"get_weather": fill_from_words}
@@ -82,6 +83,9 @@ GUARDS = {
     "calculate": r"\d|\b(square root|percent|plus|minus|times|divided)\b",
     "budget_status": r"\b(budget|spent|spend|spending|cost|costs|credit|credits|money)\b",
     "set_brain_mode": r"\b(local|offline|cloud|online|claude|auto|automatic)\b",
+    "send_to_phone": r"\b(telegram|phone|text me|message me|send me)\b",
+    "convert_currency": r"\b(euros?|eur|dollars?|usd|pounds?|gbp|lei|ron|yen|francs?|currency|exchange|convert)\b|[€$£]",
+    "crypto_price": r"\b(bitcoin|btc|ethereum|eth|crypto|solana|sol|dogecoin|doge|cardano|ada|xrp|ripple)\b",
 }
 
 TOOL_SCHEMAS = [
@@ -102,6 +106,23 @@ TOOL_SCHEMAS = [
             "hour": {"type": "string", "description": "Optional time, copied EXACTLY as the user said it "
                                                       "('6', '6pm', '18:00', 'evening'). Never convert it."},
         }}}},
+    {"type": "function", "function": {
+        "name": "convert_currency",
+        "description": "Convert money between currencies at today's ECB rate, e.g. 'what's that in euros'.",
+        "parameters": {"type": "object", "properties": {
+            "amount": {"type": "number"}, "from_currency": {"type": "string", "description": "e.g. USD"},
+            "to_currency": {"type": "string", "description": "e.g. EUR"}}, "required": ["amount", "from_currency"]}}},
+    {"type": "function", "function": {
+        "name": "crypto_price",
+        "description": "Current price of a cryptocurrency (bitcoin, ethereum, solana...).",
+        "parameters": {"type": "object", "properties": {
+            "coin": {"type": "string"}, "currency": {"type": "string", "description": "Default EUR."}},
+            "required": ["coin"]}}},
+    {"type": "function", "function": {
+        "name": "send_to_phone",
+        "description": "Send the user a message on their phone (Telegram).",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "The message, in the user's words."}}, "required": ["text"]}}},
     {"type": "function", "function": {
         "name": "set_brain_mode",
         "description": "Switch where heavy thinking and skill-building run: cloud (Claude), local (private, free), or auto.",
@@ -128,7 +149,8 @@ TOOL_SCHEMAS = [
         "name": "spotify_play",
         "description": "Start music on Spotify: a genre, playlist, artist, or 'liked songs' if unspecified.",
         "parameters": {"type": "object", "properties": {
-            "what": {"type": "string", "description": "What to play, e.g. 'jazz', 'Deep Focus', 'liked songs'."}},
+            "what": {"type": "string", "description": "What to play, e.g. 'jazz', 'The Weeknd', 'my chill playlist', 'liked songs'."},
+            "device": {"type": "string", "description": "Only if the user names one: 'phone', 'computer', a speaker name."}},
             "required": ["what"]}}},
     {"type": "function", "function": {
         "name": "media_control",
@@ -277,8 +299,23 @@ def tool_web_search(query: str = "", **_):
         return {"result": json.dumps({"error": str(e)})}
 
 
-def tool_spotify_play(what: str = "", **_):
+def tool_spotify_play(what: str = "", device: str = "", **_):
     what = (what or "liked songs").strip()
+    from core import spotify as sp
+    if sp.connected():
+        try:
+            out = sp.get_spotify().play(what, device)
+            where = f" on {out['device']}" if device else ""
+            return {"result": json.dumps(out), "widget": {"kind": "nowplaying", "what": out["label"]},
+                    "say": f"Playing {out['label']}{where}, sir."}
+        except sp.PremiumRequired:
+            logger.warning("SPOTIFY: Premium required for control; falling back to opening Spotify")
+        except LookupError as e:
+            return {"result": json.dumps({"error": str(e)}), "say": f"{str(e)[0].upper()}{str(e)[1:]}, sir."}
+        except sp.NeedSpotifyAuth:
+            return {"result": json.dumps({"error": "not signed in"}), "say": sp.auth_message()}
+        except Exception as e:
+            logger.warning(f"SPOTIFY: API play failed ({e}); falling back")
     try:
         webbrowser.open(f"spotify:search:{what.replace(' ', '%20')}")
         if PYAUTOGUI_OK:
@@ -293,6 +330,14 @@ def tool_spotify_play(what: str = "", **_):
 def tool_media_control(action: str = "playpause", **_):
     keymap = {"playpause": "playpause", "next": "nexttrack", "previous": "prevtrack",
               "volup": "volumeup", "voldown": "volumedown", "mute": "volumemute"}
+    from core import spotify as sp
+    if sp.connected() and action in ("playpause", "next", "previous"):
+        try:
+            sp.get_spotify().control({"playpause": "toggle"}.get(action, action))
+            says = {"playpause": "Done, sir.", "next": "Skipping ahead, sir.", "previous": "Going back a track, sir."}
+            return {"result": json.dumps({"done": action, "via": "spotify"}), "say": says[action]}
+        except Exception as e:
+            logger.info(f"SPOTIFY: control via API failed ({e}); using media keys")
     if not PYAUTOGUI_OK:
         return {"result": json.dumps({"error": "media keys unavailable (pyautogui not installed)"})}
     try:
@@ -402,6 +447,63 @@ def tool_open_website(site: str = "", **_):
     return {"result": json.dumps({"opened": url, "how": how}), "say": say}
 
 
+_CUR = {"euro": "EUR", "euros": "EUR", "eur": "EUR", "€": "EUR", "dollar": "USD", "dollars": "USD", "usd": "USD", "$": "USD",
+        "pound": "GBP", "pounds": "GBP", "gbp": "GBP", "£": "GBP", "lei": "RON", "leu": "RON", "ron": "RON",
+        "yen": "JPY", "jpy": "JPY", "franc": "CHF", "francs": "CHF", "chf": "CHF", "zloty": "PLN", "pln": "PLN"}
+_COINS = {"bitcoin": "bitcoin", "btc": "bitcoin", "ethereum": "ethereum", "eth": "ethereum", "solana": "solana",
+          "sol": "solana", "dogecoin": "dogecoin", "doge": "dogecoin", "cardano": "cardano", "ada": "cardano",
+          "xrp": "ripple", "ripple": "ripple"}
+
+
+def _code(c: str, default: str = "EUR") -> str:
+    c = (c or "").strip().lower()
+    return _CUR.get(c, c.upper() if re.fullmatch(r"[a-z]{3}", c) else default)
+
+
+def _money(v: float) -> str:
+    return f"{v:,.0f}" if v >= 1000 else f"{v:,.2f}"
+
+
+def tool_convert_currency(amount: float = 0, from_currency: str = "USD", to_currency: str = "EUR", **_):
+    import httpx
+    src, dst = _code(from_currency, "USD"), _code(to_currency, "EUR")
+    try:
+        amount = float(str(amount).replace(",", ""))
+        r = httpx.get("https://api.frankfurter.app/latest", params={"amount": amount, "from": src, "to": dst}, timeout=10)
+        value = r.json()["rates"][dst]
+    except Exception as e:
+        return {"result": json.dumps({"error": f"no exchange rate ({e})"}), "say": "I couldn't get today's exchange rate, sir."}
+    return {"result": json.dumps({"amount": amount, "from": src, "to": dst, "value": value, "source": "ECB via Frankfurter"}),
+            "say": f"{_money(amount)} {src} is about {_money(value)} {dst} at today's rate, sir."}
+
+
+def tool_crypto_price(coin: str = "bitcoin", currency: str = "EUR", **_):
+    import httpx
+    cid = _COINS.get((coin or "").strip().lower(), (coin or "bitcoin").strip().lower())
+    cur = _code(currency, "EUR").lower()
+    try:
+        r = httpx.get("https://api.coingecko.com/api/v3/simple/price", params={"ids": cid, "vs_currencies": cur}, timeout=10)
+        value = r.json()[cid][cur]
+    except Exception as e:
+        return {"result": json.dumps({"error": f"no price for {coin} ({e})"}), "say": f"I couldn't get a price for {coin}, sir."}
+    names = {"EUR": "euros", "USD": "dollars", "GBP": "pounds", "RON": "lei"}
+    return {"result": json.dumps({"coin": cid, "currency": cur.upper(), "price": value, "source": "CoinGecko"}),
+            "say": f"{cid.capitalize()} is at {_money(value)} {names.get(cur.upper(), cur.upper())} right now, sir."}
+
+
+def tool_send_to_phone(text: str = "", **_):
+    from core.telegram_bridge import active, send_from_thread
+    if not active():
+        return {"result": json.dumps({"error": "Telegram not paired"}),
+                "say": "Telegram isn't connected yet, sir. See the Telegram section in docs/CAPABILITIES.md."}
+    text = (text or "").strip()
+    if not text:
+        return {"result": json.dumps({"error": "no text"}), "say": "What should the message say, sir?"}
+    ok = send_from_thread(text)
+    return ({"result": json.dumps({"sent": text}), "say": "Sent to your phone, sir."} if ok else
+            {"result": json.dumps({"error": "send failed"}), "say": "Telegram didn't take the message, sir."})
+
+
 def tool_set_brain_mode(mode: str = "auto", **_):
     from core.brain import get_brain
     b = get_brain()
@@ -428,6 +530,9 @@ REGISTRY = {
     "calculate": tool_calculate,
     "budget_status": tool_budget_status,
     "set_brain_mode": tool_set_brain_mode,
+    "send_to_phone": tool_send_to_phone,
+    "convert_currency": tool_convert_currency,
+    "crypto_price": tool_crypto_price,
     "web_search": tool_web_search,
     "spotify_play": tool_spotify_play,
     "media_control": tool_media_control,

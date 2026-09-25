@@ -60,8 +60,9 @@ def forge_build(request: str = "", **_):
     say = (f"I've drafted a skill called {_pretty(p.name)}. {p.summary}{net} It passed the security review and "
            f"{p.tests_passed} tests. {cost} Shall I install it, sir?").replace("  ", " ")
     return {"result": json.dumps({"status": "ready", "name": p.name, "tools": p.tools}), "exact": True, "say": say,
-            "widget": {"kind": "note", "title": f"New skill · {_pretty(p.name)}",
-                       "text": f"{p.summary} Tools: {', '.join(p.tools) or 'n/a'}.{net}"},
+            "widget": {"kind": "forge", "name": _pretty(p.name), "summary": p.summary, "tools": p.tools,
+                       "hosts": p.network_hosts, "tests": p.tests_passed, "review_passed": True,
+                       "cost": (f"EUR {p.cost_eur:.2f}" if p.cost_eur >= 0.005 else "Free, built locally")},
             "confirm_next": {"tool": "forge_install", "args": {"name": p.name},
                              "desc": f"install the {_pretty(p.name)} skill"}}
 

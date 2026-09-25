@@ -6,6 +6,15 @@ from datetime import datetime, timedelta
 from core.oracle import briefing, describe_routine, get_oracle, parse_routine, when_words
 from core.timeparse import parse_when
 
+
+def _fill_reminder(args: dict, text: str) -> dict:
+    """The model may invent a time ('in 2 minutes'). Keep it only if the user's words contain a time."""
+    out = dict(args)
+    if out.get("when") and parse_when(text or "") is None and parse_when(out["when"]) is not None \
+            and not any(w in (text or "").lower() for w in ("minute", "hour", "tomorrow", "tonight", " at ", " in ")):
+        out.pop("when")
+    return out
+
 TOOLS = [
     {"type": "function", "function": {
         "name": "set_reminder",
@@ -128,6 +137,7 @@ FUNCTIONS = {"set_reminder": set_reminder, "list_reminders": list_reminders, "ca
              "snooze_reminder": snooze_reminder, "do_not_disturb": do_not_disturb, "morning_briefing": morning_briefing,
              "schedule_routine": schedule_routine, "list_routines": list_routines, "cancel_routine": cancel_routine}
 ACKS = {"morning_briefing": None}
+FILLERS = {"set_reminder": _fill_reminder}
 ACTIONS = ["set_reminder", "cancel_reminder", "snooze_reminder", "do_not_disturb", "schedule_routine", "cancel_routine"]
 GUARDS = {"set_reminder": r"\b(remind|reminder|remember to|don'?t let me forget)\b",
           "cancel_reminder": r"\b(cancel|delete|remove|forget)\b.*\breminder|\breminder\b",

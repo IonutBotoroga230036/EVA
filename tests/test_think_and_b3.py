@@ -185,5 +185,5 @@ def test_invented_number_is_retried_then_replaced(tmp_path, monkeypatch):
     client, seen = fake_ollama(decisions=[{"tool": "web_search", "query": "bitcoin price euro"}],
                                answer="The price is €84,294.87, sir.")          # the model keeps inventing it
     monkeypatch.setattr(orch_mod.httpx, "AsyncClient", client)
-    final = run_turn(orch(tmp_path), "what's the price of bitcoin in euros")[-1]["text"]
+    final = run_turn(orch(tmp_path), "search the web for the latest btc to eur rate")[-1]["text"]
     assert "84,294" not in final and "74,045.5" in final and seen["answers"] == 2

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>E.V.A.</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="#08060f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#08060f;--void2:#0d0a1c;--panel:rgba(28,20,52,0.55);--panel-line:rgba(168,120,255,0.22);
+    --violet:#8b5cf6;--violet-bright:#a855f7;--magenta:#c026d3;--plasma:#c4a4ff;--ice:#efeaff;--dim:#7a7196;
+    --glow:rgba(139,92,246,0.55);
+    box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:radial-gradient(120% 90% at 50% 8%, #17102e 0%, var(--void2) 42%, var(--void) 100%);
+    color:var(--ice);font-family:"Inter",system-ui,sans-serif;overflow:hidden;position:fixed;inset:0;-webkit-font-smoothing:antialiased}
+  .grain{position:fixed;inset:0;pointer-events:none;opacity:.5;
+    background-image:radial-gradient(rgba(168,120,255,.10) 1px, transparent 1px);background-size:38px 38px;
+    mask-image:radial-gradient(80% 80% at 50% 40%, #000 30%, transparent 100%);
+    -webkit-mask-image:radial-gradient(80% 80% at 50% 40%, #000 30%, transparent 100%)}
+  #stage{position:relative;height:100%;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .topbar{position:absolute;top:calc(env(safe-area-inset-top,0px) + 18px);left:0;right:0;display:flex;
+    justify-content:space-between;align-items:center;padding:0 22px;font-family:"Chakra Petch",sans-serif;
+    font-size:12px;letter-spacing:.14em;color:var(--dim)}
+  .topbar .name{color:var(--plasma);font-weight:500}
+  .topbar .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#e05252;margin-right:7px;
+    box-shadow:0 0 10px #e05252;vertical-align:middle;transition:all .4s}
+  .topbar .dot.live{background:var(--violet-bright);box-shadow:0 0 10px var(--violet-bright)}
+  .core-wrap{position:relative;display:flex;align-items:center;justify-content:center}
+  canvas#core{display:block;touch-action:manipulation;cursor:pointer}
+  .caption{position:absolute;bottom:-64px;left:50%;transform:translateX(-50%);width:min(86vw,520px);text-align:center;
+    font-family:"Chakra Petch",sans-serif;font-weight:300;font-size:clamp(15px,2.4vw,19px);line-height:1.5;
+    color:var(--ice);min-height:2.6em;text-wrap:balance}
+  .caption .hint{color:var(--dim);font-size:.86em}
+  .deck{position:absolute;top:calc(env(safe-area-inset-top,0px) + 60px);left:50%;transform:translateX(-50%);
+    width:min(92vw,440px);display:flex;flex-direction:column;gap:10px;pointer-events:none;z-index:5}
+  .widget{pointer-events:auto;background:var(--panel);border:1px solid var(--panel-line);border-radius:18px;
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);padding:16px 18px;
+    box-shadow:0 18px 50px -20px rgba(120,60,220,.6), inset 0 1px 0 rgba(255,255,255,.05);
+    opacity:0;transform:translateY(-12px) scale(.98);animation:widgetIn .5s cubic-bezier(.2,.8,.2,1) forwards}
+  .widget.out{animation:widgetOut .4s ease forwards}
+  @keyframes widgetIn{to{opacity:1;transform:translateY(0) scale(1)}}
+  @keyframes widgetOut{to{opacity:0;transform:translateY(-10px) scale(.98)}}
+  .widget .wtitle{font-family:"Chakra Petch",sans-serif;font-size:11px;letter-spacing:.16em;color:var(--plasma);margin-bottom:8px;font-weight:500}
+  .widget .wbig{font-family:"Chakra Petch",sans-serif;font-weight:400;font-size:40px;line-height:1;color:var(--ice)}
+  .widget .wsub{color:var(--dim);font-size:13px;margin-top:6px}
+  .wrow{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-top:1px solid rgba(168,120,255,.10)}
+  .wrow:first-of-type{border-top:none}
+  .wrow .t{color:var(--plasma);font-family:"Chakra Petch",sans-serif;font-size:13px;min-width:66px}
+  .wrow .l{color:var(--ice);font-size:14px;text-align:right;flex:1}
+  .nowplaying{display:flex;align-items:center;gap:14px}
+  .npart{width:52px;height:52px;border-radius:12px;flex:none;background:linear-gradient(135deg,var(--violet),var(--magenta));
+    display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 8px 24px -6px var(--glow)}
+  .bars{display:flex;gap:3px;align-items:flex-end;height:20px;margin-top:8px}
+  .bars span{width:3px;background:var(--violet-bright);border-radius:2px;animation:eq 1s ease-in-out infinite}
+  .bars span:nth-child(2){animation-delay:.15s}.bars span:nth-child(3){animation-delay:.3s}
+  .bars span:nth-child(4){animation-delay:.45s}.bars span:nth-child(5){animation-delay:.6s}
+  @keyframes eq{0%,100%{height:5px}50%{height:20px}}
+  .dock{position:absolute;bottom:calc(env(safe-area-inset-bottom,0px) + 26px);left:0;right:0;display:flex;
+    flex-direction:column;align-items:center;gap:16px}
+  .controls{display:flex;align-items:center;gap:20px}
+  .btn{width:52px;height:52px;border-radius:50%;border:1px solid var(--panel-line);background:var(--panel);
+    color:var(--plasma);font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:transform .18s,border-color .2s,color .2s;
+    -webkit-tap-highlight-color:transparent}
+  .btn:hover{transform:translateY(-2px)}.btn:active{transform:scale(.94)}
+  .btn.mic{width:66px;height:66px;font-size:26px;background:radial-gradient(circle at 50% 35%, rgba(168,120,255,.35), var(--panel));color:var(--ice)}
+  .btn.on{color:#fff;border-color:var(--violet-bright);box-shadow:0 0 22px -2px var(--violet-bright)}
+  .btn.wake.on{background:radial-gradient(circle at 50% 35%, rgba(192,38,211,.4), var(--panel))}
+  .textbar{display:none;width:min(92vw,460px);align-items:center;gap:10px;background:var(--panel);
+    border:1px solid var(--panel-line);border-radius:16px;padding:8px 8px 8px 16px;
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .textbar.show{display:flex}
+  .textbar input{flex:1;background:none;border:none;outline:none;color:var(--ice);font-family:"Inter",sans-serif;font-size:15px}
+  .textbar input::placeholder{color:var(--dim)}
+  .textbar button{border:none;border-radius:11px;padding:9px 14px;cursor:pointer;
+    background:linear-gradient(135deg,var(--violet),var(--magenta));color:#fff;font-family:"Chakra Petch",sans-serif;font-size:13px}
+  .wbtns{display:flex;gap:10px;margin-top:14px}
+  .wbtn{flex:1;border:1px solid var(--panel-line);border-radius:12px;padding:10px 0;cursor:pointer;
+    background:rgba(255,255,255,.04);color:var(--ice);font-family:"Chakra Petch",sans-serif;font-size:14px;letter-spacing:.04em}
+  .wbtn.yes{background:linear-gradient(135deg,var(--violet),var(--magenta));border-color:transparent;color:#fff}
+  .wbtn:focus-visible{outline:2px solid var(--plasma);outline-offset:2px}
+  .label{font-family:"Chakra Petch",sans-serif;font-size:10px;letter-spacing:.18em;color:var(--dim)}
+  @media (prefers-reduced-motion: reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important}}
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div id="stage">
+  <div class="topbar">
+    <div><span class="dot" id="conn"></span><span class="name">E.V.A.</span></div>
+    <div id="clock">--:--</div>
+  </div>
+  <div class="deck" id="deck"></div>
+  <div class="core-wrap">
+    <canvas id="core" width="640" height="640"></canvas>
+    <div class="caption" id="caption">Good to see you, sir.<br><span class="hint">Connecting…</span></div>
+  </div>
+  <div class="dock">
+    <div class="textbar" id="textbar">
+      <input id="textin" type="text" placeholder="Type to E.V.A." autocomplete="off">
+      <button id="send">Send</button>
+    </div>
+    <div class="controls">
+      <button class="btn wake" id="wakeBtn" title="Always listen for the wake word">◎</button>
+      <button class="btn mic" id="micBtn" title="Hold to talk">🎙</button>
+      <button class="btn" id="kbBtn" title="Type instead">⌨</button>
+    </div>
+    <div class="label" id="statelabel">standby</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ===== Reactor core (unchanged visuals) ===== */
+const cv=document.getElementById('core'),ctx=cv.getContext('2d');
+let DPR=Math.min(window.devicePixelRatio||1,2);
+function sizeCore(){const s=Math.min(innerWidth,innerHeight)*(innerWidth<520?0.74:0.52);
+  cv.style.width=s+'px';cv.style.height=s+'px';cv.width=s*DPR;cv.height=s*DPR;}
+sizeCore();addEventListener('resize',sizeCore);
+const STATE={mode:'idle',energy:0,target:0,t:0};
+const MC={idle:[139,92,246],listening:[168,120,255],thinking:[192,38,211],speaking:[196,164,255]};
+const lerp=(a,b,n)=>a+(b-a)*n,mix=(c,d,n)=>[lerp(c[0],d[0],n),lerp(c[1],d[1],n),lerp(c[2],d[2],n)];
+let cur=MC.idle.slice();
+function draw(){STATE.t+=0.016;STATE.energy=lerp(STATE.energy,STATE.target,0.08);
+  cur=mix(cur,MC[STATE.mode],0.06);const[r,g,b]=cur.map(Math.round);const rgb=a=>`rgba(${r},${g},${b},${a})`;
+  const W=cv.width,H=cv.height,cx=W/2,cy=H/2,base=Math.min(W,H)/2;ctx.clearRect(0,0,W,H);ctx.globalCompositeOperation='lighter';
+  const e=STATE.energy,pulse=Math.sin(STATE.t*(STATE.mode==='speaking'?9:2.2))*(0.5+e*0.5),spin=STATE.t*(0.15+e*0.6);
+  const glowR=base*(0.62+0.05*pulse+e*0.06),gg=ctx.createRadialGradient(cx,cy,glowR*0.1,cx,cy,glowR);
+  gg.addColorStop(0,rgb(0.30+e*0.25));gg.addColorStop(0.5,rgb(0.10+e*0.10));gg.addColorStop(1,rgb(0));
+  ctx.fillStyle=gg;ctx.beginPath();ctx.arc(cx,cy,glowR,0,7);ctx.fill();
+  for(let i=0;i<3;i++){const rr=base*(0.30+i*0.11),dir=i%2===0?1:-1,segs=3+i;
+    ctx.lineWidth=base*0.006*(1+e);ctx.strokeStyle=rgb(0.5-i*0.1+e*0.3);
+    for(let s=0;s<segs;s++){const a0=spin*dir+s*(Math.PI*2/segs),len=(Math.PI*2/segs)*0.5;
+      ctx.beginPath();ctx.arc(cx,cy,rr,a0,a0+len);ctx.stroke();}}
+  if(STATE.mode==='listening'){const rr=base*0.52;ctx.lineWidth=base*0.004;ctx.strokeStyle=rgb(0.75);ctx.beginPath();
+    const N=96;for(let k=0;k<=N;k++){const a=(k/N)*Math.PI*2,amp=(Math.sin(a*7+STATE.t*6)*0.5+0.5)*(0.06+e*0.10),rad=rr*(1+amp);
+      const x=cx+Math.cos(a)*rad,y=cy+Math.sin(a)*rad;k===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();}
+  const pc=14;for(let i=0;i<pc;i++){const a=spin*1.6+i*(Math.PI*2/pc),orb=base*(0.44+0.05*Math.sin(STATE.t*1.5+i));
+    const x=cx+Math.cos(a)*orb,y=cy+Math.sin(a)*orb,pr=base*0.010*(0.6+(i%3===0?1:0.4)+e*0.5);
+    ctx.fillStyle=rgb(0.8);ctx.beginPath();ctx.arc(x,y,pr,0,7);ctx.fill();}
+  const coreR=base*(0.20+0.03*pulse+e*0.04),cg=ctx.createRadialGradient(cx,cy,0,cx,cy,coreR);
+  cg.addColorStop(0,'rgba(255,255,255,0.9)');cg.addColorStop(0.35,rgb(0.9));cg.addColorStop(1,rgb(0.05));
+  ctx.fillStyle=cg;ctx.beginPath();ctx.arc(cx,cy,coreR,0,7);ctx.fill();
+  ctx.globalCompositeOperation='source-over';requestAnimationFrame(draw);}
+draw();
+function setMode(m){STATE.mode=m;STATE.target=m==='idle'?0.12:m==='listening'?0.6:m==='thinking'?0.85:1.0;
+  document.getElementById('statelabel').textContent=m==='idle'?'standby':m;}
+
+/* ===== Caption + widgets ===== */
+const captionEl=document.getElementById('caption');
+function say(t,h){captionEl.innerHTML=esc(t)+(h?`<br><span class="hint">${esc(h)}</span>`:'');}
+function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+const deck=document.getElementById('deck');
+function clearWidgets(){[...deck.children].forEach(w=>{w.classList.add('out');setTimeout(()=>w.remove(),380);});}
+function widgetHTML(html,ttl=14000){clearWidgets();const w=document.createElement('div');w.className='widget';w.innerHTML=html;
+  deck.appendChild(w);if(ttl)setTimeout(()=>{w.classList.add('out');setTimeout(()=>w.remove(),380);},ttl);}
+function renderWidget(d){
+  if(!d||!d.kind)return;
+  if(d.kind==='clock')widgetHTML(`<div class="wtitle">Time</div><div class="wbig">${esc(d.time)}</div><div class="wsub">${esc(d.date)}</div>`);
+  else if(d.kind==='weather'){
+    const bits=[d.conditions];
+    if(d.feels_like_c!=null&&d.feels_like_c!==d.temp_c)bits.push(`feels ${d.feels_like_c}°`);
+    if(d.high_c!=null)bits.push(`${d.high_c}° / ${d.low_c}°`);
+    if(d.rain_chance_pct!=null)bits.push(`rain ${d.rain_chance_pct}%`);
+    else if(d.rain_mm!=null)bits.push(`${d.rain_mm} mm rain`);
+    if(d.wind_kmh!=null)bits.push(`wind ${d.wind_kmh} km/h`);
+    const big=d.temp_c!=null?d.temp_c:d.high_c;
+    widgetHTML(`<div class="wtitle">${esc(d.when||'Weather')} · ${esc(d.city)}</div><div class="wbig">${esc(big)}°</div>
+      <div class="wsub">${bits.filter(Boolean).map(esc).join(' · ')}</div>${d.note?`<div class="wsub">${esc(d.note)}</div>`:''}
+      ${d.source?`<div class="wsub" style="opacity:.6;font-size:11px;margin-top:8px">${esc(d.source)}</div>`:''}`);
+  }
+  else if(d.kind==='nowplaying')widgetHTML(`<div class="nowplaying"><div class="npart">♪</div>
+    <div><div class="wtitle" style="margin-bottom:4px">Now playing</div><div style="font-size:15px">${esc(d.what)}</div>
+    <div class="bars"><span></span><span></span><span></span><span></span><span></span></div></div></div>`);
+  else if(d.kind==='confirm'){
+    widgetHTML(`<div class="wtitle">${esc(d.title||'Confirm')}</div><div style="font-size:15px">${esc(d.text)}</div>
+      <div class="wbtns"><button class="wbtn yes" data-reply="yes">Go ahead</button><button class="wbtn" data-reply="no">Cancel</button></div>`,60000);
+    deck.querySelectorAll('.wbtn').forEach(b=>b.addEventListener('click',()=>{lastWasVoice=false;clearWidgets();sendToEva(b.dataset.reply);}));
+  }
+  else if(d.kind==='calendar'&&Array.isArray(d.events))widgetHTML(`<div class="wtitle">${esc(d.title||'Today')}</div>`+
+    (d.events.length?d.events.map(ev=>`<div class="wrow"><span class="t">${esc((ev.day?ev.day+' ':'')+ev.time)}</span><span class="l">${esc(ev.title)}</span></div>`).join('')
+      :`<div class="wsub">Nothing scheduled.</div>`),18000);
+  else if(d.kind==='email'&&Array.isArray(d.emails))widgetHTML(`<div class="wtitle">${esc(d.title||'Email')}</div>`+
+    (d.emails.length?d.emails.map(m=>`<div class="wrow" style="flex-direction:column;align-items:flex-start;gap:2px">
+      <span class="t" style="min-width:0">${esc(m.from)}</span><span class="l" style="text-align:left">${esc(m.subject)}</span>
+      ${m.snippet?`<span class="wsub" style="margin-top:0">${esc(m.snippet)}</span>`:''}</div>`).join('')
+      :`<div class="wsub">Inbox clear.</div>`),18000);
+  else if(d.title)widgetHTML(`<div class="wtitle">${esc(d.title)}</div><div style="font-size:15px">${esc(d.text)}</div>`);
+}
+
+/* ===== Speech recognition primitives ===== */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null,followRec=null,wakeRec=null,wakeMode=false,lastWasVoice=false,lastSpoken="";
+function stopAllListening(){       // half-duplex: never listen while she speaks
+  for(const r of [rec,followRec,wakeRec]){ if(r){ try{r.onend=null;r.stop();}catch(_){}}}
+  rec=followRec=wakeRec=null;
+}
+
+/* ===== Voice out ===================================================================
+   'kokoro'  : her real voice. The server streams one WAV per sentence; we play them
+               strictly in seq order and drop audio from any turn we've moved past.
+   'browser' : fallback (Kokoro not installed, or backend offline): speechSynthesis.
+   ================================================================================== */
+let ttsMode='browser';
+const Player={ctx:null,accept:-1,expect:0,bufs:new Map(),total:null,src:null,playing:false,then:null,wake:null,watchdog:null};
+function actx(){
+  if(!Player.ctx){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;Player.ctx=new C();}
+  if(Player.ctx.state==='suspended')Player.ctx.resume();
+  return Player.ctx;
+}
+['click','keydown','touchstart'].forEach(n=>addEventListener(n,()=>actx(),{passive:true}));   // autoplay policy
+function b64ToArrayBuffer(b64){const bin=atob(b64),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u.buffer;}
+function decodeWav(b64){
+  const c=actx(); if(!c)return Promise.resolve(null);
+  return new Promise(res=>{try{c.decodeAudioData(b64ToArrayBuffer(b64),res,()=>res(null));}catch(_){res(null);}});
+}
+function isSpeaking(){return Player.playing||('speechSynthesis'in window&&speechSynthesis.speaking);}
+function playBuffer(buf,onend){
+  const c=actx(); if(!c||!buf){onend&&onend();return;}
+  stopAllListening(); setMode('speaking');
+  const src=c.createBufferSource(); src.buffer=buf; src.connect(c.destination);
+  src.onended=()=>{ if(Player.src===src){Player.src=null;Player.playing=false;onend&&onend();} };
+  Player.src=src; Player.playing=true; src.start();
+}
+function stopAudio(){
+  Player.accept=-1; Player.bufs.clear(); Player.total=null; Player.then=null; clearTimeout(Player.watchdog);
+  if(Player.src){const s=Player.src;Player.src=null;try{s.onended=null;s.stop();}catch(_){}}
+  Player.playing=false;
+  if('speechSynthesis'in window)speechSynthesis.cancel();
+}
+function beginTurn(turn){
+  stopAudio(); Player.accept=turn; Player.expect=0;
+  Player.then=(lastWasVoice||wakeMode)?startFollowUp:null;
+}
+function kick(){                          // inactivity watchdog: only fires if audio truly stopped
+  clearTimeout(Player.watchdog);
+  Player.watchdog=setTimeout(()=>{ if(!Player.playing&&Player.accept>=0&&Player.total===null)finishSpeech(); },12000);
+}
+function onAudio(ev){
+  if(ev.turn!==Player.accept)return;
+  kick();
+  decodeWav(ev.audio).then(buf=>{ if(ev.turn!==Player.accept)return; Player.bufs.set(ev.seq,buf); pump(); });
+}
+function onAudioEnd(ev){ if(ev.turn!==Player.accept)return; Player.total=ev.count; pump(); }
+function pump(){
+  if(Player.playing||Player.accept<0)return;
+  if(Player.bufs.has(Player.expect)){
+    const buf=Player.bufs.get(Player.expect); Player.bufs.delete(Player.expect); Player.expect++;
+    if(!buf){pump();return;}                      // a chunk that failed to decode: skip it
+    playBuffer(buf,()=>{kick();pump();}); return;
+  }
+  if(Player.total!==null&&Player.expect>=Player.total)finishSpeech();
+}
+function finishSpeech(){
+  const cb=Player.then; Player.then=null; Player.total=null; Player.accept=-1; clearTimeout(Player.watchdog);
+  setMode('idle'); if(cb)cb(); else if(wakeMode)ensureWake();
+}
+function playWake(then){
+  if(ttsMode==='kokoro'&&Player.wake){stopAudio();playBuffer(Player.wake,()=>{setMode('listening');then&&then();});}
+  else speak("Yes, sir?",{then});
+}
+
+/* browser fallback voice */
+let evaVoice=null,afterSpeech=null;
+function pickVoice(){const vs=speechSynthesis.getVoices();
+  evaVoice=vs.find(v=>/en.*(aria|jenny|libby|female|zira|samantha)/i.test(v.name))||vs.find(v=>/en-GB/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||vs[0]||null;}
+if('speechSynthesis'in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
+function speak(text,{interrupt=false,then=null}={}){
+  if(!('speechSynthesis'in window)||!text){then&&then();return;}
+  if(text===lastSpoken){ if(then) afterSpeech=then; return; }
+  lastSpoken=text;
+  if(interrupt)speechSynthesis.cancel();
+  if(then) afterSpeech=then;
+  stopAllListening();
+  const u=new SpeechSynthesisUtterance(text);if(evaVoice)u.voice=evaVoice;u.rate=1.02;u.pitch=1.02;
+  u.onstart=()=>setMode('speaking');
+  u.onend=()=>{
+    if(!speechSynthesis.pending && !speechSynthesis.speaking){
+      const cb=afterSpeech; afterSpeech=null; setMode('idle'); lastSpoken="";
+      if(cb) cb(); else if(wakeMode) ensureWake();
+    }
+  };
+  speechSynthesis.speak(u);
+}
+
+/* ===== WebSocket to the local backend ===== */
+let ws=null,connected=false,streamBuf='';
+function connect(){
+  const proto=location.protocol==='https:'?'wss':'ws';
+  try{ws=new WebSocket(`${proto}://${location.host}/ws`);}catch(_){demoOnly();return;}
+  ws.onopen=()=>{connected=true;document.getElementById('conn').classList.add('live');
+    say("Good to see you, sir.","Tap the core or hold the mic to speak.");};
+  ws.onclose=()=>{connected=false;ttsMode='browser';document.getElementById('conn').classList.remove('live');setTimeout(connect,2500);};
+  ws.onerror=()=>{};
+  ws.onmessage=(e)=>{
+    const ev=JSON.parse(e.data);
+    switch(ev.type){
+      case 'hello': ttsMode=ev.tts||'browser'; break;
+      case 'phrase': if(ev.key==='wake')decodeWav(ev.audio).then(b=>{Player.wake=b;}); break;
+      case 'turn_start': beginTurn(ev.turn); streamBuf=''; break;
+      case 'heard': say(ev.text,'heard'); break;
+      case 'audio': onAudio(ev); break;
+      case 'audio_end': onAudioEnd(ev); break;
+      case 'ack': setMode('thinking'); say(ev.text); if(ttsMode!=='kokoro')speak(ev.text); break;
+      case 'token': streamBuf+=ev.text; say(streamBuf); break;
+      case 'widget': renderWidget(ev.data); break;
+      case 'final': {
+        const t=ev.text||streamBuf; say(t); streamBuf='';
+        if(ttsMode!=='kokoro'){ speak(t,{then:(lastWasVoice||wakeMode)?startFollowUp:null}); }
+        else kick();                                          // never leave the core stuck
+        break;
+      }
+    }
+  };
+}
+function bargeIn(){                        // stop her mid-sentence
+  const busy=isSpeaking()||STATE.mode==='thinking';
+  stopAudio();
+  if(busy&&connected&&ws&&ws.readyState===1)ws.send(JSON.stringify({type:'stop'}));
+}
+function sendToEva(text){
+  if(!text)return;
+  say(text,'heard');streamBuf='';lastSpoken="";
+  stopAudio();stopAllListening();
+  if(connected&&ws&&ws.readyState===1){setMode('thinking');ws.send(JSON.stringify({type:'message',text,voice:!!lastWasVoice}));}
+  else{demoRoute(text);}
+}
+function demoOnly(){connected=false;say("Running in preview mode, sir.","backend not connected");}
+function demoRoute(input){setMode('thinking');
+  const now=new Date(),hm=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  const reply=(t,w)=>setTimeout(()=>{say(t);speak(t,{then:(lastWasVoice||wakeMode)?startFollowUp:null});if(w)renderWidget(w);},500);
+  if(/\b(time|clock|hour)\b/.test(input.toLowerCase()))reply(`It's ${hm}, sir.`,{kind:'clock',time:hm,date:now.toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'})});
+  else reply("Preview mode has no backend, sir. Start the server to bring me fully online.");
+}
+
+/* ===== Listen once (mic tap / hold) ===== */
+function listenOnce(){
+  if(!SR){say("Voice input needs Chrome, sir.","use the keyboard");return;}
+  bargeIn();stopAllListening();
+  rec=new SR();rec.lang='en-US';rec.interimResults=true;rec.continuous=false;
+  let fin='';setMode('listening');say("Listening…");
+  rec.onresult=e=>{let itm='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;
+    if(e.results[i].isFinal)fin+=t;else itm+=t;}say(fin||itm||"Listening…");};
+  rec.onerror=()=>setMode('idle');
+  rec.onend=()=>{const done=fin.trim();rec=null;if(done){lastWasVoice=true;sendToEva(done);}else{setMode('idle');if(wakeMode)ensureWake();}};
+  rec.start();
+}
+
+/* ===== Follow-up: listen right after she speaks, NO wake word, short window ===== */
+function startFollowUp(){
+  if(!SR){if(wakeMode)ensureWake();return;}
+  stopAllListening();
+  followRec=new SR();followRec.lang='en-US';followRec.interimResults=true;followRec.continuous=false;
+  let fin='';setMode('listening');say("","listening…");
+  const timer=setTimeout(()=>{try{followRec&&followRec.stop();}catch(_){}} ,7000);
+  followRec.onresult=e=>{let itm='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;
+    if(e.results[i].isFinal)fin+=t;else itm+=t;}say(fin||itm||"");};
+  followRec.onerror=()=>{clearTimeout(timer);};
+  followRec.onend=()=>{clearTimeout(timer);const done=fin.trim();followRec=null;
+    if(done){lastWasVoice=true;sendToEva(done);}else{setMode('idle');if(wakeMode)ensureWake();}};
+  try{followRec.start();}catch(_){setMode('idle');if(wakeMode)ensureWake();}
+}
+
+/* ===== Wake word (continuous) ===== */
+function ensureWake(){ if(wakeMode && SR && !wakeRec && !isSpeaking() && STATE.mode!=='listening') startWake(); }
+function toggleWake(){
+  if(!SR){say("Wake word needs Chrome, sir.");return;}
+  wakeMode=!wakeMode;document.getElementById('wakeBtn').classList.toggle('on',wakeMode);
+  if(wakeMode){startWake();say("Always listening, sir.","say “Eva” to wake me");}
+  else{stopAllListening();setMode('idle');say("Wake word off, sir.");}
+}
+function startWake(){
+  if(wakeRec)return;
+  wakeRec=new SR();wakeRec.lang='en-US';wakeRec.interimResults=true;wakeRec.continuous=true;let armed=false;
+  wakeRec.onresult=e=>{const last=e.results[e.results.length-1],t=last[0].transcript.toLowerCase();
+    if(!armed&&/\b(eva|eve|ava|hey eva)\b/.test(t)){
+      const cmd=t.replace(/.*\b(hey eva|eva|eve|ava)\b[\s,]*/,'').trim();
+      if(last.isFinal&&cmd.length>2){lastWasVoice=true;sendToEva(cmd);return;}   // "Eva, what time is it" in one breath
+      armed=true;say("Yes, sir?");playWake(startFollowUp);
+    }
+    else if(armed&&last.isFinal){const cmd=t.replace(/\b(eva|eve|ava|hey eva)\b/,'').trim();if(cmd.length>2){armed=false;lastWasVoice=true;sendToEva(cmd);}}};
+  wakeRec.onerror=()=>{};
+  wakeRec.onend=()=>{wakeRec=null;setTimeout(ensureWake,400);};   // browser auto-stops; restart when idle
+  try{wakeRec.start();}catch(_){wakeRec=null;}
+}
+
+/* ===== Wiring ===== */
+document.getElementById('micBtn').addEventListener('click',()=>{STATE.mode==='listening'?stopAllListening():listenOnce();});
+document.getElementById('wakeBtn').addEventListener('click',toggleWake);
+cv.addEventListener('click',()=>{(STATE.mode==='idle'||STATE.mode==='speaking'||STATE.mode==='thinking')&&listenOnce();});
+const textbar=document.getElementById('textbar'),textin=document.getElementById('textin');
+document.getElementById('kbBtn').addEventListener('click',()=>{textbar.classList.toggle('show');textbar.classList.contains('show')&&textin.focus();});
+function sendText(){const v=textin.value.trim();if(!v)return;textin.value='';lastWasVoice=false;sendToEva(v);}
+document.getElementById('send').addEventListener('click',sendText);
+textin.addEventListener('keydown',e=>{e.key==='Enter'&&sendText();});
+function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
+tick();setInterval(tick,10000);setMode('idle');connect();
+if('serviceWorker'in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}   // makes her installable as an app
+</script>
+</body>
+</html>

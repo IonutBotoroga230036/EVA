@@ -20,7 +20,7 @@ from pathlib import Path
 
 EVA_MD = Path("EVA.md")
 EVA_LOCAL_MD = Path("EVA.local.md")     # git-ignored: private context and vocabulary
-MAX_EVA_MD_CHARS = 3000
+MAX_EVA_MD_CHARS = 6000          # EVA.md + EVA.local.md together, about 1,500 tokens
 VOCAB_SECTION = "## Vocabulary"
 SECTION = "## Standing instructions"
 

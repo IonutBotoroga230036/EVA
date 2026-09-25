@@ -109,6 +109,25 @@ def free_slots(google, day: str = "today", duration_minutes: int = 30, now: Opti
             "say": f"You're free {span} {_join(words)}, sir."}
 
 
+def shift_events(google, minutes: int = 60, day: str = "today", now: Optional[datetime] = None) -> dict:
+    """Move every timed event still ahead (today, or the given day) by N minutes."""
+    now = now or datetime.now()
+    start, end, label = day_window(day, now.date())
+    events = [e for e in google.list_events(start, end, max_results=50)
+              if not e["all_day"] and e["start"] and (label != "today" or e["start"] > now)]
+    if not events:
+        return {"moved": 0, "say": f"There's nothing left to move {label}, sir."}
+    delta = timedelta(minutes=int(minutes))
+    for e in events:
+        google.move_event(e["id"], e["start"] + delta, (e["end"] or e["start"]) + delta)
+    first = events[0]
+    amount = f"{abs(int(minutes)) // 60} hour{'s' if abs(int(minutes)) >= 120 else ''}" if int(minutes) % 60 == 0 \
+        else f"{abs(int(minutes))} minutes"
+    return {"moved": len(events), "say": f"Moved {len(events)} event{'s' if len(events) != 1 else ''} {amount} "
+                                         f"{'later' if minutes > 0 else 'earlier'}, sir. {first['title']} is now at "
+                                         f"{_hm(first['start'] + delta)}."}
+
+
 def resolve_start(day: str, time_text: str, now: Optional[datetime] = None) -> Optional[datetime]:
     now = now or datetime.now()
     phrase, _ = extract_when(day or "")
@@ -152,9 +171,32 @@ def delete_event(google, title: str, day: str = "today") -> dict:
     return {"deleted": e["title"], "say": f"Removed {e['title']} on {e['start']:%A}{when}, sir."}
 
 
+_LEAD = re.compile(r"^(?:please |can you |could you |i want you to )*(?:add|put|create|schedule|book|make|plan)"
+                   r"(?: an?| the| new)?\s+", re.I)
+_GENERIC = re.compile(r"^(?:event|appointment|block|entry|item)\b(?:\s+(?:for|called|named|titled|about))?\s*", re.I)
+_NOW = re.compile(r"\b(right now|now|immediately)\b", re.I)
+
+
+def clean_title(title: str) -> str:
+    """'add a meeting with Tom to my calendar' -> 'Meeting with Tom'; 'add an event for right now' -> 'Event'."""
+    t = _LEAD.sub("", (title or "").strip())
+    t = re.sub(r"\s*\b(?:to|in|on|into) (?:my |the )?calendar\b", "", t, flags=re.I)
+    t = _GENERIC.sub("", t)
+    t = re.sub(r"\s*\b(?:for |at |on )?(?:right now|now|today|tomorrow|tonight|this (?:morning|afternoon|evening))\b.*$",
+               "", t, flags=re.I)
+    t = re.sub(r"\s+at\s+\d.*$", "", t, flags=re.I).strip(" ,.")
+    return t[:1].upper() + t[1:] if t else "Event"
+
+
 def fill_args(args: dict, text: str) -> dict:
-    """Your words fill the day and time if the model left them out."""
+    """Your words fill the day and time if the model left them out; titles lose the command words."""
     out = dict(args)
+    if "title" in out or "calendar_add" in (text or ""):
+        out["title"] = clean_title(out.get("title", ""))
+    if _NOW.search(text or "") or _NOW.fullmatch(str(out.get("time", "")).strip()):
+        now = datetime.now()
+        start = now + timedelta(minutes=(5 - now.minute % 5) % 5)
+        out["day"], out["time"] = "today", f"{start:%H:%M}"
     phrase, _ = extract_when(text)
     if phrase and not out.get("day"):
         out["day"] = phrase

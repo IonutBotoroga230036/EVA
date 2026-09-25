@@ -142,6 +142,9 @@ def fill_from_words(args: dict, text: str) -> dict:
     """The model sometimes drops or garbles the day ('day after today'). The user's own words win."""
     day, hour = extract_when(text)
     out = dict(args)
+    if re.search(r"\b(any|some|your|my|the|current|unknown|local)\s*(city|place|location|town)\b|^\s*(here|city)\s*$",
+                 str(out.get("city", "")), re.I):
+        out.pop("city")                              # a placeholder, not a place: use the home city
     if day:
         out["day"] = day
     elif out.get("day") and resolve_day(out["day"], date.today()) is None:

@@ -52,7 +52,8 @@ from core.settings import get_settings
 from core.vocab import correct as vocab_correct
 from core.memory.cortex import close_cortex, get_cortex
 from core.oracle import get_oracle
-from core.telegram_bridge import TelegramBridge, load_token
+import core.telegram_bridge as telegram_bridge
+from core.telegram_bridge import TelegramBridge, active as telegram_active, set_active
 from core.orchestrator_hybrid import HybridOrchestrator
 from skills.registry import get_registry
 from voice.speech import SentenceChunker, TurnSpeaker, get_tts
@@ -104,9 +105,10 @@ async def lifespan(_app: FastAPI):
     await mcp.start(get_settings().get("mcp", {}).get("servers", []) or [])
     oracle = get_oracle()
     tg_cfg = get_settings().get("telegram", {})
-    token = load_token() if tg_cfg.get("enabled", True) else None
+    token = telegram_bridge.load_token() if tg_cfg.get("enabled", True) else None
     telegram = TelegramBridge(token, set(tg_cfg.get("allowed_user_ids", []) or [])) if token else None
     tg_task = asyncio.create_task(telegram.run(), name="telegram") if telegram else None
+    set_active(telegram, asyncio.get_running_loop())
     mode = str(tg_cfg.get("proactive", "always"))              # always | when_away | never
 
     async def deliver(text, widget=None):
@@ -174,9 +176,25 @@ async def favicon():
     return FileResponse(STATIC / "icon-192.png", media_type="image/png")
 
 
+@app.get("/classic")
+async def classic():
+    """The previous interface, kept as a fallback while the new one settles in."""
+    path = Path(__file__).parent / "eva_classic.html"
+    return HTMLResponse(path.read_text(encoding="utf-8")) if path.exists() else Response(status_code=404)
+
+
 @app.get("/api/status")
 async def status():
+    from core.brain import get_brain
+    from core.budget import get_budget
+    from core.forge_engine import get_forge
+    from core.google_api import connected as google_connected
     return JSONResponse({
+        "brain_mode": get_brain().mode(),
+        "budget": get_budget().today_summary(),
+        "google": await asyncio.to_thread(google_connected),
+        "telegram": bool(telegram_active()),
+        "forge_drafts": len(get_forge().pending()),
         "uptime_s": round(time.time() - STARTED),
         "memory": get_cortex().stats(),
         "skills": get_registry().status(),
@@ -257,7 +275,7 @@ class Connection:
         turn = self.turn
         await self.send({"type": "turn_start", "turn": turn})
         if widget:
-            await self.send({"type": "widget", "data": widget})
+            await self.send({"type": "widget", "data": widget, "proactive": True})
         await self.send({"type": "final", "text": text, "proactive": True})
         self.orch.history.append({"role": "assistant", "content": text})     # so "snooze it" has context
         if self.tts:

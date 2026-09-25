@@ -17,6 +17,7 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - "Weather in Tilburg tomorrow at 6" (6 means 18:00; she says the time she assumed)
 - "Weather in Portugal on Friday" (uses Lisbon and says so). Dutch and Belgian cities use KNMI HARMONIE.
 - "1 + 1", "What's 15% of 80?", "Square root of 144", "2^10"
+- "What's the price of Bitcoin?" (CoinGecko, in euros) / "84687 dollars in euros" / "What's that in euros?" (ECB rates)
 
 ## Calendar (needs docs/GOOGLE_SETUP.md)
 - "What's on my calendar?" (today: what's still to come) / "What am I doing tomorrow?" / "What do I have this week?"
@@ -24,6 +25,7 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - "Any opening tomorrow afternoon?" / "When am I free on Friday?"
 - "Add coffee with Tom tomorrow at 3pm" **asks first**
 - "Cancel the dentist on Friday" **asks first**
+- "Move everything 1 hour later" / "Push my schedule back by 30 minutes" **asks first**
 - She warns you about 10 minutes before each meeting (see Proactive).
 
 ## Email (needs docs/GOOGLE_SETUP.md)
@@ -49,6 +51,7 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - Setup: in Telegram talk to @BotFather, /newbot, copy the token into config/secrets.env as
   TELEGRAM_BOT_TOKEN=..., restart E.V.A., then send "/pair <code>" (the code is in the terminal) to your bot.
 - Text her anything you'd say at the desk. Confirmations come with Yes / No buttons.
+- At the desk: "Send me a message on Telegram saying buy milk" / "Text me on my phone that the train leaves at 15:45"
 - Reminders, routines, meetings, and important mail arrive as push notifications, screen off.
 - Voice notes work once faster-whisper is installed (pip install faster-whisper).
 - Only your paired account can talk to her. The PC must be on.
@@ -63,7 +66,9 @@ most work with natural variations too. Anything marked **asks first** waits for 
 
 ## Computer
 - "Open YouTube" / "Open VS Code" / "Open github.com"
-- "Play some jazz" / "Play The Weeknd" / "Stop the music" / "Next song"
+- Spotify (after docs/SPOTIFY_SETUP.md, Premium): "Play The Weeknd", "Play my Chill Evenings playlist",
+  "Play jazz on my phone", "What's playing?", "Add Blinding Lights to the queue", "Pause", "Next song"
+- Without the Spotify setup she opens Spotify and presses play, as before
 - "Set the volume to 40" / "Max volume" / "Mute"
 - "What's on my screen?" / "Read this error" (local vision model, screenshots stay on the PC)
 
@@ -84,6 +89,12 @@ most work with natural variations too. Anything marked **asks first** waits for 
 
 ## Connected services (MCP)
 - Any MCP server in settings.yaml becomes tools. Read-only tools run freely; others **ask first**.
+
+## The interface
+- Designed with Claude Design: cards live in a rail beside the core, one primary card per answer, older ones
+  collapse, proactive cards look different and always offer Snooze. Tap the panel icon for status
+  (voice, brain mode, budget, memory, connections, skills, FORGE drafts) and the history icon for the transcript.
+- The previous interface is still at http://localhost:8001/classic. The design walkthrough is at /?demo.
 
 ## Installing her as an app
 - Edge or Chrome: open http://localhost:8001, click the install icon in the address bar.

@@ -70,8 +70,16 @@ STYLE_RULES = (
     "- Use remembered facts only when they genuinely help; don't recite them unprompted.\n"
     "- For weather, always say the place and the time the numbers are for, use the numbers "
     "exactly as given, and if the data says a time was assumed, say that time.\n"
+    "- Only offer abilities you actually have (listed below). If asked for something you can't do, say so and "
+    "offer to build it as a new skill. Never say you did something unless a tool result shows it.\n"
     "- Address the user as 'sir'."
 )
+# She claims an action happened ("has been added", "I've sent") but no action tool succeeded this turn
+_CLAIM = re.compile(r"\b(?:has|have|had) been (?:added|scheduled|created|booked|sent|deleted|removed|cancel+ed|set|"
+                    r"saved|installed|moved|updated)\b|\bi(?:'ve| have| just)? (?:added|scheduled|created|booked|sent|"
+                    r"deleted|removed|cancel+ed|set up|saved|installed|moved|updated)\b|^\s*yes,? (?:it|that|an event)"
+                    r"[^.]*\b(?:added|scheduled|sent|done)\b", re.I)
+NOT_DONE = "No, sir, I haven't done that. Nothing was changed. Tell me exactly what you'd like and I'll do it."
 MISSING_SKILL = ("I don't have a skill for that yet, sir. Once FORGE is live I can build "
                  "one, with your approval.")
 MISSING_SKILL_FORGE = "I don't have a skill for that yet, sir. Say 'build it' and I'll draft one for your approval."
@@ -318,6 +326,11 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
         return "schedule_routine", {"request": t}
     if belt.has("list_routines") and re.search(r"\b(what are|list|show) (?:my )?routines\b", t, re.I):
         return "list_routines", {}
+    m = re.search(r"\b(?:send|text|message) me(?: a message| a text)?(?: on| via| through| to)? (?:telegram|my phone)"
+                  r"(?:[:,]?\s*(?:saying|that says|that|with)?\s*(.*))?$", t, re.I) or \
+        re.search(r"\bsend (?:this |that )?to my phone[:,]?\s*(?:saying|that)?\s*(.*)$", t, re.I)
+    if m and belt.has("send_to_phone"):
+        return "send_to_phone", {"text": (m.group(1) or "").strip().rstrip("?.!")}
     m = re.match(polite + r"remind me (in .+?|at .+?|tomorrow(?: at [^ ]+)?|tonight|this (?:evening|afternoon)) to (.+)$", t, re.I)
     if m and belt.has("set_reminder"):
         return "set_reminder", {"text": m.group(2).strip().rstrip("?.!"), "when": m.group(1).strip()}
@@ -342,6 +355,9 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     if belt.has("morning_briefing") and re.match(r"^\s*(?:good morning|morning briefing|brief me|daily briefing|"
                                                  r"what'?s my day(?: look)?(?: like)?)\b", t, re.I):
         return "morning_briefing", {}
+    m = re.match(r"^(?:please )?(?:don'?t (?:let me )?forget to|remind me to)\s+(.+)$", t, re.I)
+    if m and belt.has("set_reminder"):
+        return "set_reminder", {"text": m.group(1).strip().rstrip("?.!")}       # no time given: she asks when
     m = re.match(polite + r"remember(?: that)?\s+(.{4,})$", t, re.I)
     if m and belt.has("remember_fact") and not re.match(r"(to|when|what|who|where|if|how)\b", m.group(1), re.I):
         return "remember_fact", {"text": m.group(1).strip().rstrip("?.!")}
@@ -396,6 +412,35 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     if belt.has("budget_status") and re.search(r"\b(budget|how much (?:have you|did you|did we) spen[dt]|api costs?)\b", t, re.I):
         return "budget_status", {}
 
+    m = re.search(r"\b(?:push|move|shift|delay|postpone)\s+(?:everything|all(?: of)?(?: my)?(?: events| meetings| appointments)?|"
+                  r"my (?:schedule|calendar|day)|the rest of (?:my|the) day)(?: back| forward)?\s+(?:by\s+)?"
+                  r"(an?|one|two|three|half an?|\d+)\s*(hours?|minutes?|mins?)(?:\s+(later|earlier|back|forward))?", t, re.I)
+    if m and belt.has("calendar_shift"):
+        qty = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "half a": 0.5, "half an": 0.5}.get(m.group(1).lower())
+        qty = qty if qty is not None else int(m.group(1))
+        mins = int(qty * 60) if m.group(2).lower().startswith("hour") else int(qty)
+        return "calendar_shift", {"minutes": -mins if (m.group(3) or "").lower() in ("earlier", "forward") else mins,
+                                  "day": "today"}
+    m = re.search(r"\b(?:price|value|worth) of (bitcoin|btc|ethereum|eth|solana|dogecoin|cardano|xrp)\b|"
+                  r"\b(bitcoin|btc|ethereum|eth|solana|dogecoin)\b (?:price|at|worth)", t, re.I)
+    if m and belt.has("crypto_price"):
+        cur = "USD" if re.search(r"\b(dollars?|usd)\b", t, re.I) else "EUR"
+        return "crypto_price", {"coin": (m.group(1) or m.group(2)).lower(), "currency": cur}
+    m = re.search(r"([\d][\d.,]*)\s*(dollars?|usd|\$|euros?|eur|€|pounds?|gbp|£|lei|ron)\s+(?:in|to|into)\s+"
+                  r"(euros?|eur|dollars?|usd|pounds?|gbp|lei|ron)\b", t, re.I)
+    if m and belt.has("convert_currency"):
+        return "convert_currency", {"amount": float(m.group(1).replace(",", "")), "from_currency": m.group(2),
+                                    "to_currency": m.group(3)}
+    if belt.has("spotify_now_playing") and re.search(r"what(?:'s| is) (?:this song|playing|this track)|what song is this|"
+                                                     r"who (?:sings|is singing) this", t, re.I):
+        return "spotify_now_playing", {}
+    m = re.match(polite + r"(?:add|put)\s+(.+?)\s+(?:to|in|on)\s+(?:the\s+)?queue$|^queue\s+(?:up\s+)?(.+)$", t, re.I)
+    if m and belt.has("spotify_queue"):
+        return "spotify_queue", {"what": (m.group(1) or m.group(2)).strip()}
+    m = re.match(polite + r"(?:play|put on)(?: me)?\s+(.+?)\s+on\s+(?:my\s+|the\s+)?(phone|mobile|laptop|computer|pc|desktop|speaker|tv)[.!?]?$",
+                 t, re.I)
+    if m and belt.has("spotify_play"):
+        return "spotify_play", {"what": m.group(1).strip(), "device": m.group(2).lower()}
     if belt.has("calendar_next") and re.search(
             r"what(?:'s| is) (?:coming )?(?:up )?next|my next (?:meeting|event|appointment|thing|call)|"
             r"what do i have next|what(?:'s| is) coming up\b", t, re.I):
@@ -539,7 +584,9 @@ class HybridOrchestrator:
             return {}
 
     async def _stream_answer(self, client, facts, skill_bodies, gathered, user_input) -> AsyncIterator[dict]:
-        persona = self.persona
+        persona = self.persona + "\n\nWhat you can do: " + ", ".join(
+            s.name for s in self.registry.enabled()) + ", weather, time, calculator, web search, Spotify play and " \
+            "media keys, volume, opening apps and websites, messages to the user's phone (Telegram)."
         if _CAPABILITY_Q.search(user_input):
             persona += "\n\nYour current tools:\n" + self.belt.list_text() + \
                        "\n\nYour skills:\n" + self.registry.index_text()
@@ -629,6 +676,10 @@ class HybridOrchestrator:
                 if fallback and (_DENIAL.search(final) or re.search(r"\b(?:see|found|have) nothing\b|\bnothing (?:on|to see)\b", final, re.I)):
                     logger.warning(f"denial guard: replaced {final!r}")
                     ev = {"type": "final", "text": fallback}
+                acted = any(self.belt.is_action(t) and '"error"' not in out.get("result", "") for t, out in gathered)
+                if not acted and _CLAIM.search(ev["text"]):
+                    logger.warning(f"claim guard: {ev['text']!r} but no action ran")
+                    ev = {"type": "final", "text": NOT_DONE}
             yield ev
 
     async def _collect(self, client, facts, skills, gathered, user_input) -> str:

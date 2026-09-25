@@ -59,6 +59,7 @@ class Skill:
     guards: dict[str, str] = field(default_factory=dict)
     confirm: dict[str, str] = field(default_factory=dict)
     fillers: dict[str, Callable] = field(default_factory=dict)
+    source: str = "builtin"
     vec: Optional[np.ndarray] = None
 
 
@@ -97,6 +98,7 @@ class SkillRegistry:
                     always=bool(meta.get("always", False)),
                     triggers=[t.lower() for t in meta.get("triggers", []) or []],
                     permissions=meta.get("permissions", {}) or {},
+                    source=str(meta.get("source") or ("forge" if (md.parent / "test_skill.py").exists() else "builtin")),
                 )
                 if sk.enabled:
                     self._load_tools(sk)
@@ -125,6 +127,16 @@ class SkillRegistry:
         sk.guards = dict(getattr(mod, "GUARDS", {}))
         sk.confirm = dict(getattr(mod, "CONFIRM", {}))
         sk.fillers = dict(getattr(mod, "FILLERS", {}))
+        if sk.source == "forge":                  # FORGE drafts: every tool gets an intent guard
+            import re as _re
+            generic = {"get", "set", "to", "from", "the", "a", "an", "of", "and", "for", "do", "make", "run", "tool"}
+            for t in sk.tools:
+                name = t["function"]["name"]
+                if name not in sk.guards:
+                    words = [w for w in name.split("_") if w not in generic and len(w) > 1]
+                    words += [w for trig in sk.triggers for w in _re.findall(r"[a-z0-9]{3,}", trig)]
+                    if words:
+                        sk.guards[name] = r"\b(" + "|".join(sorted({_re.escape(w) for w in words})) + r")"
         declared = {t["function"]["name"] for t in sk.tools}
         missing = declared - set(sk.functions)
         if missing:

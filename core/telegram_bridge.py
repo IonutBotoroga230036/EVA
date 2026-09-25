@@ -32,6 +32,27 @@ STATE = Path("data/telegram.json")
 MAX_LEN = 4000
 
 
+_active: Optional["TelegramBridge"] = None
+_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def set_active(bridge: Optional["TelegramBridge"], loop: Optional[asyncio.AbstractEventLoop]) -> None:
+    global _active, _loop
+    _active, _loop = bridge, loop
+
+
+def active() -> Optional["TelegramBridge"]:
+    return _active if _active and _active.allowed else None
+
+
+def send_from_thread(text: str, timeout: float = 15) -> bool:
+    """Tools run in worker threads; this hands the message to the server's event loop."""
+    if not active() or not _loop:
+        return False
+    fut = asyncio.run_coroutine_threadsafe(_active.notify(text), _loop)
+    return bool(fut.result(timeout))
+
+
 def load_token() -> Optional[str]:
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
         return os.environ["TELEGRAM_BOT_TOKEN"]

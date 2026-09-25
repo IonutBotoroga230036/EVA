@@ -1,3 +1,4 @@
+import faulthandler
 import sys
 from pathlib import Path
 
@@ -19,6 +20,16 @@ def isolate_personal_settings(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def live_event_bus():
+    """A server test's shutdown stops the global bus; every test starts with it running."""
+    from core.events.bus import get_bus
+    bus = get_bus()
+    bus.start_listening()
+    bus._recent.clear()                     # each test sees only its own events
+    yield
+
+
+@pytest.fixture(autouse=True)
 def isolate_real_data(tmp_path, monkeypatch):
     """Tests must never touch data/cortex.db or the real audit log."""
     from core.memory import cortex as cortex_mod
@@ -29,3 +40,36 @@ def isolate_real_data(tmp_path, monkeypatch):
     monkeypatch.setattr(cortex_mod, "_cortex", test_cortex)
     yield
     monkeypatch.setattr(cortex_mod, "_cortex", None)
+
+
+@pytest.fixture(autouse=True)
+def no_real_services(tmp_path, monkeypatch):
+    """Tests never touch your real accounts or files: no Telegram, no Google, no Claude key,
+    and fresh reminders, routines, budget, and brain mode in a temp folder."""
+    import core.brain as brain
+    import core.budget as budget
+    import core.claude as claude
+    import core.google_api as google
+    import core.oracle as oracle
+    import core.telegram_bridge as tg
+    monkeypatch.setattr(tg, "load_token", lambda: None)
+    tg.set_active(None, None)
+    monkeypatch.setattr(google, "TOKEN", tmp_path / "google_token.json")
+    monkeypatch.setattr(google, "_client", None)
+    monkeypatch.setattr(claude, "_load_key", lambda: None)
+    monkeypatch.setattr(claude, "_client", None)
+    monkeypatch.setattr(budget, "_budget", budget.BudgetTracker(track_file=str(tmp_path / "budget.json")))
+    monkeypatch.setattr(brain, "STATE", tmp_path / "brain_mode.json")
+    monkeypatch.setattr(brain, "_brain", None)
+    monkeypatch.setattr(oracle, "_oracle", oracle.Oracle(store=oracle.ReminderStore(tmp_path / "reminders.json"),
+                                                         google_getter=lambda: None))
+    yield
+    tg.set_active(None, None)
+
+
+@pytest.fixture(autouse=True)
+def hang_watchdog():
+    """If a test ever hangs, print every thread's stack after 90 s and stop, instead of waiting forever."""
+    faulthandler.dump_traceback_later(90, exit=True)
+    yield
+    faulthandler.cancel_dump_traceback_later()
