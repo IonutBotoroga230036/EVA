@@ -15,7 +15,7 @@ def test_trusted_skill_loads_tools_untrusted_does_not(tmp_path):
 
 def test_folders_without_skill_md_are_ignored(tmp_path):
     (tmp_path / "legacy_thing").mkdir()
-    (tmp_path / "legacy_thing" / "stuff.py").write_text("x = 1")
+    (tmp_path / "legacy_thing" / "stuff.py").write_text("x = 1", encoding="utf-8")
     assert SkillRegistry(tmp_path).discover().skills == {}
 
 

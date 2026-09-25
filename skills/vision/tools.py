@@ -9,6 +9,7 @@ right after (keep_alive 0), so the everyday text model stays resident and fast.
 
 import base64
 import io
+import os
 import json
 import re
 from datetime import datetime
@@ -20,7 +21,7 @@ from loguru import logger
 from core.security.audit import audit
 from core.settings import local_cfg
 
-SHOT_DIR = Path("data/screenshots")
+SHOT_DIR = Path(os.environ.get("EVA_SCREENSHOTS", "data/screenshots"))
 MAX_EDGE = 1280
 PROMPT = ("You are looking at a screenshot of the user's computer screen. {q} "
           "Be concise and concrete. Quote short visible text exactly when it matters.")

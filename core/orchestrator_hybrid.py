@@ -78,7 +78,7 @@ STYLE_RULES = (
 _CLAIM = re.compile(r"\b(?:has|have|had) been (?:added|scheduled|created|booked|sent|deleted|removed|cancel+ed|set|"
                     r"saved|installed|moved|updated)\b|\bi(?:'ve| have| just)? (?:added|scheduled|created|booked|sent|"
                     r"deleted|removed|cancel+ed|set up|saved|installed|moved|updated)\b|^\s*yes,? (?:it|that|an event)"
-                    r"[^.]*\b(?:added|scheduled|sent|done)\b", re.I)
+                    r"[^.]*\b(?:added|scheduled|sent|done)\b|^\s*(?:now )?playing\b|^\s*(?:i'?m |i am )?opening\b", re.I)
 NOT_DONE = "No, sir, I haven't done that. Nothing was changed. Tell me exactly what you'd like and I'll do it."
 MISSING_SKILL = ("I don't have a skill for that yet, sir. Once FORGE is live I can build "
                  "one, with your approval.")
@@ -437,10 +437,20 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     m = re.match(polite + r"(?:add|put)\s+(.+?)\s+(?:to|in|on)\s+(?:the\s+)?queue$|^queue\s+(?:up\s+)?(.+)$", t, re.I)
     if m and belt.has("spotify_queue"):
         return "spotify_queue", {"what": (m.group(1) or m.group(2)).strip()}
+    if belt.has("spotify_play") and re.match(r"^\s*(?:play|resume|continue)(?: the music| it| playing)?[.!?]?\s*$", t, re.I):
+        return "spotify_play", {"what": ""}                         # bare "play": resume, don't pick liked songs
+    m = re.match(r"^(?:and |now )?(?:(?:play|put|move) )?(?:it |the music |this )?(?:to|on)\s+(?:my\s+|the\s+)?"
+                 r"(phone|mobile|laptop|computer|pc|desktop|speaker|tv)[.!?]?$", t, re.I)
+    if m and belt.has("spotify_play"):
+        return "spotify_play", {"what": "", "device": m.group(1).lower()}
     m = re.match(polite + r"(?:play|put on)(?: me)?\s+(.+?)\s+on\s+(?:my\s+|the\s+)?(phone|mobile|laptop|computer|pc|desktop|speaker|tv)[.!?]?$",
                  t, re.I)
     if m and belt.has("spotify_play"):
         return "spotify_play", {"what": m.group(1).strip(), "device": m.group(2).lower()}
+    m = re.match(polite + r"(?:play|put on)(?: me)?(?: some| a bit of)?\s+(.{2,})$", t, re.I)
+    if m and belt.has("spotify_play") and not re.search(r"\b(game|chess|video|movie|film|youtube|role|part|piano|guitar)\b",
+                                                         m.group(1), re.I):
+        return "spotify_play", {"what": m.group(1).strip().rstrip("?.!")}
     if belt.has("calendar_next") and re.search(
             r"what(?:'s| is) (?:coming )?(?:up )?next|my next (?:meeting|event|appointment|thing|call)|"
             r"what do i have next|what(?:'s| is) coming up\b", t, re.I):
@@ -661,7 +671,12 @@ class HybridOrchestrator:
             return
         if any(t == "web_search" for t, _ in gathered):   # web answers are checked BEFORE they are spoken
             self._context(user_input, ctx)
-            yield {"type": "final", "text": await self._grounded_web_answer(client, ctx, gathered, user_input)}
+            text = await self._grounded_web_answer(client, ctx, gathered, user_input)
+            acted = any(self.belt.is_action(t) and '"error"' not in out.get("result", "") for t, out in gathered)
+            if not acted and _CLAIM.search(text):
+                logger.warning(f"claim guard (web): {text!r} but no action ran")
+                text = NOT_DONE
+            yield {"type": "final", "text": text}
             return
         if len(gathered) == 1 and gathered[0][0] in ("forget_memory",) and says[0]:
             yield {"type": "final", "text": says[0]}       # ambiguity questions are exact too
@@ -762,9 +777,12 @@ class HybridOrchestrator:
                     return
                 if fresh and _NO.search(user_input):
                     audit.log("confirm_denied", "orchestrator", {"tool": p["tool"]})
-                    self._finish(user_input, "Cancelled, sir.", used)
-                    yield {"type": "final", "text": "Cancelled, sir."}
-                    return
+                    rest = _NO.sub("", user_input, count=1).lstrip(" ,.!")
+                    if len(rest.split()) < 3:                      # a plain "no"
+                        self._finish(user_input, "Cancelled, sir.", used)
+                        yield {"type": "final", "text": "Cancelled, sir."}
+                        return
+                    user_input = rest                              # "no, make a skill that ...": handle the rest
 
             # 1. fast path: no LLM, no embeddings
             fp = fp_override or fast_path(user_input, self.belt)

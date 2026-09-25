@@ -3,25 +3,25 @@ import core.prompt_builder as pb
 
 def test_standing_instructions_append_into_section(tmp_path, monkeypatch):
     f = tmp_path / "EVA.md"
-    f.write_text("# EVA.md\n\n## About me\n- Ionut\n\n## Standing instructions\n\n## Later\n- x\n")
+    f.write_text("# EVA.md\n\n## About me\n- Ionut\n\n## Standing instructions\n\n## Later\n- x\n", encoding="utf-8")
     monkeypatch.setattr(pb, "EVA_MD", f)
     assert pb.add_standing_instruction("always answer in metric units")["status"] == "added"
     assert pb.add_standing_instruction("Always answer in metric units.")["status"] == "duplicate"
-    text = f.read_text()
+    text = f.read_text(encoding="utf-8")
     assert text.index("- Always answer in metric units.") < text.index("## Later")
 
 
 def test_section_created_when_missing(tmp_path, monkeypatch):
     f = tmp_path / "EVA.md"
-    f.write_text("# EVA.md\n")
+    f.write_text("# EVA.md\n", encoding="utf-8")
     monkeypatch.setattr(pb, "EVA_MD", f)
     pb.add_standing_instruction("keep replies short")
-    assert "## Standing instructions\n- Keep replies short." in f.read_text()
+    assert "## Standing instructions\n- Keep replies short." in f.read_text(encoding="utf-8")
 
 
 def test_answer_system_layers_everything(tmp_path, monkeypatch):
     f = tmp_path / "EVA.md"
-    f.write_text("Never use em-dashes.")
+    f.write_text("Never use em-dashes.", encoding="utf-8")
     monkeypatch.setattr(pb, "EVA_MD", f)
     s = pb.build_answer_system("PERSONA", "RULES", [{"text": "Likes jazz"}],
                                ["### Skill: x\nbody"], ['{"temp_c": 17}'])

@@ -109,6 +109,17 @@ def recall_memory(query: str = "", **_):
                 break
     notes = _notes_search(query) if query.strip() else []
     about = about_lines()
+    if not query.strip() and about:                         # "what do you know about me": exact, no model
+        def you(line):
+            line = re.sub(r"^My name is ([^.]+)\.\s*(?:Address me as \S+\.)?", r"You're \1", line)
+            line = re.sub(r"\bI speak\b", "You speak", line)
+            line = re.sub(r"\bmy\b", "your", line, flags=re.I)
+            return line.split(" (")[0].rstrip(". ")
+        picked = [you(l) for l in about if not re.match(r"^(Home city|I speak)", l)][:4]
+        extra = len([f for f in facts if f not in about])
+        tail = f" I also remember {extra} other thing{'s' if extra != 1 else ''} you've told me." if extra else ""
+        return {"result": json.dumps({"facts": about + facts}), "exact": True,
+                "say": "Here's what I know, sir. " + ". ".join(picked) + "." + tail}
     if not query.strip() or re.search(r"\b(name|who am i|about me|live|home|language)\b", query, re.I):
         facts = about + [f for f in facts if f not in about]
     if not (facts or said or notes):

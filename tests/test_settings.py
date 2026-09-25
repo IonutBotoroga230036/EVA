@@ -3,8 +3,8 @@ import core.settings as st
 
 def test_local_overrides_merge_key_by_key(tmp_path, monkeypatch):
     (tmp_path / "s.yaml").write_text("voice:\n  tts:\n    engine: kokoro\n    voice_eva: af_heart\n    speed: 1.0\n"
-                                     "oracle:\n  lead_minutes: 10\n")
-    (tmp_path / "l.yaml").write_text("voice:\n  tts:\n    voice_eva: bf_emma\noracle:\n  lead_minutes: 5\n")
+                                     "oracle:\n  lead_minutes: 10\n", encoding="utf-8")
+    (tmp_path / "l.yaml").write_text("voice:\n  tts:\n    voice_eva: bf_emma\noracle:\n  lead_minutes: 5\n", encoding="utf-8")
     monkeypatch.setattr(st, "SETTINGS_PATH", tmp_path / "s.yaml")
     monkeypatch.setattr(st, "LOCAL_PATH", tmp_path / "l.yaml")
     st.get_settings.cache_clear()
@@ -17,8 +17,8 @@ def test_local_overrides_merge_key_by_key(tmp_path, monkeypatch):
 
 
 def test_missing_or_broken_local_file_is_harmless(tmp_path, monkeypatch):
-    (tmp_path / "s.yaml").write_text("a: 1\n")
-    (tmp_path / "bad.yaml").write_text("a: [unclosed\n")
+    (tmp_path / "s.yaml").write_text("a: 1\n", encoding="utf-8")
+    (tmp_path / "bad.yaml").write_text("a: [unclosed\n", encoding="utf-8")
     monkeypatch.setattr(st, "SETTINGS_PATH", tmp_path / "s.yaml")
     for local in (tmp_path / "missing.yaml", tmp_path / "bad.yaml"):
         monkeypatch.setattr(st, "LOCAL_PATH", local)

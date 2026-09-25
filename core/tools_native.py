@@ -69,7 +69,15 @@ EXACT_TOOLS = {"get_weather", "get_datetime", "calculate", "budget_status", "set
                "crypto_price"}
 
 # Before a tool runs, the user's own words can fill or correct its arguments.
-ARG_FILLERS = {"get_weather": fill_from_words}
+def _fill_spotify(args: dict, text: str) -> dict:
+    out = dict(args)
+    if out.get("device") and not re.search(r"\b(phone|mobile|laptop|computer|pc|desktop|speaker|tv|on (?:my|the))\b",
+                                           text or "", re.I):
+        out.pop("device")                            # a device you never mentioned
+    return out
+
+
+ARG_FILLERS = {"get_weather": fill_from_words, "spotify_play": _fill_spotify}
 
 # The user's message must match before an action runs (case-insensitive search).
 GUARDS = {
@@ -300,10 +308,16 @@ def tool_web_search(query: str = "", **_):
 
 
 def tool_spotify_play(what: str = "", device: str = "", **_):
-    what = (what or "liked songs").strip()
+    what = (what or "").strip()
     from core import spotify as sp
     if sp.connected():
         try:
+            if re.fullmatch(r"(?:it|this|that|the music|music|this song|the song|resume|continue)?", what, re.I):
+                if device:                                   # "play it on my computer": move, don't search
+                    name = sp.get_spotify().transfer(device)
+                    return {"result": json.dumps({"moved_to": name}), "say": f"Moved the music to {name}, sir."}
+                sp.get_spotify().control("resume")
+                return {"result": json.dumps({"resumed": True}), "say": "Resuming, sir."}
             out = sp.get_spotify().play(what, device)
             where = f" on {out['device']}" if device else ""
             return {"result": json.dumps(out), "widget": {"kind": "nowplaying", "what": out["label"]},
@@ -316,6 +330,7 @@ def tool_spotify_play(what: str = "", device: str = "", **_):
             return {"result": json.dumps({"error": "not signed in"}), "say": sp.auth_message()}
         except Exception as e:
             logger.warning(f"SPOTIFY: API play failed ({e}); falling back")
+    what = what or "liked songs"
     try:
         webbrowser.open(f"spotify:search:{what.replace(' ', '%20')}")
         if PYAUTOGUI_OK:

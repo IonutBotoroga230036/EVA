@@ -175,22 +175,57 @@ class Spotify:
         return next((d for d in devs if d.get("is_active")), None) or \
             next((d for d in devs if d.get("type", "").lower() == "computer"), devs[0])
 
+    # ---------------- your playlists
+    _mine: list = []
+    _mine_at = 0.0
+
+    def my_playlists(self) -> list[dict]:
+        """All your playlists (paged), cached for 10 minutes."""
+        if self._mine and time.time() - self._mine_at < 600:
+            return self._mine
+        out, offset = [], 0
+        while offset < 500:
+            page = self.req("GET", "/me/playlists", params={"limit": 50, "offset": offset})
+            items = [p for p in page.get("items", []) if p]
+            out += items
+            if len(items) < 50 or not page.get("next"):
+                break
+            offset += 50
+        self._mine, self._mine_at = out, time.time()
+        return out
+
+    def match_mine(self, name: str, threshold: float = 0.72) -> Optional[dict]:
+        def key(s):
+            return re.sub(r"[^a-z0-9]", "", s.lower())
+        k = key(name)
+        if len(k) < 3:
+            return None
+        best, score = None, 0.0
+        for p in self.my_playlists():
+            pk = key(p.get("name", ""))
+            s = 1.0 if pk == k else SequenceMatcher(None, k, pk).ratio()
+            if k in pk and len(k) >= 5:
+                s = max(s, 0.85)
+            if s > score:
+                best, score = p, s
+        return best if score >= threshold else None
+
     # ---------------- search
     def resolve(self, what: str) -> dict:
         q = re.sub(r"^(?:some|me|a bit of|a little|the song|the track|music by|songs by)\s+", "", (what or "").strip(), flags=re.I)
+        q = re.sub(r"^(?:the |my )?playlists?(?: called| named)?\s+(.+)$", r"\1 playlist", q, flags=re.I)   # "the playlist X"
         low = q.lower()
         if not q or re.fullmatch(r"(my )?(liked songs|likes|favou?rites|my music|music|something)", low):
             items = self.req("GET", "/me/tracks", params={"limit": 50}).get("items", [])
             return {"uris": [i["track"]["uri"] for i in items if i.get("track")], "label": "your liked songs"}
-        m = re.match(r"^(?:my )?(.+?) playlist$", low)
-        if m or low.startswith("my "):
-            name = (m.group(1) if m else low[3:]).strip()
-            mine = self.req("GET", "/me/playlists", params={"limit": 50}).get("items", [])
-            best = max(mine, key=lambda p: SequenceMatcher(None, name, p["name"].lower()).ratio(), default=None)
-            if best and SequenceMatcher(None, name, best["name"].lower()).ratio() > 0.6:
-                return {"context_uri": best["uri"], "label": f"your {best['name']} playlist"}
+        m = re.match(r"^(?:my |the )?playlist (?:called |named )?(.+)$", low) or re.match(r"^(?:my |the )?(.+?) playlist$", low)
+        said_playlist = bool(m) or low.startswith("my ")
+        name = (m.group(1) if m else re.sub(r"^(?:my|the)\s+", "", low)).strip()
+        mine = self.match_mine(name, threshold=0.6 if said_playlist else 0.72)
+        if mine:                                   # your library first, all of it, even when misheard
+            return {"context_uri": mine["uri"], "label": f"your {mine['name']} playlist"}
         kind = "playlist" if "playlist" in low else "album" if "album" in low else None
-        term = re.sub(r"\b(playlist|album)\b", "", q, flags=re.I).strip()
+        term = re.sub(r"\b(the |my )?(playlist|album)( called| named)?\b", "", q, flags=re.I).strip()
         res = self.req("GET", "/search", params={"q": term, "type": kind or "artist,track,playlist", "limit": 3})
         artists = [a for a in (res.get("artists") or {}).get("items", []) if a]
         tracks = [t for t in (res.get("tracks") or {}).get("items", []) if t]
@@ -237,6 +272,14 @@ class Spotify:
             now = self.now_playing()
             return self.control("pause" if now.get("is_playing") else "resume", device)
         return action
+
+    def transfer(self, device: str) -> str:
+        """'Play it on my computer': move what's playing instead of searching for 'it'."""
+        dev = self.pick_device(device)
+        if not dev:
+            raise LookupError("no Spotify device is open: start Spotify on the PC or your phone first")
+        self.req("PUT", "/me/player", json={"device_ids": [dev["id"]], "play": True})
+        return dev.get("name", "your device")
 
     def volume(self, level: int) -> None:
         self.req("PUT", "/me/player/volume", params={"volume_percent": max(0, min(100, int(level)))})

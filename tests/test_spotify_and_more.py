@@ -125,7 +125,7 @@ def test_forge_built_skills_get_guards(tmp_path):
                    tools_py='import json\nTOOLS=[{"type":"function","function":{"name":"miles_to_km","description":"x",'
                             '"parameters":{"type":"object","properties":{}}}}]\n'
                             'FUNCTIONS={"miles_to_km": lambda **_: {"result": json.dumps({})}}\n')
-    (d / "test_skill.py").write_text("def test_x():\n    pass\n")
+    (d / "test_skill.py").write_text("def test_x():\n    pass\n", encoding="utf-8")
     belt = ToolBelt(SkillRegistry(tmp_path).discover())
     assert not belt.guard_ok("miles_to_km", "what's that in euros")             # the Sep 25 misfire
     assert belt.guard_ok("miles_to_km", "how many km is 5 miles")
@@ -135,3 +135,142 @@ def test_placeholder_city_becomes_home():
     from core.weather import fill_from_words
     assert "city" not in fill_from_words({"city": "Any City"}, "what's the weather")
     assert fill_from_words({"city": "Tilburg"}, "weather in tilburg")["city"] == "Tilburg"
+
+
+# ---------------------------------------------------------------- Sep 25 16:35 log
+@pytest.mark.parametrize("text,what", [
+    ("play me the playlist would you teach yourself into me", "the playlist would you teach yourself into me"),
+    ("play the playlist ruin me girl", "the playlist ruin me girl"),
+    ("play ruin me girl playlist", "ruin me girl playlist"),
+    ("can you play me some The Weeknd", "The Weeknd"),
+])
+def test_play_anything_goes_straight_to_spotify(text, what):
+    assert fast_path(text, ToolBelt(SkillRegistry("skills").discover())) == ("spotify_play", {"what": what})
+
+
+def test_playlist_names_are_found_in_your_library():
+    api = FakeSpotifyAPI()
+    api_lists = [{"name": "Ruin Me Girl", "uri": "spotify:playlist:ruin"},
+                 {"name": "Would You Teach Yourself Into Me", "uri": "spotify:playlist:teach"}]
+    orig = api.handler
+
+    def handler(req):
+        if req.url.path.endswith("/me/playlists"):
+            return httpx.Response(200, json={"items": api_lists})
+        return orig(req)
+    c = sp.Spotify({"access_token": "a", "refresh_token": "r", "expires_at": 9e12},
+                   http=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert c.resolve("the playlist ruin me girl")["context_uri"] == "spotify:playlist:ruin"
+    assert c.resolve("ruin me girl playlist")["context_uri"] == "spotify:playlist:ruin"
+    assert c.resolve("the playlist would you teach yourself into me")["context_uri"] == "spotify:playlist:teach"
+
+
+def test_a_playlist_name_cannot_trigger_forge():
+    belt = ToolBelt(SkillRegistry("skills").discover())
+    assert not belt.guard_ok("forge_build", "play me the playlist would you teach yourself into me")
+    assert belt.guard_ok("forge_build", "make a skill that can play any playlist by its name")
+    assert belt.guard_ok("forge_build", "learn to tell me the moon phase")
+
+
+def test_no_invented_device_and_no_fake_playing(tmp_path, monkeypatch):
+    import core.orchestrator_hybrid as orch_mod
+    from core.memory.cortex import Cortex
+    from core.orchestrator_hybrid import NOT_DONE, HybridOrchestrator
+    from tests.test_orchestrator import fake_ollama, run_turn
+    belt = ToolBelt(SkillRegistry("skills").discover())
+    assert "device" not in belt.fill("spotify_play", {"what": "x", "device": "computer"}, "play x")
+    assert belt.fill("spotify_play", {"what": "x", "device": "phone"}, "play x on my phone")["device"] == "phone"
+    client, _ = fake_ollama(decisions=[{"tool": "web_search", "query": "girl group songs"}],
+                            answer="Playing girl group songs on DESKTOP-2OJUB6H.")
+    monkeypatch.setattr(orch_mod.httpx, "AsyncClient", client)
+    import core.tools_native as tn
+    monkeypatch.setattr(tn, "_search", lambda q: [{"title": "Top girl groups", "snippet": "a list", "url": "u"}])
+    monkeypatch.setattr(tn, "SEARCH_OK", True)
+    o = HybridOrchestrator(session_id="p", cortex=Cortex(str(tmp_path / "c.db")), registry=SkillRegistry("skills").discover())
+    assert run_turn(o, "search girl group songs")[-1]["text"] == NOT_DONE
+
+
+def test_no_then_a_new_request_handles_both(tmp_path, monkeypatch):
+    import core.orchestrator_hybrid as orch_mod
+    from core.memory.cortex import Cortex
+    from core.orchestrator_hybrid import HybridOrchestrator
+    from tests.test_orchestrator import fake_ollama, run_turn
+    client, _ = fake_ollama(decisions=[], answer="x")
+    monkeypatch.setattr(orch_mod.httpx, "AsyncClient", client)
+    o = HybridOrchestrator(session_id="n", cortex=Cortex(str(tmp_path / "c.db")), registry=SkillRegistry("skills").discover())
+    run_turn(o, "make a skill that tells me the moon phase")
+    assert o.pending and o.pending["tool"] == "forge_build"
+    out = run_turn(o, "no make a skill that can play any playlist by its name")
+    assert o.pending["args"]["request"] == "can play any playlist by its name"      # cancelled the first, asked about the second
+    assert "Shall I go ahead" in out[-1]["text"]
+
+
+# ---------------------------------------------------------------- your library first, move and resume
+def _client_with(lists, api=None):
+    api = api or FakeSpotifyAPI()
+    orig = api.handler
+
+    def handler(req):
+        if req.url.path.endswith("/me/playlists"):
+            return httpx.Response(200, json={"items": lists})
+        return orig(req)
+    return sp.Spotify({"access_token": "a", "refresh_token": "r", "expires_at": 9e12},
+                      http=httpx.Client(transport=httpx.MockTransport(handler))), api
+
+
+def test_misheard_playlist_name_still_finds_yours():
+    c, _ = _client_with([{"name": "Ruin Me Girl", "uri": "spotify:playlist:ruin"}])
+    assert c.resolve("rainy girl playlist")["context_uri"] == "spotify:playlist:ruin"       # "rainy girl"
+    assert c.resolve("ruin me girl")["context_uri"] == "spotify:playlist:ruin"             # no "playlist" word
+
+
+def test_all_your_playlists_are_searched_not_just_50():
+    pages = {0: [{"name": f"List {i}", "uri": f"u{i}"} for i in range(50)],
+             50: [{"name": "Late Night Jazz", "uri": "spotify:playlist:late"}]}
+    api = FakeSpotifyAPI()
+    orig = api.handler
+
+    def handler(req):
+        if req.url.path.endswith("/me/playlists"):
+            off = int(req.url.params.get("offset", 0))
+            return httpx.Response(200, json={"items": pages.get(off, []), "next": "more" if off == 0 else None})
+        return orig(req)
+    c = sp.Spotify({"access_token": "a", "refresh_token": "r", "expires_at": 9e12},
+                   http=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert c.resolve("late night jazz playlist")["context_uri"] == "spotify:playlist:late"
+
+
+def test_play_it_on_my_computer_moves_the_music(monkeypatch):
+    import core.tools_native as tn
+    c, api = _client_with([])
+    monkeypatch.setattr(sp, "connected", lambda: True)
+    monkeypatch.setattr(sp, "get_spotify", lambda: c)
+    assert tn.tool_spotify_play(what="it", device="computer")["say"] == "Moved the music to LEGION, sir."
+    method, path, _, body = api.calls[-1]
+    assert (method, path, body) == ("PUT", "/me/player", {"device_ids": ["pc"], "play": True})
+    assert tn.tool_spotify_play(what="")["say"] == "Resuming, sir."
+    assert not any(p == "/search" for _, p, _, _ in api.calls)                         # never searched for "it"
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("play", ("spotify_play", {"what": ""})),
+    ("play it on my computer", ("spotify_play", {"what": "", "device": "computer"})),
+    ("on my phone", ("spotify_play", {"what": "", "device": "phone"})),
+])
+def test_move_and_resume_fast_paths(text, expected):
+    assert fast_path(text, ToolBelt(SkillRegistry("skills").discover())) == expected
+
+
+def test_what_do_you_know_about_me_is_exact(monkeypatch, tmp_path):
+    import core.prompt_builder as pb
+    from core.memory.cortex import Cortex
+    (tmp_path / "EVA.md").write_text("## About me\n- My name is Ionuț. Address me as \"sir\".\n- Home city: Breda.\n", encoding="utf-8")
+    (tmp_path / "EVA.local.md").write_text("## About me (private)\n- Studying in the Radboud pre-master in AI (Nijmegen).\n", encoding="utf-8")
+    monkeypatch.setattr(pb, "EVA_MD", tmp_path / "EVA.md")
+    monkeypatch.setattr(pb, "EVA_LOCAL_MD", tmp_path / "EVA.local.md")
+    c = Cortex(str(tmp_path / "c.db"))
+    c.remember("Is user 7443422148")
+    monkeypatch.setattr("core.memory.cortex._cortex", c)
+    out = SkillRegistry("skills").discover().functions()["recall_memory"](query="")
+    assert out["say"].startswith("Here's what I know, sir. You're Ionuț. Studying in the Radboud pre-master")
+    assert "7443422148" not in out["say"] and out["exact"]

@@ -103,7 +103,7 @@ FUNCTIONS = {"forge_build": forge_build, "forge_install": forge_install,
 ACKS = {"forge_build": "Drafting it now, sir. This takes about a minute."}
 ACTIONS = ["forge_build", "forge_install", "forge_discard"]
 GUARDS = {
-    "forge_build": r"\b(build|make|create|write|develop|learn|teach|forge)\b",
+    "forge_build": r"\b(skills?|abilit(?:y|ies)|capabilit(?:y|ies)|forge)\b|\bbuild it\b|\b(?:learn|teach yourself)(?: how)? to\b",
     "forge_install": r"\b(install|yes|enable|activate|add it)\b",
     "forge_discard": r"\b(discard|delete|remove|drop|reject|throw)\b",
 }

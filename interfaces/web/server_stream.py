@@ -80,6 +80,9 @@ WAKE_PHRASE = "Yes, sir?"
 
 def _warm_llm() -> None:
     """Load the decision model into VRAM at startup, so the first reply isn't a cold start."""
+    import os as _os
+    if _os.environ.get("EVA_TESTING"):
+        return                                  # the test suite never touches your real Ollama
     import httpx as _h
     from core.settings import local_cfg
     cfg = local_cfg()

@@ -35,8 +35,8 @@ def test_parse_vocabulary_entries():
 
 
 def test_vocabulary_is_hidden_from_the_prompt_and_local_file_is_layered(tmp_path, monkeypatch):
-    (tmp_path / "EVA.md").write_text("# EVA\n## About me\n- Ionut\n\n## Vocabulary\n- Breda\n\n## Standing instructions\n- Be brief.\n")
-    (tmp_path / "EVA.local.md").write_text("## Private\n- Secret project Z\n\n## Vocabulary\n- ZippZapp: zip zap\n")
+    (tmp_path / "EVA.md").write_text("# EVA\n## About me\n- Ionut\n\n## Vocabulary\n- Breda\n\n## Standing instructions\n- Be brief.\n", encoding="utf-8")
+    (tmp_path / "EVA.local.md").write_text("## Private\n- Secret project Z\n\n## Vocabulary\n- ZippZapp: zip zap\n", encoding="utf-8")
     monkeypatch.setattr(pb, "EVA_MD", tmp_path / "EVA.md")
     monkeypatch.setattr(pb, "EVA_LOCAL_MD", tmp_path / "EVA.local.md")
     prompt = pb.load_eva_md()

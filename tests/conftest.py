@@ -60,6 +60,12 @@ def no_real_services(tmp_path, monkeypatch):
     monkeypatch.setattr(claude, "_client", None)
     monkeypatch.setattr(budget, "_budget", budget.BudgetTracker(track_file=str(tmp_path / "budget.json")))
     monkeypatch.setattr(brain, "STATE", tmp_path / "brain_mode.json")
+    monkeypatch.setenv("EVA_TESTING", "1")
+    monkeypatch.setenv("EVA_VAULT", str(tmp_path / "vault"))          # never your real notes
+    monkeypatch.setenv("EVA_SCREENSHOTS", str(tmp_path / "screenshots"))
+    import core.triage as triage
+    monkeypatch.setattr(triage, "CONTACTS", tmp_path / "contacts.json")
+    monkeypatch.setattr(triage, "PREFS", tmp_path / "email_prefs.json")
     monkeypatch.setattr(brain, "_brain", None)
     monkeypatch.setattr(oracle, "_oracle", oracle.Oracle(store=oracle.ReminderStore(tmp_path / "reminders.json"),
                                                          google_getter=lambda: None))

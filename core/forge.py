@@ -270,7 +270,7 @@ class Forge:
                 triggers_yaml=triggers_yaml,
                 deps_yaml=deps_yaml,
             )
-            (skill_dir / "manifest.yaml").write_text(manifest_content)
+            (skill_dir / "manifest.yaml").write_text(manifest_content, encoding="utf-8")
 
             # Write handler
             class_name = "".join(word.capitalize() for word in skill_name.split("_"))
@@ -286,10 +286,10 @@ class Forge:
                 class_name=class_name,
                 execute_body=indented_code,
             )
-            (skill_dir / "handler.py").write_text(handler_content)
+            (skill_dir / "handler.py").write_text(handler_content, encoding="utf-8")
 
             # Write __init__.py
-            (skill_dir / "__init__.py").write_text("")
+            (skill_dir / "__init__.py").write_text("", encoding="utf-8")
 
             # Test the skill (basic syntax check)
             test_result = self._test_skill(skill_dir, skill_name)
@@ -367,7 +367,7 @@ class Forge:
         try:
             # Syntax check via compile
             handler_path = skill_dir / "handler.py"
-            source = handler_path.read_text()
+            source = handler_path.read_text(encoding="utf-8")
             compile(source, str(handler_path), "exec")
 
             return f"PASS: Syntax check passed for '{skill_name}'"
@@ -436,7 +436,7 @@ class Forge:
             "event": event_type,
             "data": data,
         }
-        with open(self._forge_log_path, "a") as f:
+        with open(self._forge_log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
 
 

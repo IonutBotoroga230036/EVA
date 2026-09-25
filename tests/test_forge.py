@@ -62,7 +62,7 @@ def test_good_build_is_quarantined_untrusted_and_invisible(forge, tmp_path):
     f = forge([spec()])
     p = f.build("convert km to miles")
     assert p.status == "ready" and p.tests_passed == 2 and p.tools == ["km_to_miles"]
-    md = (tmp_path / "skills" / "_forge" / "unit_convert" / "SKILL.md").read_text()
+    md = (tmp_path / "skills" / "_forge" / "unit_convert" / "SKILL.md").read_text(encoding="utf-8")
     assert "trusted: false" in md and "trusted: true" not in md             # Claude said true; forced false
     assert SkillRegistry(tmp_path / "skills").discover().skills == {}        # quarantine is never loaded
 

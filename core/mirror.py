@@ -359,7 +359,7 @@ to a dedicated server with an RTX 3060 12GB GPU for 24/7 operation.
             "saved_at": datetime.now().isoformat(),
         }
         self._manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._manifest_path, "w") as f:
+        with open(self._manifest_path, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
 
     def _load_state(self):

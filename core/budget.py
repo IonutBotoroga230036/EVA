@@ -52,7 +52,7 @@ class BudgetTracker:
         return {"days": {}}
 
     def _save(self) -> None:
-        with open(self.track_file, "w") as f:
+        with open(self.track_file, "w", encoding="utf-8") as f:
             json.dump(self._data, f, indent=2)
 
     def _today(self) -> str:

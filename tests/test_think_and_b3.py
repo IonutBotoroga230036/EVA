@@ -49,7 +49,7 @@ def test_think_fast_path_and_answer_is_spoken_as_is(belt, monkeypatch, tmp_path)
     assert fast_path("think hard about whether I should move to Tilburg", belt) == \
         ("think_deeply", {"question": "whether I should move to Tilburg"})
     import core.prompt_builder as pb
-    (tmp_path / "EVA.local.md").write_text("## About me (private)\n- SECRET-MARKER-XYZ\n")
+    (tmp_path / "EVA.local.md").write_text("## About me (private)\n- SECRET-MARKER-XYZ\n", encoding="utf-8")
     monkeypatch.setattr(pb, "EVA_LOCAL_MD", tmp_path / "EVA.local.md")
     fake = FakeClaude()
     out = think(monkeypatch, fake)(question="Should I move?")
