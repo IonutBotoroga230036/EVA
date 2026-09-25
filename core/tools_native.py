@@ -30,7 +30,7 @@ from urllib.parse import quote_plus, urlparse
 
 from loguru import logger
 
-from core.weather import get_weather_report
+from core.weather import fill_from_words, get_weather_report, spoken as weather_spoken
 
 try:
     import pyautogui
@@ -64,6 +64,12 @@ ACK_PHRASES = {
 
 ACTION_TOOLS = {"spotify_play", "media_control", "set_volume", "open_app", "open_website"}
 
+# Information tools whose "say" line IS the answer (exact data, no LLM rephrasing).
+EXACT_TOOLS = {"get_weather", "get_datetime", "calculate", "budget_status", "set_brain_mode"}
+
+# Before a tool runs, the user's own words can fill or correct its arguments.
+ARG_FILLERS = {"get_weather": fill_from_words}
+
 # The user's message must match before an action runs (case-insensitive search).
 GUARDS = {
     "open_app": r"\b(open|launch|start|run|fire up|pull up)\b",
@@ -71,6 +77,11 @@ GUARDS = {
     "spotify_play": r"\b(play|music|song|songs|spotify|playlist|album|listen|artist|put on)\b",
     "set_volume": r"\b(volume|louder|quieter|loud|quiet|sound|hear|mute|unmute|max)\b",
     "media_control": r"\b(pause|stop|play|resume|skip|next|previous|back|mute|unmute|track|song|music)\b",
+    "get_weather": r"\b(weather|temperature|rain|raining|snow|sunny|sun|cold|hot|warm|forecast|wind|degrees|"
+                   r"umbrella|jacket|outside|storm|cloudy|freezing)\b",
+    "calculate": r"\d|\b(square root|percent|plus|minus|times|divided)\b",
+    "budget_status": r"\b(budget|spent|spend|spending|cost|costs|credit|credits|money)\b",
+    "set_brain_mode": r"\b(local|offline|cloud|online|claude|auto|automatic)\b",
 }
 
 TOOL_SCHEMAS = [
@@ -91,6 +102,21 @@ TOOL_SCHEMAS = [
             "hour": {"type": "string", "description": "Optional time, copied EXACTLY as the user said it "
                                                       "('6', '6pm', '18:00', 'evening'). Never convert it."},
         }}}},
+    {"type": "function", "function": {
+        "name": "set_brain_mode",
+        "description": "Switch where heavy thinking and skill-building run: cloud (Claude), local (private, free), or auto.",
+        "parameters": {"type": "object", "properties": {
+            "mode": {"type": "string", "enum": ["auto", "cloud", "local"]}}, "required": ["mode"]}}},
+    {"type": "function", "function": {
+        "name": "budget_status",
+        "description": "Report how much of the cloud budget (Claude API) has been spent today and this month.",
+        "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "calculate",
+        "description": "Calculate a math expression exactly: arithmetic, percentages, powers, square roots.",
+        "parameters": {"type": "object", "properties": {
+            "expression": {"type": "string", "description": "The math as the user said it, e.g. '15% of 80'."}},
+            "required": ["expression"]}}},
     {"type": "function", "function": {
         "name": "web_search",
         "description": ("Search the web for current facts about the world: news, prices, people, events. "
@@ -137,7 +163,82 @@ TOOL_SCHEMAS = [
 def tool_get_datetime(**_):
     now = datetime.now()
     return {"result": json.dumps({"time": now.strftime("%H:%M"), "date": now.strftime("%A, %B %d, %Y")}),
-            "widget": {"kind": "clock", "time": now.strftime("%H:%M"), "date": now.strftime("%A, %d %B")}}
+            "widget": {"kind": "clock", "time": now.strftime("%H:%M"), "date": now.strftime("%A, %d %B")},
+            "say": f"It's {now:%H:%M} on {now:%A} the {now.day}{_ordinal(now.day)}, sir."}
+
+
+def _ordinal(n: int) -> str:
+    return "th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+
+
+# ---------------------------------------------------------------- calculator (safe: AST, no eval)
+import ast
+import math
+import operator as _op
+
+_BIN = {ast.Add: _op.add, ast.Sub: _op.sub, ast.Mult: _op.mul, ast.Div: _op.truediv, ast.Pow: _op.pow,
+        ast.Mod: _op.mod, ast.FloorDiv: _op.floordiv}
+_FUN = {"sqrt": math.sqrt, "abs": abs, "round": round, "sin": math.sin, "cos": math.cos, "tan": math.tan,
+        "log": math.log10, "ln": math.log, "exp": math.exp}
+_CONST = {"pi": math.pi, "e": math.e}
+
+
+def _normalize_math(text: str) -> str:
+    t = (text or "").lower().strip().rstrip("?.!=")
+    t = re.sub(r"^(what'?s|what is|how much is|calculate|compute|work out|eva,?)\s+", "", t)
+    t = re.sub(r"(\d(?:[\d.]*))\s*%\s*of\s*", r"\1/100*", t)                 # 15% of 80
+    t = re.sub(r"(\d(?:[\d.]*))\s*percent\s*of\s*", r"\1/100*", t)
+    t = re.sub(r"square root of\s*([\d.]+)", r"sqrt(\1)", t)
+    for word, sym in (("plus", "+"), ("minus", "-"), ("times", "*"), ("multiplied by", "*"),
+                      ("divided by", "/"), ("over", "/"), ("to the power of", "**"), ("squared", "**2")):
+        t = t.replace(word, sym)
+    t = t.replace("×", "*").replace("x", "*").replace("÷", "/").replace("^", "**")
+    t = re.sub(r"(?<=\d),(?=\d{3}\b)", "", t)                                       # 1,000 -> 1000
+    return t.replace(",", ".")
+
+
+def safe_eval(expr: str) -> float:
+    def ev(n):
+        if isinstance(n, ast.Expression):
+            return ev(n.body)
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in _BIN:
+            left, right = ev(n.left), ev(n.right)
+            if isinstance(n.op, ast.Pow) and abs(right) > 100:
+                raise ValueError("exponent too large")
+            return _BIN[type(n.op)](left, right)
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.UAdd, ast.USub)):
+            return ev(n.operand) if isinstance(n.op, ast.UAdd) else -ev(n.operand)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in _FUN and len(n.args) <= 2:
+            return _FUN[n.func.id](*[ev(a) for a in n.args])
+        if isinstance(n, ast.Name) and n.id in _CONST:
+            return _CONST[n.id]
+        raise ValueError("unsupported expression")
+    if len(expr) > 200:
+        raise ValueError("expression too long")
+    return ev(ast.parse(expr, mode="eval"))
+
+
+def _fmt(v: float) -> str:
+    """Plain digits, no group separators: '1024' is read as a number, '1 024' digit by digit."""
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return f"{v:.6g}" if isinstance(v, float) else str(v)
+
+
+def tool_calculate(expression: str = "", **_):
+    expr = _normalize_math(expression)
+    try:
+        value = safe_eval(expr)
+    except ZeroDivisionError:
+        return {"result": json.dumps({"error": "division by zero"}), "say": "That's a division by zero, sir."}
+    except Exception as e:
+        return {"result": json.dumps({"error": f"I couldn't calculate {expression!r} ({e})"})}
+    shown = _fmt(value)
+    return {"result": json.dumps({"expression": expr, "value": value}),
+            "widget": {"kind": "note", "title": "Calculation", "text": f"{expression.strip()} = {shown}"},
+            "say": f"That's {shown}, sir."}
 
 
 def tool_get_weather(city: str = "", day: str = "", hour: str = "", **_):
@@ -145,10 +246,10 @@ def tool_get_weather(city: str = "", day: str = "", hour: str = "", **_):
         data = get_weather_report((city or HOME_CITY).strip(), day or None, hour or None)
     except Exception as e:
         logger.error(f"weather failed: {e}")
-        return {"result": json.dumps({"error": str(e)})}
+        data = {"error": str(e)}
     if "error" in data:
-        return {"result": json.dumps(data)}
-    return {"result": json.dumps(data), "widget": {"kind": "weather", **data}}
+        return {"result": json.dumps(data), "say": weather_spoken(data)}
+    return {"result": json.dumps(data), "widget": {"kind": "weather", **data}, "say": weather_spoken(data)}
 
 
 def _search(query: str) -> list[dict]:
@@ -301,9 +402,32 @@ def tool_open_website(site: str = "", **_):
     return {"result": json.dumps({"opened": url, "how": how}), "say": say}
 
 
+def tool_set_brain_mode(mode: str = "auto", **_):
+    from core.brain import get_brain
+    b = get_brain()
+    m = b.set_mode(mode)
+    where = {"cloud": "Claude, in the cloud", "local": "local models only, nothing leaves this machine",
+             "auto": "Claude when a key and budget are available, otherwise local"}[m]
+    note = ""
+    if m == "cloud" and not b.cloud_ready():
+        note = " Note: Claude isn't available right now, so those jobs will fail until it is."
+    return {"result": json.dumps({"mode": m}), "say": f"Done, sir. Heavy thinking now uses {where}.{note}"}
+
+
+def tool_budget_status(**_):
+    from core.budget import get_budget
+    s = get_budget().today_summary()
+    return {"result": json.dumps(s),
+            "say": (f"Today I've spent {s['spent']:.2f} of your {s['limit']:.2f} euro daily cloud budget, and "
+                    f"{s['month_spent']:.2f} of {s['month_limit']:.0f} euros this month, sir. Local work is free.")}
+
+
 REGISTRY = {
     "get_datetime": tool_get_datetime,
     "get_weather": tool_get_weather,
+    "calculate": tool_calculate,
+    "budget_status": tool_budget_status,
+    "set_brain_mode": tool_set_brain_mode,
     "web_search": tool_web_search,
     "spotify_play": tool_spotify_play,
     "media_control": tool_media_control,

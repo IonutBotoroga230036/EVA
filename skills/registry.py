@@ -58,6 +58,7 @@ class Skill:
     actions: set[str] = field(default_factory=set)
     guards: dict[str, str] = field(default_factory=dict)
     confirm: dict[str, str] = field(default_factory=dict)
+    fillers: dict[str, Callable] = field(default_factory=dict)
     vec: Optional[np.ndarray] = None
 
 
@@ -123,6 +124,7 @@ class SkillRegistry:
         sk.actions = set(getattr(mod, "ACTIONS", []))
         sk.guards = dict(getattr(mod, "GUARDS", {}))
         sk.confirm = dict(getattr(mod, "CONFIRM", {}))
+        sk.fillers = dict(getattr(mod, "FILLERS", {}))
         declared = {t["function"]["name"] for t in sk.tools}
         missing = declared - set(sk.functions)
         if missing:
@@ -157,6 +159,9 @@ class SkillRegistry:
 
     def guards(self) -> dict[str, str]:
         return {k: v for s in self.enabled() for k, v in s.guards.items()}
+
+    def fillers(self) -> dict[str, Callable]:
+        return {k: v for s in self.enabled() for k, v in s.fillers.items()}
 
     def confirmations(self) -> dict[str, str]:
         return {k: v for s in self.enabled() for k, v in s.confirm.items()}

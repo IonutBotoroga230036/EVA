@@ -1,7 +1,17 @@
 """
-Settings loader. Reads config/settings.yaml once and caches it.
-Every module asks here instead of parsing YAML itself, so paths and model
-names live in exactly one place.
+Settings: config/settings.yaml (defaults, updated with each release) deep-merged with
+config/settings.local.yaml (YOUR overrides, git-ignored, never overwritten by an update).
+
+Put only what you change in settings.local.yaml, for example:
+
+    obsidian:
+      vault_path: "D:/Obsidian/Second Brain"
+    voice:
+      tts:
+        voice_eva: "bf_emma"
+        lang_code: "b"
+
+Nested keys merge one by one, so the rest of each section keeps its defaults.
 """
 
 from __future__ import annotations
@@ -13,15 +23,35 @@ import yaml
 from loguru import logger
 
 SETTINGS_PATH = Path("config/settings.yaml")
+LOCAL_PATH = Path("config/settings.local.yaml")
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for k, v in (override or {}).items():
+        out[k] = deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def _read(path: Path) -> dict:
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.error(f"settings: {path} is not valid YAML ({e}); ignoring it")
+        return {}
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> dict:
-    try:
-        return yaml.safe_load(SETTINGS_PATH.read_text(encoding="utf-8")) or {}
-    except Exception as e:
-        logger.warning(f"settings: could not read {SETTINGS_PATH} ({e}); using defaults")
-        return {}
+    base = _read(SETTINGS_PATH)
+    if not base:
+        logger.warning(f"settings: could not read {SETTINGS_PATH}; using defaults")
+    local = _read(LOCAL_PATH)
+    if local:
+        logger.info(f"settings: your overrides from {LOCAL_PATH} are applied")
+    return deep_merge(base, local)
 
 
 def local_cfg() -> dict:

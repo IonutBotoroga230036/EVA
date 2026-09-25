@@ -18,18 +18,22 @@ inference:
     decision_model: "qwen2.5:3b-instruct"
     answer_model: "qwen2.5:3b-instruct"
     vision_model: "qwen2.5vl:3b"        # loaded only when she looks, unloaded right after
+    coder_model: "qwen2.5-coder:7b"     # FORGE in local mode (ollama pull qwen2.5-coder:7b)
+    think_model: "qwen3:4b"             # deep thinking in local mode (ollama pull qwen3:4b)
     keep_alive: "30m"
     # legacy v0.1 keys, still read by core/orchestrator.py
     router_model: "llama3.2:3b"
     general_model: "llama3.1:8b"
     code_model: "deepseek-coder-v2:6.7b"
   cloud:
-    provider: "anthropic"
+    provider: "anthropic"                 # key: ANTHROPIC_API_KEY in config/secrets.env (git-ignored)
     model_light: "claude-haiku-4-5-20251001"
-    model_heavy: "claude-sonnet-4-6-20260901"
+    model_heavy: "claude-sonnet-5"        # FORGE code generation and deep thinking
+    mode: "auto"                          # auto | cloud | local ("switch to local mode" by voice)
 
 budget:
   daily_limit_euros: 1.50
+  monthly_limit_euros: 50.0             # hard cap across everything cloud
   warning_threshold: 0.80
   fallback_to_local: true
   track_file: "./data/budget.json"
@@ -79,6 +83,19 @@ mcp:
       trusted_tools: []                  # create-event asks first
       timeout: 90                        # first start downloads the package via npx
 
+telegram:
+  enabled: true                        # needs TELEGRAM_BOT_TOKEN in config/secrets.env (from @BotFather)
+  proactive: "always"                  # always | when_away (only if no E.V.A. window is open) | never
+  allowed_user_ids: []                 # filled by pairing (data/telegram.json); or put your id here
+
+oracle:
+  email_alerts: "important"            # important | all | off
+  lead_minutes: 10                     # meeting heads-up
+  quiet_hours: "23-8"
+
+email:
+  llm_triage: true                     # borderline emails get a second opinion from the LOCAL model
+
 skills:
   dir: "skills"
   match_threshold: 0.62                # cosine needed to load a SKILL.md body into the prompt
@@ -107,9 +124,16 @@ redis:
   port: 6379
   db: 0
 
+google:
+  # One OAuth client for Calendar and Gmail. Keep it OUTSIDE the repo. See docs/GOOGLE_SETUP.md.
+  credentials_path: "D:/Project E.V.A/secrets/gcp-oauth.keys.json"
+  timezone: "Europe/Amsterdam"
+
 calendar:
   sync_interval_minutes: 15
   primary: "google"
   sources:
     - "google"
     - "microsoft"
+
+

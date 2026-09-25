@@ -112,3 +112,20 @@ def test_voice_input_is_vocabulary_corrected_typed_input_is_not(monkeypatch):
         typed = collect_until(ws, lambda e: e["type"] == "final")
     assert {"type": "heard", "text": "I study in Nijmegen"} in voiced
     assert not any(e["type"] == "heard" for e in typed)
+
+
+def test_proactive_reminder_is_spoken_through_the_websocket(monkeypatch, tmp_path):
+    """A reminder falls due while a window is open: E.V.A. speaks first, with her voice."""
+    from datetime import datetime, timedelta
+    import core.oracle as co
+    o = co.Oracle(store=co.ReminderStore(tmp_path / "r.json"), interval=0.05, google_getter=lambda: None)
+    o.store.add("stand up and stretch", datetime.now() - timedelta(seconds=1))
+    monkeypatch.setattr(co, "_oracle", o)
+    monkeypatch.setattr(srv, "get_oracle", lambda: o)
+    monkeypatch.setattr(srv, "get_tts", lambda: FakeTTS())
+    with TestClient(srv.app) as tc, tc.websocket_connect("/ws") as ws:
+        ws.receive_text(); ws.receive_text()                   # hello + phrase
+        events = collect_until(ws, lambda e: e["type"] == "audio_end", limit=50)
+    final = next(e for e in events if e["type"] == "final")
+    assert final["text"] == "Sir, a reminder: stand up and stretch." and final["proactive"]
+    assert any(e["type"] == "audio" for e in events)

@@ -74,7 +74,6 @@ def test_fast_path_screen(belt):
 
 
 @pytest.mark.parametrize("text", [
-    "remember to call mom tomorrow",        # a reminder, not a fact: goes to the model
     "evaluate this plan for me",            # 'eva' prefix must not be stripped from 'evaluate'
     "what's the weather tomorrow in Portugal",
     "I paused my gym membership",           # 'pause' mid-sentence is not a command
@@ -267,3 +266,7 @@ def test_a_failed_tool_may_be_retried_with_new_args(tmp_path, monkeypatch):
     o = HybridOrchestrator(session_id="w2", cortex=Cortex(str(tmp_path / "c.db")), registry=reg)
     run_turn(o, "echo please")
     assert reg.functions()["echo_tool"].__globals__["CALLS"] == ["boom", "fine"]
+
+
+def test_remember_to_is_a_reminder_not_a_fact(belt):
+    assert fast_path("remember to call mom tomorrow", belt) == ("set_reminder", {"text": "call mom", "when": "tomorrow"})

@@ -186,8 +186,14 @@ function renderWidget(d){
       <div class="wbtns"><button class="wbtn yes" data-reply="yes">Go ahead</button><button class="wbtn" data-reply="no">Cancel</button></div>`,60000);
     deck.querySelectorAll('.wbtn').forEach(b=>b.addEventListener('click',()=>{lastWasVoice=false;clearWidgets();sendToEva(b.dataset.reply);}));
   }
-  else if(d.kind==='calendar'&&Array.isArray(d.events))widgetHTML(`<div class="wtitle">Today</div>`+
-    d.events.map(ev=>`<div class="wrow"><span class="t">${esc(ev.time)}</span><span class="l">${esc(ev.title)}</span></div>`).join(''));
+  else if(d.kind==='calendar'&&Array.isArray(d.events))widgetHTML(`<div class="wtitle">${esc(d.title||'Today')}</div>`+
+    (d.events.length?d.events.map(ev=>`<div class="wrow"><span class="t">${esc((ev.day?ev.day+' ':'')+ev.time)}</span><span class="l">${esc(ev.title)}</span></div>`).join('')
+      :`<div class="wsub">Nothing scheduled.</div>`),18000);
+  else if(d.kind==='email'&&Array.isArray(d.emails))widgetHTML(`<div class="wtitle">${esc(d.title||'Email')}</div>`+
+    (d.emails.length?d.emails.map(m=>`<div class="wrow" style="flex-direction:column;align-items:flex-start;gap:2px">
+      <span class="t" style="min-width:0">${esc(m.from)}</span><span class="l" style="text-align:left">${esc(m.subject)}</span>
+      ${m.snippet?`<span class="wsub" style="margin-top:0">${esc(m.snippet)}</span>`:''}</div>`).join('')
+      :`<div class="wsub">Inbox clear.</div>`),18000);
   else if(d.title)widgetHTML(`<div class="wtitle">${esc(d.title)}</div><div style="font-size:15px">${esc(d.text)}</div>`);
 }
 

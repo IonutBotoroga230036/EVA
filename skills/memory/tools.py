@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.memory.cortex import get_cortex
-from core.prompt_builder import add_standing_instruction
+from core.prompt_builder import about_lines, add_standing_instruction
 
 TOOLS = [
     {"type": "function", "function": {
@@ -51,6 +51,9 @@ _VERBS = {"am": "is", "have": "has", "go": "goes", "do": "does", "like": "likes"
 def to_third_person(text: str) -> str:
     t = " ".join((text or "").split()).strip().rstrip(".")
     t = re.sub(r"^i'?m\b", "is", t, flags=re.I)
+    m0 = re.match(r"^i\s+(also|really|just|still)\s+(\S+)\s*(.*)$", t, flags=re.I)
+    if m0 and m0.group(2).lower() in _VERBS:
+        t = f"{m0.group(1)} {_VERBS[m0.group(2).lower()]} {m0.group(3)}".strip()
     m = re.match(r"^i\s+(\S+)\s*(.*)$", t, flags=re.I)
     if m and m.group(1).lower() in _VERBS:
         t = f"{_VERBS[m.group(1).lower()]} {m.group(2)}".strip()
@@ -105,9 +108,14 @@ def recall_memory(query: str = "", **_):
             if len(said) == 3:
                 break
     notes = _notes_search(query) if query.strip() else []
+    about = about_lines()
+    if not query.strip() or re.search(r"\b(name|who am i|about me|live|home|language)\b", query, re.I):
+        facts = about + [f for f in facts if f not in about]
     if not (facts or said or notes):
-        return {"result": json.dumps({"facts": [], "note": "nothing remembered on this yet; say so plainly"})}
-    return {"result": json.dumps({"facts": facts, "from_past_conversations": said, "from_notes": notes})}
+        return {"result": json.dumps({"facts": [], "note": "nothing remembered on this yet"}),
+                "say": "I don't have anything stored about that yet, sir.", "exact": True}
+    return {"result": json.dumps({"facts": facts, "from_past_conversations": said, "from_notes": notes,
+                                  "rule": "answer only from these; never invent anything else about the user"})}
 
 
 def forget_memory(query: str = "", **_):

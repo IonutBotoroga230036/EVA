@@ -1,9 +1,9 @@
 # Core
-fastapi==0.115.6
+fastapi>=0.141        # 0.115 breaks with the Starlette that mcp installs
 uvicorn[standard]==0.34.0
 # celery[redis]==5.4.0   # legacy v0.1 only; PULSE v0.2 is in-process
 # redis==5.2.1   # legacy v0.1 only; PULSE v0.2 is in-process
-pydantic==2.10.3
+pydantic>=2.12        # required by mcp
 pydantic-settings==2.7.0
 pyyaml==6.0.2
 httpx==0.28.1

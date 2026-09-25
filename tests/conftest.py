@@ -9,6 +9,16 @@ if str(ROOT) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
+def isolate_personal_settings(tmp_path, monkeypatch):
+    """Tests use the shipped defaults only, never your config/settings.local.yaml."""
+    import core.settings as st
+    monkeypatch.setattr(st, "LOCAL_PATH", tmp_path / "no-personal-settings.yaml")
+    st.get_settings.cache_clear()
+    yield
+    st.get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def isolate_real_data(tmp_path, monkeypatch):
     """Tests must never touch data/cortex.db or the real audit log."""
     from core.memory import cortex as cortex_mod

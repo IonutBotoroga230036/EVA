@@ -1,6 +1,6 @@
 # E.V.A. Build Spec (v0.2, corrected)
 
-Last updated: September 24, 2026 (late), end of the MCP + safety release (B.2).
+Last updated: September 25, 2026 (afternoon), end of the triage + Telegram + routines release. Full user guide: docs/CAPABILITIES.md.
 This replaces the earlier one-shot build prompt. It describes the project as it
 actually is, the decisions already made, and the order to build the rest in.
 Any session working on E.V.A. (this chat, Claude Code, or another model) should
@@ -35,6 +35,16 @@ read this file and `EVA.md` first.
 | `core/weather.py` | Weather v2: current, hourly, and daily forecasts up to 16 days, day/hour parsing, country to capital, city-local time. |
 | `voice/speech.py` | ECHO v0.2: speech normalizer, sentence chunker, Kokoro engine (CPU), per-turn streaming speaker. |
 | `core/mcp_client.py` | MCP client: stdio and HTTP servers become tools; one owner task per server; read-only tools run freely, others ask first. SDK 1.x and 2.x. |
+| `core/forge_engine.py` | FORGE v1: Claude drafts a skill, AEGIS static review, network-off sandbox tests, one repair round, install on approval, hot reload. |
+| `core/claude.py` | Claude API over plain HTTP; VAULT pre-check and recording; extended thinking; forced tool calls for structured output. |
+| `core/budget.py` | VAULT: daily and monthly caps, local models free, prices configurable. |
+| `core/brain.py` | Cloud or local for heavy jobs (FORGE, deep thinking): auto, cloud, local; voice switchable. |
+| `core/google_api.py` | One Google sign-in for Calendar and Gmail; least-privilege scopes; no send permission. |
+| `core/tempo.py`, `core/scribe.py` | Calendar and email logic with exact spoken lines. |
+| `core/oracle.py` | Proactive loop: reminders, meeting heads-ups, new-email alerts, DND, quiet hours, briefing. |
+| `core/triage.py` | Email importance: contacts, VIP/mute, Gmail labels, bulk and automated senders, urgency; local-model tie-break. |
+| `core/telegram_bridge.py` | Telegram channel: pairing, allowlist, Yes/No buttons, ORACLE push, voice notes. |
+| `core/timeparse.py` | Clock times, relative times, day windows. |
 | `core/vocab.py` | Speech vocabulary correction from the Vocabulary sections of EVA.md / EVA.local.md (voice input only). |
 | `core/memory/cortex.py` | CORTEX. One SQLite file `data/cortex.db`: every turn, every fact, fact vectors. Dedup, recall, forget, secret filter. |
 | `core/memory/extractor.py` | Learns facts in the background after each answer (constrained JSON). |
@@ -47,7 +57,7 @@ read this file and `EVA.md` first.
 | `interfaces/web/eva.html` | Purple core UI; ordered Kokoro audio player (browser voice as fallback); half-duplex mic, follow-up window, barge-in by tap; escaped widgets. |
 | `EVA.md` | Standing context, instructions, and speech vocabulary, read every turn (like CLAUDE.md). |
 | `EVA.local.md` | Private companion to EVA.md, git-ignored. Names, projects, private vocabulary. |
-| `tests/` | 211 tests, all passing, isolated from `data/`, including MCP against a real server process. Browser player verified in Node. |
+| `tests/` | 319 tests, all passing, isolated from `data/`, including MCP against a real server process. Browser player verified in Node. |
 
 ### Legacy v0.1 files (keep, do not build on)
 
@@ -169,6 +179,17 @@ moved past, so an interrupted answer can never talk over the next one.
   "Yes" runs the held action, "no" cancels, anything else drops it; it expires after 2 minutes.
 - Acks are sent before a tool runs; tools run in worker threads, MCP on the event loop.
 
+### Exactness rules (B.3, from the Sep 25 midnight log)
+
+- Weather, time, calculations, budget, and vision answer with exact lines built from the data (`EXACT_TOOLS`
+  or `exact: true`); the LLM never rephrases their numbers.
+- The user's own words fill tool arguments (`ARG_FILLERS`): "the day after" beats a garbled `day after today`.
+- "unavailable" is only believed when the request names an ability (calendar, email, lights...) and no tool ran.
+- Follow-ups pass intent guards when the previous turn used that tool ("what about tomorrow").
+- Web answers are generated, then checked: significant numbers must appear in the results (rounding allowed);
+  one retry, then the source is quoted instead.
+- Empty memory gets an exact honest line; EVA.md "About me" lines count as known facts.
+
 ### Weather trust rules
 
 - NL/BE/LU use KNMI HARMONIE (`knmi_seamless`); elsewhere Open-Meteo `best_match`. Override with `weather.model`.
@@ -218,13 +239,14 @@ moved past, so an interrupted answer can never talk over the next one.
 | D | Weather v2 (done) | Forecast by day and hour ("tomorrow at 18:00 in Tilburg"), any city, from Open-Meteo hourly/daily data. |
 | E | Obsidian skill (done) |
 | B.2 | MCP + safety release (done) | MCP client, confirmation gate, exact confirmations, guards, vocabulary correction, installable desktop app. | Local only: create, search, read, append, daily note. Vault path in settings. |
-| F | TEMPO calendar (config ready: MCP `@cocal/google-calendar-mcp`, needs Google OAuth setup) | Google Calendar: today, range, create, delete (confirm), plan week. Calendar widget. |
-| G | SCRIBE email | Gmail unread, search, read, draft reply for approval. Email widget. |
+| F | TEMPO calendar (done, native) | Agenda, free slots, add and delete (ask first). Setup: docs/GOOGLE_SETUP.md. | Google Calendar: today, range, create, delete (confirm), plan week. Calendar widget. |
+| G | SCRIBE email (done, native) | Gmail unread, search, read, draft reply for approval. Email widget. |
 | H | Spotify skill | spotipy: play, pause, skip, queue, volume, now playing with real metadata. Premium check at setup. |
 | I | Deep research | Harvest im4peace planner/worker research engine as a skill; cited answers. |
-| J | FORGE v1 | Self-improvement loop (below). |
-| K | ORACLE | Proactive reminders, do-not-disturb, gap detection, hooks from PULSE. |
+| J | FORGE v1 (done) | Claude drafts, AEGIS review, sandbox tests, approve, hot reload. Also: deep thinking skill, budget tool. |
+| K | ORACLE (done: reminders, meetings, email alerts, DND, briefing) | Proactive reminders, do-not-disturb, gap detection, hooks from PULSE. |
 | L | Pipecat voice | Local Whisper STT, turn detection, barge-in, echo handling. |
+| N | Next, in order | 1 UI redesign (docs/DESIGN_BRIEF.md), 2 Spotify skill, 3 deep research into notes, 4 FORGE pull requests with writer/tester agents, 5 Hermes skill importer. |
 | M | HERALD | Phone calls/SMS via Twilio on Pipecat. |
 
 Ideas backlog (brainstorm Sep 24, with assessment):
@@ -254,7 +276,17 @@ Remaining small items: VAULT must count local Ollama calls at EUR 0 (the current
 `record_usage` bills unknown models at Sonnet rates), a settings/history panel in
 the UI, K.I.R.A. persona switching.
 
-## FORGE v1: how E.V.A. improves herself
+## FORGE v1 as built
+
+Say "build a skill that converts currencies" (or "build it" after she says she lacks a skill). She states the
+cost and waits for yes. Claude returns SKILL.md, tools.py, and test_skill.py through a forced tool call; files
+land in `skills/_forge/<name>/` with `trusted: false` (the registry never loads that folder). AEGIS review
+blocks subprocess, eval/exec, deleting files, undeclared hosts, and non-allowed imports. The skill's tests run
+in a separate process with sockets disabled and writes confined to a temp folder. One repair round with the
+exact failures. Then: "Shall I install it?" Yes moves it to `skills/<name>/`, sets `trusted: true`, and every
+open session hot-reloads its tools. Next: Docker sandbox, and delivery as a pull request from her own git account.
+
+## FORGE v1: original design
 
 Goal: E.V.A. proposes a change to herself, tests it in isolation, and Ionut
 approves it after testing it himself.

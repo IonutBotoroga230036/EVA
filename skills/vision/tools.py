@@ -10,6 +10,7 @@ right after (keep_alive 0), so the everyday text model stays resident and fast.
 import base64
 import io
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -60,10 +61,14 @@ def see_screen(question: str = "", **_):
         return {"result": json.dumps({"error": f"vision model unavailable ({e}). "
                                               f"Run: ollama pull {cfg['vision_model']}"})}
     audit.log("see_screen", "vision", {"screenshot": str(path)})
-    first = " ".join(answer.split())[:220]
+    text = " ".join(answer.split())
+    text = re.sub(r"^(the (screenshot|image|screen) (shows|displays|contains)|in the (screenshot|image),?)\s*",
+                  "I can see ", text, flags=re.I)
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    say = " ".join(sentences[:2])[:320].rstrip(".") + ", sir."
     return {"result": json.dumps({"you_just_looked_at_the_screen": True, "what_you_see": answer}),
             "widget": {"kind": "vision", "title": "On your screen", "text": answer[:280]},
-            "say": f"Here's what I see, sir: {first}"}
+            "say": say, "exact": True}
 
 
 FUNCTIONS = {"see_screen": see_screen}

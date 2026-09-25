@@ -51,6 +51,8 @@ from core.prompt_builder import vocabulary_text
 from core.settings import get_settings
 from core.vocab import correct as vocab_correct
 from core.memory.cortex import close_cortex, get_cortex
+from core.oracle import get_oracle
+from core.telegram_bridge import TelegramBridge, load_token
 from core.orchestrator_hybrid import HybridOrchestrator
 from skills.registry import get_registry
 from voice.speech import SentenceChunker, TurnSpeaker, get_tts
@@ -59,7 +61,33 @@ UI_FILE = Path(__file__).parent / "eva.html"
 STATIC = Path(__file__).parent / "static"
 PORT = 8001
 STARTED = time.time()
+CONNECTIONS: set["Connection"] = set()
+
+
+async def broadcast(text: str, widget: dict | None = None) -> bool:
+    """ORACLE's voice: speak a proactive message in every open E.V.A. window."""
+    delivered = False
+    for conn in list(CONNECTIONS):
+        try:
+            await conn.proactive(text, widget)
+            delivered = True
+        except Exception as e:
+            logger.warning(f"proactive delivery failed for {conn.session_id}: {e}")
+    return delivered
 WAKE_PHRASE = "Yes, sir?"
+
+
+def _warm_llm() -> None:
+    """Load the decision model into VRAM at startup, so the first reply isn't a cold start."""
+    import httpx as _h
+    from core.settings import local_cfg
+    cfg = local_cfg()
+    try:
+        _h.post(f"{cfg['base_url']}/api/generate", json={"model": cfg["decision_model"],
+                                                           "keep_alive": cfg["keep_alive"]}, timeout=120)
+        logger.info(f"LLM warm: {cfg['decision_model']} loaded")
+    except Exception as e:
+        logger.warning(f"LLM warm-up skipped ({e})")
 
 
 @asynccontextmanager
@@ -71,12 +99,33 @@ async def lifespan(_app: FastAPI):
     tts = get_tts()
     if tts:                               # load Kokoro off the startup path
         threading.Thread(target=tts.warm, daemon=True, name="kokoro-warmup").start()
+    threading.Thread(target=_warm_llm, daemon=True, name="llm-warmup").start()
     mcp = get_mcp()
     await mcp.start(get_settings().get("mcp", {}).get("servers", []) or [])
+    oracle = get_oracle()
+    tg_cfg = get_settings().get("telegram", {})
+    token = load_token() if tg_cfg.get("enabled", True) else None
+    telegram = TelegramBridge(token, set(tg_cfg.get("allowed_user_ids", []) or [])) if token else None
+    tg_task = asyncio.create_task(telegram.run(), name="telegram") if telegram else None
+    mode = str(tg_cfg.get("proactive", "always"))              # always | when_away | never
+
+    async def deliver(text, widget=None):
+        on_screen = await broadcast(text, widget)
+        on_phone = False
+        if telegram and (mode == "always" or (mode == "when_away" and not on_screen)):
+            on_phone = await telegram.notify(text, widget)
+        return on_screen or on_phone
+    oracle.deliver = deliver
+    oracle_task = asyncio.create_task(oracle.run(), name="oracle")
     logger.info(f"E.V.A. online: {cortex.stats()['facts']} facts, {len(registry.enabled())} skills, "
                 f"{sum(s.connected for s in mcp.servers.values())} MCP servers, "
                 f"voice: {'Kokoro' if tts else 'browser'}")
     yield
+    oracle.stop()
+    oracle_task.cancel()
+    if telegram:
+        telegram.stop()
+        tg_task.cancel()
     await mcp.stop()
     bus.stop()
     close_cortex()
@@ -197,6 +246,26 @@ class Connection:
                 speaker.cancel()
                 await self.send({"type": "audio_end", "turn": turn, "count": speaker.sent})
 
+    async def proactive(self, text: str, widget: dict | None = None) -> None:
+        """A turn E.V.A. starts herself. Waits briefly if she's mid-reply, then speaks like any answer."""
+        if self.current and not self.current.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(self.current), timeout=30)
+            except Exception:
+                pass
+        self.turn += 1
+        turn = self.turn
+        await self.send({"type": "turn_start", "turn": turn})
+        if widget:
+            await self.send({"type": "widget", "data": widget})
+        await self.send({"type": "final", "text": text, "proactive": True})
+        self.orch.history.append({"role": "assistant", "content": text})     # so "snooze it" has context
+        if self.tts:
+            speaker = TurnSpeaker(self.tts, self.send, turn)
+            await speaker.say(text)
+            await speaker.finish()
+        logger.info(f"EVA (proactive): {text}")
+
     async def interrupt(self) -> None:
         if self.current and not self.current.done():
             self.current.cancel()
@@ -208,6 +277,8 @@ class Connection:
 
     async def run(self) -> None:
         await self.hello()
+        CONNECTIONS.add(self)
+        asyncio.create_task(get_oracle().on_client_connected())         # reminders that fired while away
         try:
             while True:
                 data = json.loads(await self.ws.receive_text())
@@ -229,6 +300,7 @@ class Connection:
                     logger.info(f"USER: {text}")
                     self.current = asyncio.create_task(self.reply(text, self.turn))
         finally:
+            CONNECTIONS.discard(self)
             await self.interrupt()
 
 

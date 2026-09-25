@@ -47,6 +47,8 @@ from core.prompt_builder import build_answer_system, build_decision_system
 from core.security.audit import audit
 from core.settings import get_settings, local_cfg
 from core.tools_native import ACTION_TOOLS as BUILTIN_ACTIONS
+from core.tools_native import ARG_FILLERS as BUILTIN_FILLERS
+from core.tools_native import EXACT_TOOLS as BUILTIN_EXACT
 from core.tools_native import GUARDS as BUILTIN_GUARDS
 from core.tools_native import REGISTRY as BUILTIN_FUNCS
 from core.tools_native import TOOL_SCHEMAS as BUILTIN_SCHEMAS
@@ -72,12 +74,20 @@ STYLE_RULES = (
 )
 MISSING_SKILL = ("I don't have a skill for that yet, sir. Once FORGE is live I can build "
                  "one, with your approval.")
+MISSING_SKILL_FORGE = "I don't have a skill for that yet, sir. Say 'build it' and I'll draft one for your approval."
+# "unavailable" is only believed when the request actually names an ability we lack
+_ABILITY_HINT = re.compile(
+    r"\b(calendar|schedule|meeting|appointment|email|e-mail|mail|inbox|message|text|sms|whatsapp|call|phone|"
+    r"light|lights|lamp|thermostat|heating|alarm|remind|reminder|timer|order|buy|book|reserve|pay|install|"
+    r"download|print|3d|convert|translate|record|photo|picture|camera|upload|send|post|tweet|contact)\b", re.I)
 _CAPABILITY_Q = re.compile(r"what (?:else )?can you (?:do|help)|what (?:else )?are you (?:able|capable)"
                            r"|your (?:capabilities|skills|features|abilities)|what do you do\b", re.I)
 _SMALLTALK_Q = re.compile(          # questions about her: small talk at any length
     r"^\s*(?:and |so |well |okay |ok |yeah )?(?:how are you|how(?:'s| is) it going|how do you (?:feel|like)|"
     r"do you (?:like|enjoy|feel|think|want|love|prefer)|are you (?:ok|okay|happy|sad|alive|conscious|there)|"
-    r"what do you think|what would you like|would you like to have|who are you|what(?:'s| is) your name)\b", re.I)
+    r"what do you think|what would you like|would you (?:like|want) to|who are you|what(?:'s| is) your name|"
+    r"(?:it'?s|it is|that'?s|this is) (?:so |really |very |actually |pretty |super )*"
+    r"(?:cool|nice|great|amazing|awesome|impressive|good|funny|interesting|crazy|wild))\b", re.I)
 _INTERJECTION = re.compile(         # "thanks", "great" ... only when that's (nearly) the whole message
     r"^\s*(?:thank(?:s| you)|good (?:job|work)|well done|nice|cool|great|awesome|perfect|"
     r"that'?s (?:better|right|good|great|perfect)|alright|all right|okay|ok)\b", re.I)
@@ -91,6 +101,37 @@ _YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|do it|go ahead|go on|confirm(?:
                   r"affirmative|correct|absolutely|of course)\b", re.I)
 _NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forget it|leave it)\b", re.I)
 _WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+)?(?:eva\b|e\.v\.a\.?)[\s,:!.-]*", re.I)
+
+
+_NUM = re.compile(r"(?<![\w.])\d{1,3}(?:[,.\s]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?")
+
+
+def _to_float(tok: str) -> float | None:
+    t = tok.replace(" ", "")
+    if "," in t and "." in t:                     # the later separator is the decimal one
+        t = t.replace(",", "") if t.rfind(".") > t.rfind(",") else t.replace(".", "").replace(",", ".")
+    elif "," in t:
+        t = t.replace(",", "") if re.fullmatch(r"\d{1,3}(,\d{3})+", t) else t.replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(\.\d{3}){2,}", t):
+        t = t.replace(".", "")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def ungrounded_numbers(answer: str, data: str) -> list[str]:
+    """Significant numbers in the answer that appear nowhere in the tool data (rounding allowed).
+    Small numbers, years, and times are ignored; they are rarely what a model invents."""
+    have = [v for v in (_to_float(m.group(0)) for m in _NUM.finditer(data)) if v is not None]
+    bad = []
+    for m in _NUM.finditer(answer):
+        v = _to_float(m.group(0))
+        if v is None or v < 100 or (1900 <= v <= 2100 and v.is_integer()):
+            continue
+        if not any(abs(v - d) <= max(0.006 * abs(d), 0.5) for d in have):
+            bad.append(m.group(0))
+    return bad
 
 
 def load_persona(name: str = "eva") -> str:
@@ -111,6 +152,8 @@ class ToolBelt:
         self.guards: dict[str, str] = {**BUILTIN_GUARDS, **(registry.guards() if registry else {})}
         self.confirm_text: dict[str, str] = registry.confirmations() if registry else {}
         self.actions: set[str] = set(BUILTIN_ACTIONS) | (registry.actions() if registry else set())
+        self.exact: set[str] = set(BUILTIN_EXACT)
+        self.fillers: dict[str, Callable] = {**BUILTIN_FILLERS, **(registry.fillers() if registry else {})}
         schemas = list(BUILTIN_SCHEMAS)
         taken = {t["function"]["name"] for t in schemas}
         # built-ins first, then skills, then MCP: nothing can shadow a trusted tool
@@ -139,6 +182,14 @@ class ToolBelt:
     def required(self, name: str) -> list[str]:
         return list(self.by_name[name]["function"].get("parameters", {}).get("required", []))
 
+    def fill(self, name: str, args: dict, text: str) -> dict:
+        fn = self.fillers.get(name)
+        try:
+            return fn(args, text) if fn else args
+        except Exception as e:
+            logger.warning(f"argument filler for {name} failed: {e}")
+            return args
+
     def guard_ok(self, name: str, text: str) -> bool:
         rx = self.guards.get(name)
         return True if not rx else bool(re.search(rx, text, re.I))
@@ -148,10 +199,11 @@ class ToolBelt:
 
     def describe(self, name: str, args: dict) -> str:
         if name in self.confirm_text:
+            text = self.confirm_text[name]
             try:
-                return self.confirm_text[name].format(**{"minutes": 15, **(args or {})})
+                return text(args or {}) if callable(text) else text.format(**{"minutes": 15, **(args or {})})
             except Exception:
-                return self.confirm_text[name]
+                return text if isinstance(text, str) else f"run {name}"
         if self.is_mcp(name):
             return self.mcp.describe(name, args)
         return f"run {name}"
@@ -249,7 +301,7 @@ def args_for(schema: dict, decision: dict, tool_names: list[str] | None = None) 
 # ============================================================ fast path
 def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     t = _WAKE_PREFIX.sub("", text).strip()
-    polite = r"(?:(?:i want you to|i need you to|can you|could you|would you|please|and|also|now|don't forget)\s+)*"
+    polite = r"(?:(?:i want you to|i need you to|can you|could you|would you|please|and|also|now|don't forget|i)\s+)*"
 
     m = re.search(r"(?:set |turn |change )?(?:the )?volume (?:to |at )?(\d{1,3})\s*%?", t, re.I)
     if m and belt.has("set_volume"):
@@ -261,6 +313,35 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
             r"\b(?:delete|forget|remove|erase)\b.{0,40}\b(?:just|recently)\s+"
             r"(?:remembered|learned|saved|stored|noted)", t, re.I):
         return "forget_recent_facts", {"minutes": 15}
+    if belt.has("schedule_routine") and re.match(polite + r"(?:every|each)\s+\S+", t, re.I) and \
+            re.search(r"\b(brief|remind|tell|read|check|give|summari[sz]e)\b", t, re.I):
+        return "schedule_routine", {"request": t}
+    if belt.has("list_routines") and re.search(r"\b(what are|list|show) (?:my )?routines\b", t, re.I):
+        return "list_routines", {}
+    m = re.match(polite + r"remind me (in .+?|at .+?|tomorrow(?: at [^ ]+)?|tonight|this (?:evening|afternoon)) to (.+)$", t, re.I)
+    if m and belt.has("set_reminder"):
+        return "set_reminder", {"text": m.group(2).strip().rstrip("?.!"), "when": m.group(1).strip()}
+    m = re.match(polite + r"(?:remind me|remember) to (.+?)\s+((?:in|at|on|tomorrow|tonight|this|next)\b.*)$", t, re.I)
+    if m and belt.has("set_reminder"):
+        return "set_reminder", {"text": m.group(1).strip(), "when": m.group(2).strip().rstrip("?.!")}
+    if belt.has("snooze_reminder") and re.match(r"^\s*snooze(?: it| that)?(?: for (\d+) minutes?)?", t, re.I):
+        m = re.match(r"^\s*snooze(?: it| that)?(?: for (\d+) minutes?)?", t, re.I)
+        return "snooze_reminder", {"minutes": int(m.group(1) or 10)}
+    if belt.has("do_not_disturb"):
+        if re.search(r"\b(i'?m back|you can (?:talk|speak) again|end do not disturb|disturb me again)\b", t, re.I):
+            return "do_not_disturb", {"minutes": 0}
+        m = re.search(r"\b(?:do not disturb|don'?t disturb me|quiet mode|leave me alone|let me focus)\b"
+                      r"(?:.*?(?:for|next)\s+(\d+|an?|one|two)\s*(hours?|minutes?|mins?))?", t, re.I)
+        if m:
+            qty = {"a": 1, "an": 1, "one": 1, "two": 2}.get((m.group(1) or "").lower(), None)
+            qty = qty if qty is not None else int(m.group(1)) if m.group(1) else 60
+            mins = qty * 60 if (m.group(2) or "").startswith("hour") else (qty if m.group(1) else 60)
+            return "do_not_disturb", {"minutes": mins}
+    if belt.has("list_reminders") and re.search(r"\b(what are|list|show) (?:my )?reminders\b|any reminders", t, re.I):
+        return "list_reminders", {}
+    if belt.has("morning_briefing") and re.match(r"^\s*(?:good morning|morning briefing|brief me|daily briefing|"
+                                                 r"what'?s my day(?: look)?(?: like)?)\b", t, re.I):
+        return "morning_briefing", {}
     m = re.match(polite + r"remember(?: that)?\s+(.{4,})$", t, re.I)
     if m and belt.has("remember_fact") and not re.match(r"(to|when|what|who|where|if|how)\b", m.group(1), re.I):
         return "remember_fact", {"text": m.group(1).strip().rstrip("?.!")}
@@ -294,6 +375,60 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     if m and belt.has("obsidian_search"):
         return "obsidian_search", {"query": (m.group(1) or m.group(2)).strip().rstrip("?.!")}
 
+    m = re.match(polite + r"(?:think (?:hard|deeply|carefully|properly|it through|this through)|deep ?think|"
+                          r"ask claude|use claude)(?: about| on| to| whether)?[:,]?\s+(.{5,})$", t, re.I)
+    if m and belt.has("think_deeply"):
+        return "think_deeply", {"question": m.group(1).strip()}
+    m = re.match(polite + r"(?:i want you to |i'd like you to )?(?:build|make|create|write|develop) (?:a |an |yourself a |"
+                          r"me a |your own )?(?:new )?(?:skill|ability|tool|capability)(?: that| to| for| which| so you can)?"
+                          r"\s+(.{5,})$", t, re.I) or \
+        re.match(polite + r"(?:learn|teach yourself)(?: how)? to\s+(.{5,})$", t, re.I)
+    if m and belt.has("forge_build"):
+        return "forge_build", {"request": m.group(1).strip()}
+    if belt.has("forge_list") and re.search(r"\b(pending|drafted|waiting) skills?\b|skills? (?:waiting|pending)", t, re.I):
+        return "forge_list", {}
+    m = re.search(r"\b(?:switch|go|change|set|use|stay)(?: back)?(?: to| on)?(?: the)?\s+(local|offline|cloud|online|claude|auto|automatic)"
+                  r"(?: mode| models?)?\b|\b(local|cloud|auto) mode\b", t, re.I)
+    if m and belt.has("set_brain_mode"):
+        word = (m.group(1) or m.group(2)).lower()
+        mode = {"offline": "local", "online": "cloud", "claude": "cloud", "automatic": "auto"}.get(word, word)
+        return "set_brain_mode", {"mode": mode}
+    if belt.has("budget_status") and re.search(r"\b(budget|how much (?:have you|did you|did we) spen[dt]|api costs?)\b", t, re.I):
+        return "budget_status", {}
+
+    if belt.has("calendar_next") and re.search(
+            r"what(?:'s| is) (?:coming )?(?:up )?next|my next (?:meeting|event|appointment|thing|call)|"
+            r"what do i have next|what(?:'s| is) coming up\b", t, re.I):
+        return "calendar_next", {}
+    if belt.has("calendar_agenda") and re.search(
+            r"what(?:'s| is) (?:on )?my (?:calendar|schedule|agenda)|what am i doing\b|"
+            r"what do i have (?:on|planned)|do i have (?:anything|any meetings|any plans|plans)\b|my agenda\b", t, re.I):
+        from core.weather import extract_when
+        week = re.search(r"\b(next week|this week|the week)\b", t, re.I)
+        return "calendar_agenda", {"day": week.group(1) if week else (extract_when(t)[0] or "today")}
+    if belt.has("calendar_free") and re.search(
+            r"\b(?:any|an) (?:opening|gap|free (?:time|slot))|when am i free|am i free\b|do i have time", t, re.I):
+        from core.weather import extract_when
+        d, h = extract_when(t)
+        day = d or ""
+        if h and h.lower() not in day.lower():
+            day = f"{day} {h}".strip()
+        return "calendar_free", {"day": day or "today"}
+    if belt.has("email_important") and re.search(
+            r"\b(?:anything|something|any) (?:interesting|important|urgent|worth)\b.{0,20}\b(?:e-?mails?|mail|inbox)\b|"
+            r"\b(?:important|interesting|urgent) (?:e-?mails?|mail)\b|what(?:'s| is) important in my (?:e-?mail|inbox)", t, re.I):
+        return "email_important", {}
+    m = re.search(r"\b(?:e-?mails?|mail) (?:from|about) (.+?) (?:are|is) (important|not important|spam|noise)\b", t, re.I)
+    if m and belt.has("email_sender_pref"):
+        return "email_sender_pref", {"who": m.group(1).strip(), "important": m.group(2).lower() == "important"}
+    m = re.search(r"\b(?:don'?t|do not|never) (?:tell|bother|notify) me (?:about|with) (?:e-?mails? (?:from|about) )?(.+?)(?: e-?mails?)?[.!]?$", t, re.I)
+    if m and belt.has("email_sender_pref"):
+        return "email_sender_pref", {"who": m.group(1).strip(), "important": False}
+    if belt.has("email_unread") and re.search(
+            r"\b(?:check|read|any|new|unread)(?: new| unread)? (?:my )?(?:e-?mails?|mail|inbox)\b|"
+            r"do i have (?:any )?(?:new |unread )?e-?mails?|what(?:'s| is) in my inbox", t, re.I):
+        return "email_unread", {}
+
     if belt.has("see_screen") and re.search(
             r"\b(what'?s on|look at|read|check|describe|see) (?:my |the |this )?screen\b"
             r"|what am i looking at", t, re.I):
@@ -307,6 +442,12 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
             return "open_app", {"app": target}
         if (target in _SITES or re.match(r"^[a-z0-9-]+\.[a-z]{2,}$", target)) and belt.has("open_website"):
             return "open_website", {"site": target}
+
+    m = re.match(r"^(?:what'?s|what is|how much is|calculate|compute)?\s*"
+                 r"((?:[\d.,]+\s*%\s*of\s*[\d.,]+)|(?:square root of\s*[\d.]+)|"
+                 r"(?:[-(]*\s*[\d.,]+\s*(?:[-+*/x×÷^]|\*\*|plus|minus|times|divided by)\s*[-\d.,() +*/x×÷^]*))\s*[?=.]*$", t, re.I)
+    if m and belt.has("calculate"):
+        return "calculate", {"expression": m.group(1).strip()}
 
     simple = [
         (r"what time is it|what'?s the time|^\s*time\s*\??$", "get_datetime", {}),
@@ -340,11 +481,27 @@ class HybridOrchestrator:
         self.schema = build_decision_schema(self.belt.schemas)
         self.bus = get_bus()
         self.pending: dict | None = None
+        self.last_tools: set[str] = set()          # tools used last turn: follow-ups pass the intent guard
+        self.last_missing: str | None = None       # what FORGE would build if the user says "build it"
+        self._stale = False
         self._bg: set[asyncio.Task] = set()
+        self.bus.subscribe("skills.changed", lambda _e: setattr(self, "_stale", True))
         hours = float(self.mem_cfg.get("continuity_hours", 24))
         self.history: list[dict] = self.cortex.recent_turns(limit=6, within_hours=hours)
         if self.history:
             logger.info(f"CORTEX: resumed {len(self.history)} recent turns")
+
+    def refresh_tools(self) -> None:
+        """Pick up skills FORGE installed (hot reload, no restart)."""
+        self.belt = ToolBelt(self.registry, self.belt.mcp)
+        self.schema = build_decision_schema(self.belt.schemas)
+        self._stale = False
+        logger.info(f"tools refreshed: {len(self.belt.schemas)} available")
+
+    def _missing_answer(self, user_input: str) -> str:
+        self.last_missing = user_input
+        forge_ready = self.belt.has("forge_build")
+        return MISSING_SKILL_FORGE if forge_ready else MISSING_SKILL
 
     # ------------------------------------------------------------ llm calls
     async def _decide(self, client, skill_bodies, gathered) -> dict:
@@ -431,6 +588,9 @@ class HybridOrchestrator:
                 err = ""
             out["say"] = f"That didn't work, sir. {err[:160]}".strip()
         self.bus.publish("tool.executed", {"tool": tool, "args": args, "ok": ok})
+        nxt = out.get("confirm_next")
+        if nxt and ok:
+            self.pending = {"tool": nxt["tool"], "args": nxt.get("args", {}), "desc": nxt.get("desc", ""), "ts": time.time()}
         if out.get("widget"):
             yield {"type": "widget", "data": out["widget"]}
         gathered.append((tool, out))
@@ -447,10 +607,14 @@ class HybridOrchestrator:
 
     async def _answer(self, client, gathered, user_input, ctx) -> AsyncIterator[dict]:
         says = [out.get("say") for _, out in gathered]
-        only_actions = gathered and all(self.belt.is_action(t) or '"error"' in out.get("result", "")
-                                        for t, out in gathered)
-        if only_actions and all(says):                    # exact lines, no LLM: instant and truthful
+        only_exact = gathered and all(self.belt.is_action(t) or t in self.belt.exact or out.get("exact")
+                                      or '"error"' in out.get("result", "") for t, out in gathered)
+        if only_exact and all(says):                      # exact lines, no LLM: instant and truthful
             yield {"type": "final", "text": " ".join(dict.fromkeys(says))}
+            return
+        if any(t == "web_search" for t, _ in gathered):   # web answers are checked BEFORE they are spoken
+            self._context(user_input, ctx)
+            yield {"type": "final", "text": await self._grounded_web_answer(client, ctx, gathered, user_input)}
             return
         if len(gathered) == 1 and gathered[0][0] in ("forget_memory",) and says[0]:
             yield {"type": "final", "text": says[0]}       # ambiguity questions are exact too
@@ -462,12 +626,40 @@ class HybridOrchestrator:
                 final = ev["text"]
                 fallback = next((out.get("say") for _, out in reversed(gathered)
                                  if out.get("say") and '"error"' not in out.get("result", "")), None)
-                if fallback and _DENIAL.search(final):
+                if fallback and (_DENIAL.search(final) or re.search(r"\b(?:see|found|have) nothing\b|\bnothing (?:on|to see)\b", final, re.I)):
                     logger.warning(f"denial guard: replaced {final!r}")
                     ev = {"type": "final", "text": fallback}
             yield ev
 
+    async def _collect(self, client, facts, skills, gathered, user_input) -> str:
+        text = ""
+        async for ev in self._stream_answer(client, facts, skills, gathered, user_input):
+            if ev["type"] == "final":
+                text = ev["text"]
+        return text
+
+    async def _grounded_web_answer(self, client, ctx, gathered, user_input) -> str:
+        data = " ".join(out.get("result", "") for _, out in gathered)
+        text = await self._collect(client, ctx["facts"], ctx["skills"], gathered, user_input)
+        bad = ungrounded_numbers(text, data)
+        if not bad:
+            return text
+        logger.warning(f"grounding: {bad} not in the search results; retrying")
+        note = [{"result": json.dumps({"correction": f"The numbers {', '.join(bad)} do not appear in the search "
+                                                     "results. Use only numbers that appear in them, or say the "
+                                                     "results don't give that number."})}]
+        retry = await self._collect(client, ctx["facts"], ctx["skills"], gathered + [("note", note[0])], user_input)
+        if not ungrounded_numbers(retry, data):
+            return retry
+        logger.warning("grounding: retry still ungrounded; quoting the source instead")
+        try:
+            top = next(r for _, out in gathered for r in json.loads(out.get("result", "{}")).get("results", []))
+            return f"I found this, sir, from {top['title'][:60]}: {top['snippet'][:200]}"
+        except (StopIteration, Exception):
+            return "The search results didn't give a clear number, sir."
+
     def _finish(self, user_input: str, answer: str, used: set[str] | None = None) -> None:
+        self.last_tools = set(used or ())
         self.history.append({"role": "assistant", "content": answer})
         self.cortex.log_turn(self.session_id, "user", user_input)
         self.cortex.log_turn(self.session_id, "assistant", answer)
@@ -486,11 +678,20 @@ class HybridOrchestrator:
 
     # ------------------------------------------------------------ main loop
     async def process_stream(self, user_input: str) -> AsyncIterator[dict]:
+        if self._stale:
+            self.refresh_tools()
         self.history.append({"role": "user", "content": user_input})
         self.bus.publish("turn.user", {"session": self.session_id, "text": user_input})
         gathered: list = []
         used: set[str] = set()
         ctx: dict = {}
+        if self.last_missing and self.belt.has("forge_build") and re.match(
+                r"^\s*(?:yes,? )?(?:please )?(?:build it|build that|make it|go build it|draft it|create it)\b", user_input, re.I):
+            user_input_for_forge = self.last_missing
+            self.last_missing = None
+            fp_override = ("forge_build", {"request": user_input_for_forge})
+        else:
+            fp_override = None
 
         async with httpx.AsyncClient(timeout=120) as client:
             # 0. an answer to "shall I go ahead?"
@@ -515,9 +716,9 @@ class HybridOrchestrator:
                     return
 
             # 1. fast path: no LLM, no embeddings
-            fp = fast_path(user_input, self.belt)
+            fp = fp_override or fast_path(user_input, self.belt)
             if fp:
-                tool, args = fp
+                tool, args = fp[0], self.belt.fill(fp[0], fp[1], user_input)
                 if self.belt.needs_confirm(tool):
                     for ev in self._ask_confirmation(tool, args, user_input, used):
                         yield ev
@@ -533,19 +734,22 @@ class HybridOrchestrator:
                 for _ in range(MAX_TOOL_ITERS):
                     decision = await self._decide(client, ctx["skills"], gathered)
                     tool = decision.get("tool", "none")
+                    if tool == "unavailable" and (gathered or not _ABILITY_HINT.search(user_input)):
+                        tool = "none"                      # conversation, or we already have data: just answer
                     if tool == "unavailable":
                         logger.info(f"no tool covers: {user_input!r}")
                         self.bus.publish("capability.missing", {"request": user_input})
-                        self._finish(user_input, MISSING_SKILL, used)
-                        yield {"type": "final", "text": MISSING_SKILL}
+                        text = self._missing_answer(user_input)
+                        self._finish(user_input, text, used)
+                        yield {"type": "final", "text": text}
                         return
                     if tool == "none" or not self.belt.has(tool) or tool in succeeded:
                         break                      # a tool that already answered is not asked again
-                    if not self.belt.guard_ok(tool, user_input):
+                    if not (self.belt.guard_ok(tool, user_input) or tool in self.last_tools):
                         logger.info(f"guard: {tool} blocked, the request doesn't ask for it")
                         break
                     schema = self.belt.by_name[tool]
-                    args = args_for(schema, decision, self.belt.names())
+                    args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), user_input)
                     if missing_required(schema, args):
                         args = {**args, **args_for(schema, await self._repair_args(client, tool), self.belt.names())}
                         if missing_required(schema, args):
@@ -564,8 +768,9 @@ class HybridOrchestrator:
                         yield ev
                     out = gathered[-1][1]
                     if out.get("missing"):
-                        self._finish(user_input, MISSING_SKILL, used)
-                        yield {"type": "final", "text": MISSING_SKILL}
+                        text = self._missing_answer(user_input)
+                        self._finish(user_input, text, used)
+                        yield {"type": "final", "text": text}
                         return
                     ok = '"error"' not in (out.get("result") or "")
                     if ok:

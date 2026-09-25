@@ -71,7 +71,8 @@ def resolve_day(day: Optional[str], today: date) -> Optional[date]:
         return today
     if d in ("tomorrow", "tomorrow morning", "tomorrow evening", "tomorrow night", "tomorrow afternoon"):
         return today + timedelta(days=1)
-    if d in ("day after tomorrow", "the day after tomorrow", "overmorrow"):
+    if d in ("day after tomorrow", "the day after tomorrow", "overmorrow", "day after", "the day after",
+             "after tomorrow", "the day after that", "day after that"):
         return today + timedelta(days=2)
     m = re.fullmatch(r"(?:in\s+)?\+?(\d{1,2})\s*(?:days?)?(?:\s+from now)?", d)
     if m:
@@ -119,6 +120,66 @@ def resolve_hour_ex(hour: Optional[str], day_text: Optional[str] = None) -> tupl
             if re.search(rf"\b{word}\b", h):
                 return val, False
     return None, False
+
+
+_DAY_IN_TEXT = re.compile(
+    r"\b(?:the )?day after(?: tomorrow| that)?\b|\bovermorrow\b|\btomorrow(?: morning| evening| night| afternoon)?\b"
+    r"|\b(?:next |this |on )?(?:" + "|".join(WEEKDAYS) + r")\b|\bin \d{1,2} days?\b|\bthis weekend\b|\bweekend\b"
+    r"|\b20\d\d-\d\d-\d\d\b|\btonight\b|\btoday\b|\b(?:right )?now\b|\bcurrently\b", re.I)
+_HOUR_IN_TEXT = re.compile(
+    r"\b(?:at |around )?\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.|o'?clock)\b|\b(?:at|around) \d{1,2}(?::\d{2})?\b"
+    r"|\b\d{1,2}:\d{2}\b|\b(?:morning|afternoon|evening|noon|midday|night)\b", re.I)
+
+
+def extract_when(text: str) -> tuple[Optional[str], Optional[str]]:
+    """Day and hour phrases taken straight from the user's words ('the day after', 'at 6')."""
+    d = _DAY_IN_TEXT.search(text or "")
+    h = _HOUR_IN_TEXT.search(text or "")
+    return (d.group(0).strip() if d else None), (h.group(0).strip() if h else None)
+
+
+def fill_from_words(args: dict, text: str) -> dict:
+    """The model sometimes drops or garbles the day ('day after today'). The user's own words win."""
+    day, hour = extract_when(text)
+    out = dict(args)
+    if day:
+        out["day"] = day
+    elif out.get("day") and resolve_day(out["day"], date.today()) is None:
+        out.pop("day")                               # garbled and not backed by the user's words
+    if hour and not out.get("hour"):
+        out["hour"] = hour
+    return out
+
+
+def _rain(pct, mm) -> str:
+    if pct:
+        return f", {pct} percent chance of rain"
+    if pct is None and mm:
+        return f", about {mm} millimetres of rain"
+    return ", no rain expected"
+
+
+def spoken(report: dict) -> str:
+    """One exact sentence built from the data. Numbers can't drift from the forecast."""
+    if "error" in report:
+        return f"I couldn't get that forecast, sir. {report['error']}."
+    when = re.sub(r" (\d{2}:00)$", r" at \1", report.get("when", "Now"))
+    lead = f"{report['note'][0].upper()}{report['note'][1:]}. " if report.get("note") else ""
+    place = report.get("city", "")
+    if when == "Now":
+        feels = ""
+        if report.get("feels_like_c") is not None and report["feels_like_c"] != report["temp_c"]:
+            feels = f", feels like {report['feels_like_c']}"
+        today = ""
+        if report.get("high_c") is not None:
+            today = (f" Today {report['low_c']} to {report['high_c']} degrees"
+                     f"{_rain(report.get('rain_chance_pct'), report.get('rain_mm_today'))}.")
+        return f"{lead}Right now in {place} it's {report['temp_c']} degrees and {report['conditions']}{feels}.{today} Sir.".replace(". Sir.", ", sir.").replace("., sir.", ", sir.")
+    rain = _rain(report.get("rain_chance_pct"), report.get("rain_mm"))
+    if "temp_c" in report:
+        assumed = f" I took that as {when.split(' at ')[-1]}." if report.get("assumed") else ""
+        return f"{lead}{when} in {place}: {report['temp_c']} degrees, {report['conditions']}{rain}, sir.{assumed}"
+    return f"{lead}{when} in {place}: {report['conditions']}, {report['low_c']} to {report['high_c']} degrees{rain}, sir."
 
 
 # ----------------------------------------------------------------- network

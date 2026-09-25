@@ -15,6 +15,7 @@ long system prompts):
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 EVA_MD = Path("EVA.md")
@@ -44,6 +45,15 @@ def load_eva_md() -> str:
     """EVA.md, then EVA.local.md (private, git-ignored), minus vocabulary lists."""
     parts = [_without_vocab(_read(EVA_MD)), _without_vocab(_read(EVA_LOCAL_MD))]
     return "\n\n".join(p for p in parts if p)[:MAX_EVA_MD_CHARS]
+
+
+def about_lines() -> list[str]:
+    """Bullet lines under any '## About me' heading in EVA.md and EVA.local.md."""
+    out = []
+    for text in (_read(EVA_MD), _read(EVA_LOCAL_MD)):
+        for m in re.finditer(r"^## About me[^\n]*\n(.*?)(?=^## |\Z)", text, re.M | re.S):
+            out += [ln.strip()[2:].strip() for ln in m.group(1).splitlines() if ln.strip().startswith("- ")]
+    return out
 
 
 def vocabulary_text() -> str:
