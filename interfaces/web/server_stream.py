@@ -15,12 +15,24 @@ WebSocket protocol (server -> browser):
     audio       {"turn": n, "seq": k, "audio": b64}    one WAV per sentence, in order
     audio_end   {"turn": n, "count": N}                all audio for turn n has been sent
 
-    heard       {"text": "..."}                        the transcript after vocabulary correction
+    heard       {"text": "...", "stt": bool}           the transcript after vocabulary correction;
+                                                       stt=true when E.V.A. heard it herself (v0.2.5)
+
+  v0.2.5 server-side listening (full spec: docs/VOICE_PROTOCOL.md):
+    stt         {"engine": "server"|"browser", ...}    once, after hello: stream the mic, or use browser STT
+    listen      {"state": "speech"|"pause"|"end"|"noise"|"timeout"}   what the ears are doing
+    wake        {"text": "Yes, sir?"}                  she heard her name alone: answer and listen
+    barge_in    {"stage": "duck"|"stop"|"resume"}      the user talks over her
 
 Browser -> server:
     {"type": "message", "text": "...", "voice": bool}  a new request (cancels any reply in progress);
                                                        voice=true applies vocabulary correction
     {"type": "stop"}                                   barge-in: stop talking now
+    binary frames                                      mic audio: PCM16 little-endian, mono, 16 kHz
+    {"type": "audio_format", "rate": 48000}            only if the client can't send 16 kHz
+    {"type": "listen", "wake": bool, "arm": ms}        wake-word mode on/off; accept the next utterance
+                                                       (arm: 0 closes the window)
+    {"type": "speaking", "on": bool}                   her voice started / stopped playing (for barge-in)
 
 Also served: /manifest.webmanifest, /sw.js and icons, so Chrome or Edge can install
 E.V.A. as a desktop app (address bar -> "Install E.V.A.").
@@ -56,6 +68,7 @@ import core.telegram_bridge as telegram_bridge
 from core.telegram_bridge import TelegramBridge, active as telegram_active, set_active
 from core.orchestrator_hybrid import HybridOrchestrator
 from skills.registry import get_registry
+from voice.listen import Resampler, build_listener, pipeline_status
 from voice.speech import SentenceChunker, TurnSpeaker, get_tts
 
 UI_FILE = Path(__file__).parent / "eva.html"
@@ -63,6 +76,7 @@ STATIC = Path(__file__).parent / "static"
 PORT = 8001
 STARTED = time.time()
 CONNECTIONS: set["Connection"] = set()
+MAX_AUDIO_FRAME = 256 * 1024          # bytes; a larger binary frame is dropped, never buffered
 
 
 async def broadcast(text: str, widget: dict | None = None) -> bool:
@@ -94,6 +108,19 @@ def _warm_llm() -> None:
         logger.warning(f"LLM warm-up skipped ({e})")
 
 
+def _warm_stt() -> None:
+    """Load Whisper at startup when server listening is on (the first run downloads the model once)."""
+    import os as _os
+    if _os.environ.get("EVA_TESTING"):
+        return                                  # the test suite never loads a real model
+    if pipeline_status().get("engine") != "server":
+        return
+    from voice.stt import get_stt
+    engine = get_stt()
+    if engine and engine.warm():
+        logger.info(f"ECHO: listening ready ({pipeline_status().get('detail')})")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     bus = get_bus()
@@ -104,6 +131,7 @@ async def lifespan(_app: FastAPI):
     if tts:                               # load Kokoro off the startup path
         threading.Thread(target=tts.warm, daemon=True, name="kokoro-warmup").start()
     threading.Thread(target=_warm_llm, daemon=True, name="llm-warmup").start()
+    threading.Thread(target=_warm_stt, daemon=True, name="whisper-warmup").start()
     mcp = get_mcp()
     await mcp.start(get_settings().get("mcp", {}).get("servers", []) or [])
     oracle = get_oracle()
@@ -124,7 +152,8 @@ async def lifespan(_app: FastAPI):
     oracle_task = asyncio.create_task(oracle.run(), name="oracle")
     logger.info(f"E.V.A. online: {cortex.stats()['facts']} facts, {len(registry.enabled())} skills, "
                 f"{sum(s.connected for s in mcp.servers.values())} MCP servers, "
-                f"voice: {'Kokoro' if tts else 'browser'}")
+                f"voice: {'Kokoro' if tts else 'browser'}, "
+                f"listening: {pipeline_status().get('engine')}")
     yield
     oracle.stop()
     oracle_task.cancel()
@@ -202,6 +231,7 @@ async def status():
         "memory": get_cortex().stats(),
         "skills": get_registry().status(),
         "voice": "kokoro" if get_tts() else "browser",
+        "stt": await asyncio.to_thread(pipeline_status),
         "mcp": get_mcp().status(),
         "recent_events": get_bus().recent(20),
     })
@@ -218,6 +248,11 @@ class Connection:
         self.turn = 0
         self.current: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()     # token and audio sends come from two tasks
+        self.stt: dict = {"engine": "browser"}
+        self.listener = None                 # built on the first audio frame or listen message
+        self._listener_lock = asyncio.Lock()
+        self._resample = Resampler(16000)
+        self._audio_errors = 0
 
     async def send(self, msg: dict) -> None:
         async with self._send_lock:
@@ -230,6 +265,11 @@ class Connection:
             if wav:
                 await self.send({"type": "phrase", "key": "wake", "text": WAKE_PHRASE,
                                  "audio": base64.b64encode(wav).decode()})
+        try:
+            self.stt = await asyncio.to_thread(pipeline_status)
+        except Exception as e:                    # listening is optional; the browser can always listen
+            self.stt = {"engine": "browser", "reason": str(e)}
+        await self.send({"type": "stt", **self.stt})
 
     async def reply(self, text: str, turn: int) -> None:
         await self.send({"type": "turn_start", "turn": turn})
@@ -240,6 +280,8 @@ class Connection:
                 await self.send(event)
                 if event["type"] == "final":
                     logger.info(f"EVA: {event['text']}")
+                    if self.listener:
+                        self.listener.said(event["text"])
                 if not speaker:
                     continue
                 kind = event["type"]
@@ -281,6 +323,8 @@ class Connection:
             await self.send({"type": "widget", "data": widget, "proactive": True})
         await self.send({"type": "final", "text": text, "proactive": True})
         self.orch.history.append({"role": "assistant", "content": text})     # so "snooze it" has context
+        if self.listener:
+            self.listener.said(text)
         if self.tts:
             speaker = TurnSpeaker(self.tts, self.send, turn)
             await speaker.say(text)
@@ -296,33 +340,116 @@ class Connection:
                 pass
             logger.info("barge-in: reply cancelled")
 
+    async def submit(self, text: str, voice: bool = False, stt: bool = False) -> None:
+        """Start a turn. Cancels any reply in progress. voice: fix names; stt: she heard it herself."""
+        text = (text or "").strip()
+        if not text:
+            return
+        await self.interrupt()
+        self.turn += 1
+        if voice:
+            fixed, changes = vocab_correct(text, vocabulary_text())
+            if changes:
+                logger.info(f"VOCAB: {' | '.join(f'{a!r} -> {b!r}' for a, b in changes)}")
+                text = fixed
+                if not stt:
+                    await self.send({"type": "heard", "text": text})
+        if stt:
+            await self.send({"type": "heard", "text": text, "stt": True})
+        logger.info(f"USER{' (voice)' if stt else ''}: {text}")
+        self.current = asyncio.create_task(self.reply(text, self.turn))
+
+    # ------------------------------------------------------------ server-side listening (v0.2.5)
+    async def ensure_listener(self):
+        if self.listener or self.stt.get("engine") != "server":
+            return self.listener
+        async with self._listener_lock:
+            if self.listener is None:
+                try:
+                    self.listener = await asyncio.to_thread(
+                        build_listener, on_event=self.send, on_command=self.voice_command,
+                        on_wake=self.on_wake, on_barge_in=self.on_barge_in)
+                    logger.info(f"ECHO: listening for session {self.session_id}")
+                except Exception as e:
+                    logger.error(f"ECHO: listening could not start ({e}); browser speech recognition instead")
+                    self.stt = {"engine": "browser", "reason": f"listening could not start: {e}"}
+                    await self.send({"type": "stt", **self.stt})
+        return self.listener
+
+    async def voice_command(self, text: str) -> None:
+        await self.submit(text, voice=True, stt=True)
+
+    async def on_wake(self) -> None:
+        await self.send({"type": "wake", "text": WAKE_PHRASE})
+
+    async def on_barge_in(self) -> None:
+        await self.interrupt()
+
+    async def on_audio(self, data: bytes) -> None:
+        if len(data) > MAX_AUDIO_FRAME:
+            logger.warning(f"ECHO: dropped an oversized audio frame ({len(data)} bytes)")
+            return
+        listener = await self.ensure_listener()
+        if not listener:
+            return
+        try:
+            pcm = self._resample(data)
+            if pcm:                               # a resampler may hold back its first few ms
+                await listener.feed(pcm)
+        except Exception as e:                    # bad audio must never drop the connection
+            self._audio_errors += 1
+            if self._audio_errors <= 3:
+                logger.exception(f"ECHO: audio frame failed: {e}")
+
+    async def on_control(self, data: dict) -> None:
+        kind = data.get("type")
+        if kind == "audio_format":
+            rate = int(data.get("rate") or 16000)
+            if 8000 <= rate <= 192000:
+                self._resample = Resampler(rate)
+            return
+        listener = await self.ensure_listener()
+        if not listener:
+            return
+        if kind == "speaking":
+            await listener.set_speaking(bool(data.get("on")))
+        elif kind == "listen":
+            if "wake" in data:
+                listener.set_wake(bool(data.get("wake")))
+            if "arm" in data:
+                ms = float(data.get("arm") or 0)
+                listener.arm(ms / 1000) if ms > 0 else listener.disarm()
+
     async def run(self) -> None:
         await self.hello()
         CONNECTIONS.add(self)
         asyncio.create_task(get_oracle().on_client_connected())         # reminders that fired while away
         try:
             while True:
-                data = json.loads(await self.ws.receive_text())
+                msg = await self.ws.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    raise WebSocketDisconnect(msg.get("code", 1000))
+                if msg.get("bytes") is not None:
+                    await self.on_audio(msg["bytes"])
+                    continue
+                try:
+                    data = json.loads(msg.get("text") or "")
+                except ValueError:
+                    continue
+                if not isinstance(data, dict):
+                    continue
                 kind = data.get("type")
                 if kind == "stop":
                     await self.interrupt()
                 elif kind == "message":
-                    text = (data.get("text") or "").strip()
-                    if not text:
-                        continue
-                    await self.interrupt()
-                    self.turn += 1
-                    if data.get("voice"):
-                        fixed, changes = vocab_correct(text, vocabulary_text())
-                        if changes:
-                            logger.info(f"VOCAB: {' | '.join(f'{a!r} -> {b!r}' for a, b in changes)}")
-                            text = fixed
-                            await self.send({"type": "heard", "text": text})
-                    logger.info(f"USER: {text}")
-                    self.current = asyncio.create_task(self.reply(text, self.turn))
+                    await self.submit(data.get("text") or "", voice=bool(data.get("voice")))
+                elif kind in ("listen", "speaking", "audio_format"):
+                    await self.on_control(data)
         finally:
             CONNECTIONS.discard(self)
             await self.interrupt()
+            if self.listener:
+                await self.listener.close()
 
 
 @app.get("/api/weather")

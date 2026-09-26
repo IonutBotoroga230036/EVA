@@ -105,9 +105,31 @@ skills:
 
 voice:
   stt:
-    model: "small"
+    # Local Whisper (faster-whisper). Used by server-side listening (v0.2.5).
+    model: "small"                     # tiny | base | small | medium | large-v3-turbo (more VRAM, better names)
     language: "en"
-    device: "cuda"
+    device: "auto"                     # auto = GPU if CUDA libraries load, else CPU; or "cuda" / "cpu"
+    compute_type: "auto"               # auto = int8_float16 on GPU, int8 on CPU
+    beam_size: 5
+  pipeline:
+    # Server-side listening: your mic streams to E.V.A.; Silero VAD + Smart Turn v3 (Pipecat, CPU) + Whisper.
+    # Off, or packages missing: the interface uses the browser's speech recognition as before.
+    enabled: true
+    pre_roll_ms: 700                   # audio kept from before speech is detected, so first words are never lost
+    max_pause_secs: 3.0                # a thinking pause may last this long before the turn ends anyway
+    smart_turn: true                   # false = end the turn after silence_secs of quiet instead
+    silence_secs: 0.8
+    min_speech_ms: 250                 # shorter sounds are ignored
+    max_utterance_secs: 30
+    command_window_secs: 8             # after "Eva" on its own, or a tap on the mic
+    barge_in: true                     # talk over her to interrupt; set false if her own voice keeps stopping her
+    barge_in_secs: 0.6                 # how long you must talk before she stops
+    wake_words: ["eva", "eve", "ava", "iva", "evah"]   # how Whisper tends to spell her name
+    vad:
+      confidence: 0.7
+      start_secs: 0.2
+      stop_secs: 0.2                   # Pipecat's recommended value with Smart Turn
+      min_volume: 0.6
   tts:
     engine: "kokoro"                   # "kokoro" = her real voice from the server; anything else = browser voice
     voice_eva: "af_heart"

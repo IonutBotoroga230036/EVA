@@ -10,7 +10,7 @@ httpx==0.28.1
 python-dotenv==1.0.1
 
 # LLM
-openai==1.59.4
+openai>=1.74,<4       # unused on the v0.2 path; pipecat-ai needs >=1.74
 anthropic==0.42.0
 
 # Memory
@@ -18,7 +18,7 @@ chromadb==0.5.23   # legacy v0.1 only; CORTEX v0.2 uses SQLite + Ollama embeddin
 sentence-transformers==3.3.1   # legacy v0.1 only; CORTEX v0.2 uses SQLite + Ollama embeddings
 
 # Voice
-faster-whisper==1.1.0
+faster-whisper==1.2.1   # local STT for server-side listening (v0.2.5)
 edge-tts==6.1.19
 openwakeword==0.6.0
 pyaudio==0.2.14
@@ -37,7 +37,7 @@ cryptography==44.0.0
 
 # Utilities
 rich==13.9.4
-click==8.1.7
+click>=8.1.7          # current ddgs needs 8.1.8+
 loguru==0.7.3
 
 # v0.2 additions
@@ -51,3 +51,4 @@ pytest>=8.0
 pytest-asyncio>=0.24
 mcp>=1.2             # MCP client (servers are configured in settings.yaml)
 tinytuya            # local control of Tuya / LSC Smart Connect / Smart Life lights
+pipecat-ai==1.12.0  # v0.2.5 listening: bundled Silero VAD + Smart Turn v3 (onnxruntime, CPU, no torch)

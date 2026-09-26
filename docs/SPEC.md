@@ -53,6 +53,9 @@ read this file and `EVA.md` first.
 | `core/settings.py` | Single loader for `config/settings.yaml`. |
 | `skills/registry.py` | SKILL.md discovery, trust gate, semantic matching, tool loading. |
 | `skills/memory/`, `skills/vision/`, `skills/morning-briefing/`, `skills/obsidian/` | Shipped skills. Obsidian: quick daily notes, named notes, search, read; sandboxed to the vault. |
+| `voice/listen.py` | v0.2.5 server-side listening: pre-roll, VAD + Smart Turn state machine, armed windows, wake word, barge-in, echo guard. Protocol: docs/VOICE_PROTOCOL.md. |
+| `voice/pipecat_audio.py` | Adapters for Pipecat's bundled Silero VAD and Smart Turn v3 (ONNX, CPU), plus a silence fallback. |
+| `voice/stt.py` | Local faster-whisper: GPU first, CPU fallback, Vocabulary terms as hotwords, hallucination filter. |
 | `interfaces/web/server_stream.py` | FastAPI + WebSocket on port 8001; streams Kokoro audio per sentence; barge-in; `GET /api/status`. |
 | `interfaces/web/eva.html` | Claude Design interface (untouched) + bridge script (WebSocket, Kokoro audio with level and spoken-caption progress, speech recognition, UI events). `eva_classic.html` at /classic. |
 | `EVA.md` | Standing context, instructions, and speech vocabulary, read every turn (like CLAUDE.md). |
@@ -157,8 +160,9 @@ moved past, so an interrupted answer can never talk over the next one.
 - **Browser voice stays until Kokoro streaming lands** (Milestone C). The UI is
   half-duplex (no listening while she speaks) with a ~7 s no-wake-word
   follow-up window.
-- **Pipecat is the future voice layer** (turn detection, barge-in, echo
-  handling), adopted as its own milestone, not mixed into feature work.
+- **Pipecat is the voice layer, as analyzers, not as a Pipeline** (v0.2.5). E.V.A. runs Pipecat's Silero VAD and
+  Smart Turn v3 inside her own listening state machine. A full Pipecat Pipeline and transport would replace the
+  WebSocket protocol (ordered Kokoro sentences, cards) and bypass the orchestrator's guards.
 - **Mine im4peace/Jarvis (MIT), don't fork it.** Already harvested: hybrid router
   pattern, bounded loop, see_screen. Still to harvest: deep-research engine,
   registry confirmation gate. Keep the MIT notice on lifted code.

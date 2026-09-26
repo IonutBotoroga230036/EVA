@@ -4,9 +4,14 @@ Say "Eva" (wake word on), tap the core, or type. Examples are phrasings she hand
 most work with natural variations too. Anything marked **asks first** waits for your "yes".
 
 ## Conversation and voice
+- **She listens herself (v0.2.5):** your mic streams to E.V.A.; Silero VAD, Smart Turn and Whisper run on the PC.
+  She waits through a thinking pause, keeps the first words you said, and hears names from the Vocabulary list.
+  If the pipeline is off or can't load, the browser's speech recognition takes over automatically.
+- **Talk over her:** start speaking while she talks; she lowers her voice, and stops if you keep going.
+- **Wake word:** "Eva, what time is it?", "What's the weather, Eva?", or just "Eva" and then your request.
 - Her real voice (Kokoro), sentence by sentence, starting while she is still thinking.
 - **Follow-up window:** after she answers, just keep talking for about 7 seconds, no wake word.
-- **Interrupt:** tap the core while she speaks.
+- **Interrupt:** tap the core while she speaks, or just talk over her.
 - **Speech fixes:** names in the Vocabulary section of EVA.md are corrected when misheard
   (Radboud, Nijmegen, Breda, ZippZapp...). Add your own lines.
 - Small talk and questions about herself never trigger tools.

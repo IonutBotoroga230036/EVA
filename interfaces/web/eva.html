@@ -750,6 +750,8 @@ if (/[?&]demo\b/.test(location.search)) {
    E.V.A. bridge: connects the Claude Design interface (window.EVA) to the server.
    WebSocket events -> EVA.setState / setCaption / showCards / alert / addTranscript
    Kokoro audio chunks -> ordered playback, voice level -> EVA.setLevel, spoken-caption progress
+   Server-side listening (v0.2.5): mic -> AudioWorklet -> PCM16 16 kHz binary frames -> E.V.A.'s own
+     Silero VAD, Smart Turn and Whisper. Falls back to browser speech recognition when the server says so.
    Browser speech recognition (tap, follow-up window, wake word) -> messages to the server
    UI events (eva:mic, eva:text, eva:wake, eva:action, eva:brain-mode, eva:forge-review) -> server
    The design's own code is untouched; everything here talks to it through window.EVA.
@@ -761,6 +763,7 @@ if (!E || /[?&]demo\b/.test(location.search)) return;          // ?demo keeps th
 const hm = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 let ws = null, connected = false, ttsMode = 'browser', streamBuf = '', turnText = '', lastWasVoice = false;
 let wakeMode = false, state = 'idle', proactiveWidget = null, turnProactive = false;
+let sttMode = 'browser', sttReason = '';                       // 'server' = E.V.A. listens herself
 
 function setState(s) { state = s; E.setState(s); }
 function caption(text, spoken) { if (text) E.setCaption(text, spoken); }
@@ -785,7 +788,8 @@ const P = { ctx: null, an: null, accept: -1, expect: 0, bufs: new Map(), texts: 
             playing: false, then: null, wake: null, watchdog: null, spoken: 0, raf: 0 };
 function actx() {
   if (!P.ctx) { const C = window.AudioContext || window.webkitAudioContext; if (!C) return null; P.ctx = new C();
-    P.an = P.ctx.createAnalyser(); P.an.fftSize = 512; P.an.connect(P.ctx.destination); }
+    P.an = P.ctx.createAnalyser(); P.an.fftSize = 512; P.an.connect(P.ctx.destination);
+    P.gain = P.ctx.createGain(); P.gain.connect(P.an); }
   if (P.ctx.state === 'suspended') P.ctx.resume();
   return P.ctx;
 }
@@ -801,17 +805,21 @@ function levelLoop() {                                        // the speaking ri
   cancelAnimationFrame(P.raf); P.raf = requestAnimationFrame(tick);
 }
 function isSpeaking() { return P.playing || ('speechSynthesis' in window && speechSynthesis.speaking); }
+let toldSpeaking = false;                                      // server-side barge-in needs to know when her voice plays
+function tellSpeaking(on) { if (on === toldSpeaking) return; toldSpeaking = on;
+  if (sttMode === 'server' && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'speaking', on })); }
+function duck(on) { if (P.gain) P.gain.gain.value = on ? 0.25 : 1; }
 function playBuffer(buf, onend) {
   const c = actx(); if (!c || !buf) { onend && onend(); return; }
   stopListening(); setState(turnProactive ? 'alert' : 'speaking');
-  const src = c.createBufferSource(); src.buffer = buf; src.connect(P.an);
+  const src = c.createBufferSource(); src.buffer = buf; src.connect(P.gain || P.an);
   src.onended = () => { if (P.src === src) { P.src = null; P.playing = false; onend && onend(); } };
-  P.src = src; P.playing = true; src.start(); levelLoop();
+  P.src = src; P.playing = true; src.start(); levelLoop(); tellSpeaking(true);
 }
 function stopAudio() {
   P.accept = -1; P.bufs.clear(); P.texts.clear(); P.total = null; P.then = null; clearTimeout(P.watchdog);
   if (P.src) { const s = P.src; P.src = null; try { s.onended = null; s.stop(); } catch (_) {} }
-  P.playing = false; E.setLevel(null);
+  P.playing = false; E.setLevel(null); duck(false); tellSpeaking(false);
   if ('speechSynthesis' in window) speechSynthesis.cancel();
 }
 function beginTurn(turn) { stopAudio(); P.accept = turn; P.expect = 0; P.spoken = 0; P.then = (lastWasVoice || wakeMode) ? followUp : null; }
@@ -833,12 +841,13 @@ function pump() {
 }
 function finish() {
   const cb = P.then; P.then = null; P.total = null; P.accept = -1; clearTimeout(P.watchdog);
+  tellSpeaking(false); duck(false);
   if (turnText) caption(turnText);
   if (state !== 'alert') setState('idle');
   if (cb) cb(); else if (wakeMode) ensureWake();
 }
 function playWake(then) {
-  if (ttsMode === 'kokoro' && P.wake) { stopAudio(); playBuffer(P.wake, () => { setState('listening'); then && then(); }); }
+  if (ttsMode === 'kokoro' && P.wake) { stopAudio(); playBuffer(P.wake, () => { tellSpeaking(false); setState('listening'); then && then(); }); }
   else speak('Yes, sir?', then);
 }
 let voice = null;
@@ -849,8 +858,8 @@ function speak(text, then) {                                   // fallback when 
   if (!('speechSynthesis' in window) || !text) { then && then(); return; }
   stopListening(); speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text); if (voice) u.voice = voice;
-  u.onstart = () => setState(turnProactive ? 'alert' : 'speaking');
-  u.onend = () => { if (state !== 'alert') setState('idle'); if (then) then(); else if (wakeMode) ensureWake(); };
+  u.onstart = () => { setState(turnProactive ? 'alert' : 'speaking'); tellSpeaking(true); };
+  u.onend = () => { tellSpeaking(false); if (state !== 'alert') setState('idle'); if (then) then(); else if (wakeMode) ensureWake(); };
   speechSynthesis.speak(u);
 }
 
@@ -859,7 +868,8 @@ function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   try { ws = new WebSocket(`${proto}://${location.host}/ws`); } catch (_) { return; }
   ws.onopen = () => { connected = true; E.setConnection(true); idleHint(); refreshStatus(); };
-  ws.onclose = () => { connected = false; ttsMode = 'browser'; E.setConnection(false); setTimeout(connect, 2500); };
+  ws.onclose = () => { connected = false; ttsMode = 'browser'; sttMode = 'browser'; toldSpeaking = false; micRelease();
+    E.setConnection(false); setTimeout(connect, 2500); };
   ws.onmessage = e => handle(JSON.parse(e.data));
 }
 function handle(ev) {
@@ -867,7 +877,17 @@ function handle(ev) {
     case 'hello': ttsMode = ev.tts || 'browser'; break;
     case 'phrase': if (ev.key === 'wake') decode(ev.audio).then(b => { P.wake = b; }); break;
     case 'turn_start': beginTurn(ev.turn); streamBuf = ''; turnText = ''; turnProactive = false; proactiveWidget = null; break;
-    case 'heard': caption(ev.text); break;
+    case 'heard':
+      if (ev.stt) { lastWasVoice = true; E.addTranscript({ role: 'you', text: ev.text, time: hm() }); setState('thinking'); micTouch(); }
+      caption(ev.text); break;
+    case 'stt': onStt(ev); break;
+    case 'listen': onListen(ev); break;
+    case 'wake': caption(ev.text || 'Yes, sir?'); playWake(); micTouch(); break;
+    case 'barge_in':
+      if (ev.stage === 'duck') duck(true);
+      else if (ev.stage === 'resume') duck(false);
+      else if (ev.stage === 'stop') { stopAudio(); setState('listening'); E.setHint('Go on...'); }
+      break;
     case 'ack': setState('thinking'); caption(ev.text); if (ttsMode !== 'kokoro') speak(ev.text); break;
     case 'token': streamBuf += ev.text; caption(streamBuf, 0); break;
     case 'widget':
@@ -903,6 +923,104 @@ function bargeIn() { const busy = isSpeaking() || state === 'thinking'; stopAudi
   if (busy && connected && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'stop' })); }
 function idleHint() { E.setHint(wakeMode ? 'Listening for "Hey Eva"' : 'Tap the mic, or type'); }
 
+/* ---------------- server-side listening (v0.2.5): mic -> PCM16 16 kHz -> E.V.A. ---------------- */
+/*DOWNSAMPLER-START*/
+function makeDownsampler(inRate, outRate, block) {
+  // Box-filter downsampling to 16-bit PCM in fixed blocks (512 samples = 32 ms at 16 kHz, Silero's window).
+  const ratio = inRate / outRate; let pos = 0, acc = 0, cnt = 0, n = 0, buf = new Int16Array(block);
+  return function push(input) {
+    const out = [];
+    for (let i = 0; i < input.length; i++) {
+      acc += input[i]; cnt++; pos += 1;
+      if (pos >= ratio) {
+        pos -= ratio; const v = Math.max(-1, Math.min(1, acc / cnt)); acc = 0; cnt = 0;
+        buf[n++] = v < 0 ? Math.round(v * 32768) : Math.round(v * 32767);
+        if (n === block) { out.push(buf); buf = new Int16Array(block); n = 0; }
+      }
+    }
+    return out;
+  };
+}
+/*DOWNSAMPLER-END*/
+const WORKLET = makeDownsampler.toString() + `
+class EvaPcm16 extends AudioWorkletProcessor {
+  constructor() { super(); this.push = makeDownsampler(sampleRate, 16000, 512); }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch) for (const b of this.push(ch)) {
+      let s = 0; for (let i = 0; i < b.length; i++) { const x = b[i] / 32768; s += x * x; }
+      this.port.postMessage({ pcm: b.buffer, level: Math.sqrt(s / b.length) }, [b.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor('eva-pcm16', EvaPcm16);`;
+const MIC = { stream: null, ctx: null, node: null, starting: null, idle: 0 };
+function micOn() { return !!MIC.node; }
+async function micStart() {
+  if (MIC.node) return true;
+  if (MIC.starting) return MIC.starting;
+  MIC.starting = (async () => {
+    try {
+      if (!navigator.mediaDevices || !window.AudioWorkletNode) throw new Error('no AudioWorklet');
+      MIC.stream = await navigator.mediaDevices.getUserMedia({ audio: {
+        echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+      const C = window.AudioContext || window.webkitAudioContext; MIC.ctx = new C();
+      const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+      await MIC.ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
+      const src = MIC.ctx.createMediaStreamSource(MIC.stream);
+      MIC.node = new AudioWorkletNode(MIC.ctx, 'eva-pcm16');
+      MIC.node.port.onmessage = e => {
+        if (sttMode !== 'server' || !ws || ws.readyState !== 1) return;
+        if (ws.bufferedAmount < 1 << 20) ws.send(e.data.pcm);          // never pile up audio on a slow link
+        if (state === 'listening' && !isSpeaking()) E.setLevel(Math.min(1, e.data.level * 6));
+      };
+      src.connect(MIC.node); MIC.node.connect(MIC.ctx.destination);   // outputs silence; keeps the node running
+      if (MIC.ctx.state === 'suspended') await MIC.ctx.resume();
+      return true;
+    } catch (err) {
+      micRelease(); sttMode = 'browser'; sttReason = 'microphone: ' + (err && err.message || err);
+      console.warn('E.V.A.: server listening unavailable, using browser speech recognition.', err);
+      return false;
+    } finally { MIC.starting = null; }
+  })();
+  return MIC.starting;
+}
+function micRelease() {
+  clearTimeout(MIC.idle);
+  if (MIC.stream) MIC.stream.getTracks().forEach(t => t.stop());
+  if (MIC.ctx) MIC.ctx.close().catch(() => {});
+  MIC.stream = MIC.ctx = MIC.node = null;
+}
+function micTouch() {                                          // tap mode: free the mic after 30 s of nothing
+  clearTimeout(MIC.idle);
+  if (!wakeMode) MIC.idle = setTimeout(() => { if (!wakeMode && state === 'idle') micRelease(); else micTouch(); }, 30000);
+}
+function sendCtl(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
+function armServer(ms, hint) { sendCtl({ type: 'listen', arm: ms }); setState('listening'); E.setHint(hint || 'Listening...'); micTouch(); }
+async function tapServer() {
+  if (await micStart()) armServer(8000, 'Listening...');
+  else { idleHint(); listen(0); }
+}
+function onStt(ev) {
+  sttMode = ev.engine === 'server' ? 'server' : 'browser'; sttReason = ev.reason || '';
+  if (sttMode === 'server') {
+    if (wakeMode) { stopListening(); micStart().then(ok => { if (ok) sendCtl({ type: 'listen', wake: true }); else startWake(); }); }
+  } else {
+    micRelease();
+    if (sttReason) console.info('E.V.A. listening: browser speech recognition (' + sttReason + ')');
+    if (state === 'listening') { setState('idle'); idleHint(); }
+    if (wakeMode) startWake();
+  }
+}
+function onListen(ev) {
+  if (ev.state === 'speech') { setState('listening'); E.setHint('Listening...'); micTouch(); }
+  else if (ev.state === 'end') { setState('thinking'); E.setLevel(null); }
+  else if (ev.state === 'noise' || ev.state === 'timeout') {
+    if (state === 'listening' || state === 'thinking') { setState('idle'); E.setLevel(null); idleHint(); }
+  }
+}
+
 /* ---------------- speech recognition: tap, follow-up, wake word ---------------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null, fol = null, wakeRec = null;
@@ -921,9 +1039,10 @@ function listen(windowMs) {
     const done = fin.trim(); if (done) send(done, true); else { setState('idle'); idleHint(); if (wakeMode) ensureWake(); } };
   try { r.start(); } catch (_) { setState('idle'); }
 }
-const followUp = () => listen(7000);
+const followUp = () => (sttMode === 'server' && micOn()) ? armServer(7000, 'Go on...') : listen(7000);
 function ensureWake() { if (wakeMode && SR && !wakeRec && !isSpeaking() && state !== 'listening') startWake(); }
 function startWake() {
+  if (sttMode === 'server') return;                            // E.V.A. hears the wake word herself
   if (wakeRec || !SR) return;
   wakeRec = recognizer(true); let armed = false;
   wakeRec.onresult = e => { const last = e.results[e.results.length - 1], t = last[0].transcript.toLowerCase();
@@ -940,12 +1059,16 @@ function startWake() {
 /* ---------------- UI events -> server ---------------- */
 addEventListener('eva:mic', () => {
   if (state === 'speaking' || state === 'thinking' || isSpeaking()) { bargeIn(); setState('idle'); idleHint(); }
-  else if (state === 'listening') { stopListening(); setState('idle'); idleHint(); }
-  else { bargeIn(); listen(0); }
+  else if (state === 'listening') { if (sttMode === 'server') sendCtl({ type: 'listen', arm: 0 }); stopListening(); setState('idle'); idleHint(); }
+  else { bargeIn(); if (sttMode === 'server') tapServer(); else listen(0); }
 });
 addEventListener('eva:text', e => send((e.detail && e.detail.text || '').trim(), false));
 addEventListener('eva:wake', e => { wakeMode = !!(e.detail && e.detail.on);
-  if (wakeMode) startWake(); else { stopListening(); setState('idle'); } idleHint(); });
+  if (sttMode === 'server') {
+    if (wakeMode) micStart().then(ok => { if (ok) sendCtl({ type: 'listen', wake: true }); else startWake(); });
+    else { sendCtl({ type: 'listen', wake: false, arm: 0 }); micTouch(); setState('idle'); }
+  } else if (wakeMode) startWake(); else { stopListening(); setState('idle'); }
+  idleHint(); });
 addEventListener('eva:action', e => {
   const a = e.detail && e.detail.action;
   if (a === 'confirm' || a === 'install') send('yes', false);
@@ -961,7 +1084,8 @@ async function refreshStatus() {
   try {
     const s = await (await fetch('/api/status')).json();
     E.setStatus({
-      voice: { name: s.voice === 'kokoro' ? 'Kokoro' : 'Browser voice', detail: s.voice === 'kokoro' ? 'local' : 'fallback' },
+      voice: { name: s.voice === 'kokoro' ? 'Kokoro' : 'Browser voice',
+        detail: (s.voice === 'kokoro' ? 'local' : 'fallback') + (sttMode === 'server' ? ' · hears you locally' : ' · browser listening') },
       brainMode: s.brain_mode || 'auto',
       budget: { today: [s.budget.spent, s.budget.limit], month: [s.budget.month_spent, s.budget.month_limit] },
       memory: { facts: s.memory.facts, turns: s.memory.episodes },

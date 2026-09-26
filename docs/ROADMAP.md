@@ -13,7 +13,7 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 ## v0.2.5 "Voice and Brain" (next)
 | # | Milestone | What you get |
 |---|---|---|
-| 1 | **Pipecat voice pipeline** | Server-side listening: your mic streams to E.V.A., local Silero VAD, local Whisper, smart turn detection that waits through a thinking pause, a rolling buffer so your first words are never lost, barge-in while she speaks. Works in any browser, and later in the phone app. Replaces the browser's speech recognition. |
+| 1 | **Pipecat voice pipeline** (built, awaiting hardware test) | Server-side listening: your mic streams to E.V.A., local Silero VAD, local Whisper, smart turn detection that waits through a thinking pause, a rolling buffer so your first words are never lost, barge-in while she speaks. Works in any browser, and later in the phone app. Replaces the browser's speech recognition. |
 | 2 | **Local network safety** | The server listens only on this PC by default, with a token for any remote device. Needed before the phone app. |
 | 3 | **Multi-step commands** | Any number of commands in one sentence, run in order or in parallel, with dependent steps passing results along: "lights red, play The Weeknd, Spotify at 50 and the PC at 100" or "read Tom's last emails and draft him a warm reply saying X, Y, Z". One combined answer. |
 | 4 | **Conversation lane** | Longer, reflective conversations ("what would make you more useful to me?") with a warmer prompt, longer answers, follow-up questions, and knowledge of her own abilities and roadmap. Tasks keep the fast lane. |

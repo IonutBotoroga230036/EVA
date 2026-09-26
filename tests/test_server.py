@@ -43,6 +43,7 @@ def test_kokoro_protocol_end_to_end(monkeypatch, tmp_path):
         hello, phrase = json.loads(ws.receive_text()), json.loads(ws.receive_text())
         assert hello == {"type": "hello", "tts": "kokoro"}
         assert phrase["type"] == "phrase" and phrase["key"] == "wake"
+        assert json.loads(ws.receive_text())["type"] == "stt"          # v0.2.5: listening engine, after the phrase
         ws.send_text(json.dumps({"type": "message", "text": "status report"}))
         events = collect_until(ws, lambda e: e["type"] == "audio_end")
     kinds = [e["type"] for e in events]
