@@ -189,7 +189,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .eva-panel{position:fixed;top:0;right:0;bottom:0;width:min(420px,100vw);z-index:11;padding:calc(var(--safe-t) + 28px) calc(var(--safe-r) + 28px) calc(var(--safe-b) + 32px) 28px;
   background:var(--glass-solid);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-left:1px solid var(--line);box-shadow:-30px 0 80px -30px rgba(139,92,246,.35);
   display:flex;flex-direction:column;gap:22px;overflow-y:auto;transform:translateX(100%);transition:transform var(--dur-layout) var(--ease-out);visibility:hidden}
-.eva.panel-open .eva-panel{transform:none;visibility:visible}
+.eva.panel-open #evaPanel{transform:none;visibility:visible}
 .panel__head{display:flex;justify-content:space-between;align-items:center}
 .panel__title{font:600 20px var(--font-display);letter-spacing:.04em}
 .panel__sec{display:flex;flex-direction:column;gap:10px}
@@ -207,6 +207,30 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chips span{font-size:12px;padding:5px 10px;border-radius:var(--r-pill);border:1px solid rgba(196,164,255,.2)}
 .forge-box{display:flex;align-items:center;gap:var(--s3);padding:14px 16px;border-radius:var(--r-row);background:rgba(139,92,246,.12);border:1px solid rgba(196,164,255,.24)}
+
+/* ===== Routines panel (v0.2.5) ===== */
+.eva.routines-open .eva-scrim{opacity:1;pointer-events:auto}
+.eva.routines-open #evaRoutines{transform:none;visibility:visible}
+.rt-tabs{grid-template-columns:repeat(5,1fr)}
+.rt-tabs button{font-size:12px;padding:0 2px}
+.rt-body{display:flex;flex-direction:column;gap:6px}
+.rt-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px;border-radius:var(--r-row);background:rgba(139,92,246,.08);border:1px solid var(--line-soft)}
+.rt-in{height:40px;min-width:0;flex:1 1 140px;border-radius:10px;background:rgba(8,6,15,.6);border:1px solid var(--line);color:var(--ice);padding:0 10px;font:inherit;font-size:14px}
+.rt-in:focus{outline:none;border-color:var(--line-strong)}
+.rt-btn{height:36px;padding:0 12px;border-radius:10px;background:var(--tint);border:1px solid var(--line);color:var(--lilac);font-size:13px;white-space:nowrap}
+.rt-btn:hover{background:var(--tint-2)}
+.rt-btn.is-danger{color:#f3a7c9;border-color:rgba(243,167,201,.35)}
+.rt-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-soft);font-size:14px}
+.rt-row__main{min-width:0;flex:1;overflow-wrap:anywhere}
+.rt-row__sub{display:block;font-size:12px;color:var(--dim-text);margin-top:2px}
+.rt-row.is-paused .rt-row__main,.rt-row.is-done .rt-row__main{opacity:.55}
+.rt-row.is-done .rt-row__main{text-decoration:line-through}
+.rt-day{font-size:12px;color:var(--dim-text);margin-top:14px;letter-spacing:.06em;text-transform:uppercase}
+.rt-days{display:flex;gap:4px;flex-wrap:wrap}
+.rt-days button{width:34px;height:30px;border-radius:8px;background:transparent;border:1px solid var(--line);color:var(--dim-text);font-size:12px}
+.rt-days button[aria-pressed="true"]{background:var(--violet-deep);border-color:var(--violet-bright);color:var(--ice)}
+.rt-check{width:20px;height:20px;accent-color:#8b5cf6;flex:none}
+.rt-empty{color:var(--dim-text);font-size:14px;padding:12px 0}
 
 /* ===== History drawer ===== */
 .eva-drawer{position:fixed;left:50%;bottom:0;width:min(760px,100vw);height:min(640px,78vh);z-index:11;transform:translate(-50%,100%);visibility:hidden;
@@ -297,6 +321,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
     </div>
     <div class="eva-top__right">
       <div class="eva-clock" aria-hidden="true"><div class="eva-clock__time" id="evaTime">--:--</div><div class="eva-clock__date" id="evaDate"></div></div>
+      <button class="icon-btn" id="evaRoutinesBtn" aria-label="Routines and lists" aria-controls="evaRoutines" aria-expanded="false"><svg class="i"><use href="#i-clock"/></svg></button>
       <button class="icon-btn" id="evaStatusBtn" aria-label="Status" aria-controls="evaPanel" aria-expanded="false"><svg class="i"><use href="#i-panel"/></svg></button>
     </div>
   </header>
@@ -321,6 +346,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 
   <div class="eva-scrim" id="evaScrim"></div>
   <aside class="eva-panel" id="evaPanel" aria-label="Status" aria-hidden="true"></aside>
+  <aside class="eva-panel" id="evaRoutines" aria-label="Routines and lists" aria-hidden="true"></aside>
   <section class="eva-drawer" id="evaDrawer" aria-label="Conversation" aria-hidden="true">
     <div class="drawer__handle"></div>
     <div class="drawer__head"><span class="panel__title" style="font-size:18px">Today</span><button class="icon-btn" id="evaHistoryClose" aria-label="Close history"><svg class="i"><use href="#i-down"/></svg></button></div>
@@ -670,10 +696,14 @@ function addTranscript({ role, text, time, proactive }) {
 function openPanel() { closeAll(); renderPanel(); root.classList.add('panel-open'); $('evaPanel').setAttribute('aria-hidden', 'false'); $('evaStatusBtn').setAttribute('aria-expanded', 'true'); }
 function openHistory() { closeAll(); root.classList.add('history-open'); $('evaDrawer').setAttribute('aria-hidden', 'false'); $('evaHistoryBtn').setAttribute('aria-expanded', 'true'); transcript.scrollTop = transcript.scrollHeight; }
 function closeAll() {
-  root.classList.remove('panel-open', 'history-open');
+  root.classList.remove('panel-open', 'history-open', 'routines-open');
   $('evaPanel').setAttribute('aria-hidden', 'true'); $('evaDrawer').setAttribute('aria-hidden', 'true');
+  $('evaRoutines').setAttribute('aria-hidden', 'true'); $('evaRoutinesBtn').setAttribute('aria-expanded', 'false');
   $('evaStatusBtn').setAttribute('aria-expanded', 'false'); $('evaHistoryBtn').setAttribute('aria-expanded', 'false');
 }
+function openRoutines() { closeAll(); root.classList.add('routines-open'); $('evaRoutines').setAttribute('aria-hidden', 'false');
+  $('evaRoutinesBtn').setAttribute('aria-expanded', 'true'); emit('routines', { open: true }); }
+$('evaRoutinesBtn').onclick = () => root.classList.contains('routines-open') ? closeAll() : openRoutines();
 $('evaStatusBtn').onclick = () => root.classList.contains('panel-open') ? closeAll() : openPanel();
 $('evaHistoryBtn').onclick = () => root.classList.contains('history-open') ? closeAll() : openHistory();
 $('evaHistoryClose').onclick = closeAll;
@@ -905,6 +935,7 @@ function handle(ev) {
         E.addTranscript({ role: 'eva', text: t, time: hm() });
       }
       caption(t, ttsMode === 'kokoro' ? 0 : undefined);
+      if (rtOpen()) rtLoad();                                   // "remind me..." shows up in an open panel
       if (ttsMode !== 'kokoro') speak(t, (lastWasVoice || wakeMode) && !ev.proactive ? followUp : null); else kick();
       break;
     }
@@ -1078,6 +1109,132 @@ addEventListener('eva:action', e => {
 });
 addEventListener('eva:brain-mode', e => send(`switch to ${e.detail.mode} mode`, false));
 addEventListener('eva:forge-review', () => send('which skills are waiting', false));
+
+/* ---------------- Routines panel (v0.2.5): reminders, routines, moods, shopping list ---------------- */
+const RT = { tab: 'week', data: null, editing: null };
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+/*EL-START*/
+function el(tag, props, ...kids) {                             // textContent only, never innerHTML
+  const n = document.createElement(tag);
+  for (const k in props || {}) { const v = props[k]; if (v == null || v === false) continue;
+    if (k === 'class') n.className = v; else if (k.startsWith('on')) n[k] = v; else if (k === 'value') n.value = v;
+    else if (k === 'checked') n.checked = !!v; else n.setAttribute(k, v === true ? '' : v); }
+  for (const c of kids.flat(Infinity)) if (c != null && c !== false) n.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return n;
+}
+/*EL-END*/
+async function api(method, path, body) {
+  const r = await fetch('/api/routines' + path, { method, headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined });
+  let j = {}; try { j = await r.json(); } catch (_) {}
+  if (!r.ok) throw new Error(j.detail || ('HTTP ' + r.status));
+  return j;
+}
+async function rtLoad() { try { RT.data = await api('GET', ''); } catch (e) { RT.data = { error: e.message }; } rtRender(); }
+async function rtDo(fn) { try { await fn(); } catch (e) { alert('E.V.A.: ' + e.message); } await rtLoad(); }
+function whenText(iso) {
+  const d = new Date(iso), now = new Date(), tm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const days = Math.round((new Date(d.toDateString()) - new Date(now.toDateString())) / 864e5);
+  return (days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })) + ' ' + tm;
+}
+function localIso(d) { const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+function dayPicker(sel) {
+  return el('div', { class: 'rt-days' }, DAYS.map((d, i) => el('button', { type: 'button', 'aria-pressed': String(sel.has(i)),
+    onclick: e => { sel.has(i) ? sel.delete(i) : sel.add(i); e.currentTarget.setAttribute('aria-pressed', String(sel.has(i))); } }, d)));
+}
+function rtWeek(d) {
+  return d.week.map(day => [el('div', { class: 'rt-day' }, day.label),
+    day.items.length ? day.items.map(i => el('div', { class: 'rt-row' },
+      el('span', { class: 'rt-row__main' }, el('b', null, i.time), '  ', i.text),
+      el('span', { class: 'muted', style: 'font-size:12px' }, i.kind))) : el('div', { class: 'rt-empty' }, 'Nothing planned.')]);
+}
+function rtReminders(d) {
+  const text = el('input', { class: 'rt-in', placeholder: 'Remind me to...', maxlength: '300' });
+  const due = el('input', { class: 'rt-in', type: 'datetime-local', value: localIso(new Date(Date.now() + 36e5)) });
+  const form = el('form', { class: 'rt-form', onsubmit: e => { e.preventDefault(); if (!text.value.trim()) return;
+    rtDo(() => api('POST', '/reminders', { text: text.value, due: due.value })); } }, text, due, el('button', { class: 'rt-btn' }, 'Add'));
+  const rows = d.reminders.map(r => {
+    if (RT.editing === r.id) {
+      const t = el('input', { class: 'rt-in', value: r.text }), w = el('input', { class: 'rt-in', type: 'datetime-local', value: r.due });
+      return el('form', { class: 'rt-form', onsubmit: e => { e.preventDefault(); RT.editing = null;
+        rtDo(() => api('PATCH', '/reminders/' + r.id, { text: t.value, due: w.value })); } }, t, w,
+        el('button', { class: 'rt-btn' }, 'Save'), el('button', { class: 'rt-btn', type: 'button', onclick: () => { RT.editing = null; rtRender(); } }, 'Cancel'));
+    }
+    return el('div', { class: 'rt-row' }, el('span', { class: 'rt-row__main' }, r.text, el('span', { class: 'rt-row__sub' }, whenText(r.due))),
+      el('button', { class: 'rt-btn', onclick: () => { RT.editing = r.id; rtRender(); } }, 'Edit'),
+      el('button', { class: 'rt-btn is-danger', onclick: () => confirm(`Delete "${r.text}"?`) && rtDo(() => api('DELETE', '/reminders/' + r.id)) }, 'Delete'));
+  });
+  return [form, rows.length ? rows : el('div', { class: 'rt-empty' }, 'No reminders. Say "remind me to..." or add one above.')];
+}
+function rtRoutines(d) {
+  const sel = new Set([0, 1, 2, 3, 4]);
+  const text = el('input', { class: 'rt-in', placeholder: 'What to remind you of', maxlength: '300' });
+  const time = el('input', { class: 'rt-in', type: 'time', value: '08:00', style: 'flex:0 0 110px' });
+  const action = el('select', { class: 'rt-in', style: 'flex:0 0 130px' }, [['remind', 'Reminder'], ['briefing', 'Briefing'],
+    ['agenda', 'Agenda'], ['email', 'Important email']].map(([v, l]) => el('option', { value: v }, l)));
+  const form = el('form', { class: 'rt-form', onsubmit: e => { e.preventDefault();
+    rtDo(() => api('POST', '/routines', { text: text.value, days: [...sel], time: time.value, action: action.value })); } },
+    action, text, time, dayPicker(sel), el('button', { class: 'rt-btn' }, 'Add routine'));
+  const rows = d.routines.map(r => {
+    if (RT.editing === r.id) {
+      const s2 = new Set(r.days), t = el('input', { class: 'rt-in', value: r.text }), tm = el('input', { class: 'rt-in', type: 'time', value: r.time, style: 'flex:0 0 110px' });
+      return el('form', { class: 'rt-form', onsubmit: e => { e.preventDefault(); RT.editing = null;
+        rtDo(() => api('PATCH', '/routines/' + r.id, { text: t.value, time: tm.value, days: [...s2] })); } }, t, tm, dayPicker(s2),
+        el('button', { class: 'rt-btn' }, 'Save'), el('button', { class: 'rt-btn', type: 'button', onclick: () => { RT.editing = null; rtRender(); } }, 'Cancel'));
+    }
+    return el('div', { class: 'rt-row' + (r.paused ? ' is-paused' : '') },
+      el('span', { class: 'rt-row__main' }, r.describe, r.paused ? el('span', { class: 'rt-row__sub' }, 'Paused') : null),
+      el('button', { class: 'rt-btn', onclick: () => rtDo(() => api('PATCH', '/routines/' + r.id, { paused: !r.paused })) }, r.paused ? 'Resume' : 'Pause'),
+      el('button', { class: 'rt-btn', onclick: () => { RT.editing = r.id; rtRender(); } }, 'Edit'),
+      el('button', { class: 'rt-btn is-danger', onclick: () => confirm('Delete this routine?') && rtDo(() => api('DELETE', '/routines/' + r.id)) }, 'Delete'));
+  });
+  return [form, rows.length ? rows : el('div', { class: 'rt-empty' }, 'No routines yet. Try "every weekday at 8, brief me".')];
+}
+function rtMoods(d) {
+  const name = el('input', { class: 'rt-in', placeholder: 'Mood name', maxlength: '40' });
+  const color = el('input', { class: 'rt-in', placeholder: 'Colour (e.g. cyan, warm white)', maxlength: '40' });
+  const bright = el('input', { class: 'rt-in', type: 'number', min: '1', max: '100', value: '60', style: 'flex:0 0 80px', title: 'Brightness %' });
+  const playlist = el('input', { class: 'rt-in', placeholder: 'Playlist (optional)', maxlength: '120' });
+  const fill = m => { name.value = m.name; color.value = m.color || (m.white != null ? 'white' : ''); bright.value = m.brightness || 60; playlist.value = m.playlist || ''; name.focus(); };
+  const form = el('form', { class: 'rt-form', onsubmit: e => { e.preventDefault(); if (!name.value.trim()) return;
+    rtDo(() => api('POST', '/moods', { name: name.value, color: color.value && color.value !== 'white' ? color.value : null,
+      brightness: +bright.value || 60, playlist: playlist.value })); } }, name, color, bright, playlist, el('button', { class: 'rt-btn' }, 'Save mood'));
+  const rows = d.moods.map(m => el('div', { class: 'rt-row' },
+    el('span', { class: 'rt-row__main' }, m.name, el('span', { class: 'rt-row__sub' },
+      [m.color || (m.white != null ? 'white' : ''), (m.brightness || '') + '%', m.playlist].filter(Boolean).join(' · ') + (m.edited && m.builtin ? ' · edited' : ''))),
+    el('button', { class: 'rt-btn', onclick: () => fill(m) }, 'Edit'),
+    (!m.builtin || m.edited) ? el('button', { class: 'rt-btn is-danger', onclick: () => confirm(m.builtin ? `Reset "${m.name}" to its default?` : `Delete "${m.name}"?`)
+      && rtDo(() => api('DELETE', '/moods/' + encodeURIComponent(m.name))) }, m.builtin ? 'Reset' : 'Delete') : null));
+  return [form, rows];
+}
+function rtShopping(d) {
+  const inp = el('input', { class: 'rt-in', placeholder: 'Milk, eggs and bread', maxlength: '500' });
+  const form = el('form', { class: 'rt-form', onsubmit: e => { e.preventDefault(); if (!inp.value.trim()) return;
+    rtDo(() => api('POST', '/shopping', { items: inp.value })); } }, inp, el('button', { class: 'rt-btn' }, 'Add'));
+  const rows = d.shopping.map(i => el('div', { class: 'rt-row' + (i.done ? ' is-done' : '') },
+    el('input', { type: 'checkbox', class: 'rt-check', checked: i.done, 'aria-label': 'Bought ' + i.text,
+      onchange: e => rtDo(() => api('POST', '/shopping/tick', { item: i.text, done: e.target.checked })) }),
+    el('span', { class: 'rt-row__main' }, i.text),
+    el('button', { class: 'rt-btn is-danger', onclick: () => rtDo(() => api('POST', '/shopping/remove', { item: i.text })) }, 'Remove')));
+  const clear = d.shopping.some(i => i.done) ? el('button', { class: 'rt-btn', onclick: () => rtDo(() => api('POST', '/shopping/clear', { done_only: true })) }, 'Clear ticked items') : null;
+  return [form, rows.length ? rows : el('div', { class: 'rt-empty' }, 'The list is empty. Say "add milk to my shopping list".'), clear,
+    el('p', { class: 'panel__help' }, 'Kept in your Obsidian vault as the note "Shopping list".')];
+}
+function rtRender() {
+  const box = document.getElementById('evaRoutines'); if (!box) return;
+  const d = RT.data, tabs = [['week', 'Week'], ['reminders', 'Reminders'], ['routines', 'Routines'], ['moods', 'Moods'], ['shopping', 'List']];
+  const body = !d ? el('div', { class: 'rt-empty' }, 'Loading...') : d.error ? el('div', { class: 'rt-empty' }, 'Could not load: ' + d.error)
+    : { week: rtWeek, reminders: rtReminders, routines: rtRoutines, moods: rtMoods, shopping: rtShopping }[RT.tab](d);
+  box.replaceChildren(
+    el('div', { class: 'panel__head' }, el('span', { class: 'panel__title' }, 'Routines'),
+      el('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => E.closeAll() }, '\u2715')),
+    el('div', { class: 'seg rt-tabs', role: 'tablist' }, tabs.map(([k, l]) => el('button', { 'aria-pressed': String(RT.tab === k),
+      onclick: () => { RT.tab = k; RT.editing = null; rtRender(); } }, l))),
+    el('div', { class: 'rt-body' }, body));
+}
+addEventListener('eva:routines', () => { rtRender(); rtLoad(); });
+function rtOpen() { return document.getElementById('eva') && document.getElementById('eva').classList.contains('routines-open'); }
 
 /* ---------------- status panel ---------------- */
 async function refreshStatus() {

@@ -14,10 +14,10 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 | # | Milestone | What you get |
 |---|---|---|
 | 1 | **Pipecat voice pipeline** (built, awaiting hardware test) | Server-side listening: your mic streams to E.V.A., local Silero VAD, local Whisper, smart turn detection that waits through a thinking pause, a rolling buffer so your first words are never lost, barge-in while she speaks. Works in any browser, and later in the phone app. Replaces the browser's speech recognition. |
-| 2 | **Local network safety** | The server listens only on this PC by default, with a token for any remote device. Needed before the phone app. |
-| 3 | **Multi-step commands** | Any number of commands in one sentence, run in order or in parallel, with dependent steps passing results along: "lights red, play The Weeknd, Spotify at 50 and the PC at 100" or "read Tom's last emails and draft him a warm reply saying X, Y, Z". One combined answer. |
+| 2 | **Local network safety** (built, awaiting hardware test) | The server listens only on this PC by default, with a token for any remote device. Needed before the phone app. |
+| 3 | **Multi-step commands** (built, awaiting hardware test) | Any number of commands in one sentence, run in order or in parallel, with dependent steps passing results along: "lights red, play The Weeknd, Spotify at 50 and the PC at 100" or "read Tom's last emails and draft him a warm reply saying X, Y, Z". One combined answer. |
 | 4 | **Conversation lane** | Longer, reflective conversations ("what would make you more useful to me?") with a warmer prompt, longer answers, follow-up questions, and knowledge of her own abilities and roadmap. Tasks keep the fast lane. |
-| 5 | **Routines panel** | A section in the interface for routines, reminders, and moods: create, edit, pause, delete, and a week view. Plus a shopping list ("add milk to my shopping list"), kept as an Obsidian note. |
+| 5 | **Routines panel** (built, awaiting hardware test) | A section in the interface for routines, reminders, and moods: create, edit, pause, delete, and a week view. Plus a shopping list ("add milk to my shopping list"), kept as an Obsidian note. |
 | 6 | **FORGE background jobs** | Builds run in the background with no time limit and a Telegram push when done ("Install?" Yes / No). Default local coder: qwen2.5-coder:14b. |
 | 7 | **Local-first switches** | Default brain mode `local`. Per-feature choice (conversation, planning, thinking, FORGE) in settings and in the status panel. |
 

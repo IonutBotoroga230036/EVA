@@ -16,6 +16,22 @@ most work with natural variations too. Anything marked **asks first** waits for 
   (Radboud, Nijmegen, Breda, ZippZapp...). Add your own lines.
 - Small talk and questions about herself never trigger tools.
 
+## Several things at once (v0.2.5)
+- "Lights red, play The Weeknd, Spotify at 50 and the PC at 100": each part runs, independent ones at the same time,
+  and she answers once with the exact result of each.
+- "Read Tom's last email and draft him a warm reply saying Friday works": the second step sees the first one's result.
+- Anything that normally asks first still asks first, one at a time ("Next, sir: ...").
+- A part she can't do is said plainly; she never invents a step you didn't say.
+
+## Shopping list (v0.2.5)
+- "Add milk and eggs to my shopping list" / "Take eggs off my shopping list" / "I bought the milk, tick it off"
+- "What's on my shopping list?" / "Clear the ticked items" / "Empty my shopping list" **asks first**
+- Kept in Obsidian as the note "Shopping list", with checkboxes, so it syncs to your phone with the vault.
+
+## Routines panel (v0.2.5)
+- The clock button at the top right: a week view, and tabs to add, edit, pause, and delete reminders and routines,
+  edit moods (or reset a built-in one), and manage the shopping list.
+
 ## Time, weather, maths
 - "What time is it?"
 - "What's the weather in Breda?" / "What about tomorrow?" / "...and the day after?"
@@ -107,6 +123,11 @@ most work with natural variations too. Anything marked **asks first** waits for 
   collapse, proactive cards look different and always offer Snooze. Tap the panel icon for status
   (voice, brain mode, budget, memory, connections, skills, FORGE drafts) and the history icon for the transcript.
 - The previous interface is still at http://localhost:8001/classic. The design walkthrough is at /?demo.
+
+## Other devices and safety (v0.2.5)
+- By default only this PC can reach E.V.A. To use her from your phone on the same Wi-Fi, set
+  `server: listen: network` in config/settings.local.yaml, restart, and open the pairing link the terminal prints.
+- Websites you visit can't talk to her behind your back (cross-site requests are refused).
 
 ## Installing her as an app
 - Edge or Chrome: open http://localhost:8001, click the install icon in the address bar.

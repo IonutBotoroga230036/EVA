@@ -5,7 +5,9 @@ Run from the REPO ROOT (D:\\Project E.V.A\\eva):
 
     python -m interfaces.web.server_stream
 
-Then open http://localhost:8001 (or http://<your-pc-ip>:8001 on your phone).
+Then open http://localhost:8001. By default she listens on this PC only (v0.2.5 network safety):
+set server.listen: network in config/settings.local.yaml to allow other devices, which then need the
+remote token (the terminal prints a pairing link). Rules: core/netsec.py.
 
 WebSocket protocol (server -> browser):
     hello       {"tts": "kokoro" | "browser"}         once, on connect
@@ -54,9 +56,10 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from loguru import logger
 
+import core.netsec as netsec
 from core.events.bus import get_bus
 from core.mcp_client import get_mcp
 from core.prompt_builder import vocabulary_text
@@ -166,7 +169,34 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="E.V.A.", version="0.2.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+_extra_origins = list(netsec.server_cfg().get("allowed_origins") or [])
+if _extra_origins:                         # no wildcard: only origins you list in settings (e.g. a dev server)
+    app.add_middleware(CORSMiddleware, allow_origins=_extra_origins, allow_methods=["*"], allow_headers=["*"],
+                       allow_credentials=True)
+
+
+@app.middleware("http")
+async def network_guard(request, call_next):
+    """This PC is trusted; remote devices need the token; cross-site writes are refused. See core/netsec.py."""
+    host = request.client.host if request.client else None
+    ok, reason, set_cookie = netsec.verdict(request.method, host, request.headers, request.query_params,
+                                            request.cookies)
+    if not ok:
+        logger.warning(f"NETSEC: refused {request.method} {request.url.path} from {host}: {reason}")
+        code = 403 if reason.startswith("cross-site") else 401
+        return PlainTextResponse(f"E.V.A.: {reason}. Open the pairing link printed in her terminal.", status_code=code)
+    if set_cookie and request.method == "GET":
+        clean = request.url.remove_query_params("token")
+        resp = RedirectResponse(clean.path + (f"?{clean.query}" if clean.query else ""), status_code=303)
+        resp.set_cookie(netsec.COOKIE, request.query_params["token"], httponly=True, samesite="strict",
+                        max_age=365 * 24 * 3600)
+        logger.info(f"NETSEC: paired a browser at {host}")
+        return resp
+    return await call_next(request)
+
+
+from interfaces.web.routines_api import router as routines_router  # noqa: E402  (v0.2.5 Routines panel)
+app.include_router(routines_router)
 
 
 @app.get("/")
@@ -462,6 +492,13 @@ async def weather_debug(city: str = "", day: str = "", hour: str = ""):
 
 @app.websocket("/ws")
 async def ws(websocket: WebSocket):
+    host = websocket.client.host if websocket.client else None
+    ok, reason, _ = netsec.verdict("GET", host, websocket.headers, websocket.query_params, websocket.cookies,
+                                   websocket=True)
+    if not ok:
+        logger.warning(f"NETSEC: refused WebSocket from {host}: {reason}")
+        await websocket.close(code=1008)                   # before accept: the handshake gets a 403
+        return
     await websocket.accept()
     conn = Connection(websocket)
     logger.info(f"client connected (session {conn.session_id})")
@@ -472,5 +509,5 @@ async def ws(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    print(f"\n  E.V.A. -> http://localhost:{PORT}\n")
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+    print("\n" + netsec.startup_banner() + "\n")
+    uvicorn.run(app, host=netsec.bind_host(), port=netsec.port(), log_level="info")

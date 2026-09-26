@@ -28,6 +28,7 @@ Events: ack / token / widget / final (unchanged).
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import json
 import re
 import time
@@ -78,7 +79,9 @@ STYLE_RULES = (
 _CLAIM = re.compile(r"\b(?:has|have|had) been (?:added|scheduled|created|booked|sent|deleted|removed|cancel+ed|set|"
                     r"saved|installed|moved|updated)\b|\bi(?:'ve| have| just)? (?:added|scheduled|created|booked|sent|"
                     r"deleted|removed|cancel+ed|set up|saved|installed|moved|updated)\b|^\s*yes,? (?:it|that|an event)"
-                    r"[^.]*\b(?:added|scheduled|sent|done)\b|^\s*(?:now )?playing\b|^\s*(?:i'?m |i am )?opening\b", re.I)
+                    r"[^.]*\b(?:added|scheduled|sent|done)\b|^\s*(?:now )?playing\b|^\s*(?:i'?m |i am )?opening\b"
+                    r"|\breminder (?:is )?(?:set|added|created)\b|^\s*(?:done|added|scheduled|created|set)\b[ ,:]"
+                    r"|\badded\b.{0,60}\bto your (?:calendar|list|notes|shopping list|reminders)\b", re.I)
 NOT_DONE = "No, sir, I haven't done that. Nothing was changed. Tell me exactly what you'd like and I'll do it."
 MISSING_SKILL = ("I don't have a skill for that yet, sir. Once FORGE is live I can build "
                  "one, with your approval.")
@@ -150,6 +153,27 @@ def load_persona(name: str = "eva") -> str:
 
 
 # ============================================================ tool belt
+from core import multistep  # noqa: E402  (v0.2.5 multi-step commands)
+import random  # noqa: E402
+
+# Acks (v0.2.5): spoken only when a tool is still busy after this long, so quick things stay silent.
+# settings voice.acks.after_ms (default 900). 0 = always at once, a negative value = never.
+ACK_AFTER_OVERRIDE: float | None = None        # tests pin this
+GENERIC_ACKS = ("One moment, sir.", "On it, sir.", "Let me check, sir.", "Give me a second, sir.",
+                "Looking into it, sir.", "Checking now, sir.", "Right away, sir.", "Just a moment, sir.")
+_GENERIC_SOURCES = {"Looking into that now, sir.", "One moment, sir.", "On it, sir."}
+
+
+def ack_after() -> float:
+    if ACK_AFTER_OVERRIDE is not None:
+        return ACK_AFTER_OVERRIDE
+    ms = (get_settings().get("voice", {}).get("acks", {}) or {}).get("after_ms", 900)
+    try:
+        return float(ms) / 1000
+    except (TypeError, ValueError):
+        return 0.9
+
+
 class ToolBelt:
     """One view over built-in, skill, and MCP tools: schemas, guards, safety, execution."""
 
@@ -311,7 +335,14 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     t = _WAKE_PREFIX.sub("", text).strip()
     polite = r"(?:(?:i want you to|i need you to|can you|could you|would you|please|and|also|now|don't forget|i)\s+)*"
 
+    m = re.search(r"\b(?:add|put)\s+(.+?)\s+(?:to|on)\s+(?:my |the )?(?:shopping|grocery)\s+list\b", t, re.I)
+    if m and belt.has("shopping_add"):
+        return "shopping_add", {"items": m.group(1)}
     m = re.search(r"(?:set |turn |change )?(?:the )?volume (?:to |at )?(\d{1,3})\s*%?", t, re.I)
+    if m and re.search(r"\b(spotify|phone)\b", t, re.I):   # "the Spotify volume": never the PC's volume
+        if belt.has("spotify_volume"):
+            return "spotify_volume", {"level": int(m.group(1))}
+        m = None
     if m and belt.has("set_volume"):
         return "set_volume", {"level": int(m.group(1))}
     if belt.has("set_volume") and re.search(r"\b(max|full|maximum) volume\b", t, re.I):
@@ -563,6 +594,9 @@ class HybridOrchestrator:
         self.bus = get_bus()
         self.pending: dict | None = None
         self.last_tools: set[str] = set()          # tools used last turn: follow-ups pass the intent guard
+        self.recent_tools: deque[set[str]] = deque(maxlen=3)   # the last three turns, for longer follow-ups
+        self.pending_queue: list[dict] = []        # more confirmations waiting after the current one
+        self._last_ack: str | None = None
         self.last_missing: str | None = None       # what FORGE would build if the user says "build it"
         self._stale = False
         self._bg: set[asyncio.Task] = set()
@@ -585,14 +619,17 @@ class HybridOrchestrator:
         return MISSING_SKILL_FORGE if forge_ready else MISSING_SKILL
 
     # ------------------------------------------------------------ llm calls
-    async def _decide(self, client, skill_bodies, gathered) -> dict:
+    def _recent(self) -> set[str]:
+        return set().union(self.last_tools, *self.recent_tools)
+
+    async def _decide(self, client, skill_bodies, gathered, messages: list[dict] | None = None) -> dict:
         system = build_decision_system(self.belt.list_text(), skill_bodies,
                                        [out["result"] for _, out in gathered])
         try:
             r = await client.post(f"{self.cfg['base_url']}/api/chat", json={
                 "model": self.cfg["decision_model"], "stream": False, "format": self.schema,
                 "keep_alive": self.cfg["keep_alive"], "options": {"temperature": 0},
-                "messages": [{"role": "system", "content": system}, *self.history[-MAX_HISTORY:]],
+                "messages": [{"role": "system", "content": system}, *(messages or self.history[-MAX_HISTORY:])],
             })
             return json.loads(r.json()["message"]["content"])
         except Exception as e:
@@ -658,11 +695,43 @@ class HybridOrchestrator:
             ctx["skills"] = self.registry.bodies(self.registry.match(user_input, qvec))
         return ctx
 
+    def _vary(self, ack: str | None) -> str | None:
+        """Generic acks rotate; a specific one ("Checking your inbox") stays, unless it was the last thing said."""
+        if not ack:
+            return None
+        if ack in _GENERIC_SOURCES or ack == self._last_ack:
+            ack = random.choice([a for a in GENERIC_ACKS if a != self._last_ack])
+        self._last_ack = ack
+        return ack
+
+    async def _with_ack(self, ack: str | None, work) -> AsyncIterator[tuple[str, object]]:
+        """Run `work`; yield ("ack", text) only if it's still busy after ack_after(), then ("done", result)."""
+        task = asyncio.ensure_future(work)
+        try:
+            delay = ack_after()
+            if ack and delay >= 0:
+                if delay == 0:
+                    yield "ack", self._vary(ack)
+                else:
+                    done, _ = await asyncio.wait({task}, timeout=delay)
+                    if not done:
+                        yield "ack", self._vary(ack)
+            yield "done", await task
+        except BaseException:
+            task.cancel()
+            raise
+
     async def _run(self, tool: str, args: dict, gathered: list) -> AsyncIterator[dict]:
-        ack = self.belt.ack(tool)
-        if ack:
-            yield {"type": "ack", "text": ack}             # spoken BEFORE the tool runs
-        out = await self.belt.aexecute(tool, args)
+        async for kind, value in self._with_ack(self.belt.ack(tool), self.belt.aexecute(tool, args)):
+            if kind == "ack":
+                yield {"type": "ack", "text": value}      # only when the tool is taking a while
+            else:
+                for ev in self._post(tool, args, value, gathered):
+                    yield ev
+
+    def _post(self, tool: str, args: dict, out: dict, gathered: list) -> list[dict]:
+        """After a tool ran: honest failure line, PULSE, follow-up confirmation, widget, gathered."""
+        events = []
         ok = '"error"' not in (out.get("result") or "")
         if not ok and self.belt.is_action(tool) and "say" not in out:
             try:
@@ -675,8 +744,9 @@ class HybridOrchestrator:
         if nxt and ok:
             self.pending = {"tool": nxt["tool"], "args": nxt.get("args", {}), "desc": nxt.get("desc", ""), "ts": time.time()}
         if out.get("widget"):
-            yield {"type": "widget", "data": out["widget"]}
+            events.append({"type": "widget", "data": out["widget"]})
         gathered.append((tool, out))
+        return events
 
     def _ask_confirmation(self, tool: str, args: dict, user_input: str, used: set) -> list[dict]:
         desc = self.belt.describe(tool, args)
@@ -723,6 +793,120 @@ class HybridOrchestrator:
                     ev = {"type": "final", "text": NOT_DONE}
             yield ev
 
+    # ------------------------------------------------------------ multi-step (v0.2.5)
+    def _next_confirmation(self, prefix: str, first: bool = False) -> tuple[str, dict]:
+        nxt = self.pending_queue.pop(0)
+        self.pending = {**nxt, "ts": time.time()}
+        lead = "Just to confirm, sir:" if first else "Next, sir:"
+        text = f"{prefix} {lead} {nxt['desc']}. Shall I go ahead?".strip()
+        return text, {"type": "widget", "data": {"kind": "confirm", "title": "Confirm", "text": nxt["desc"]}}
+
+    async def _pick(self, client, step: str, original: str, ctx: dict, gathered: list, dependent: bool):
+        """Which tool, with which arguments, for one step. None when nothing fits or a guard says no."""
+        fp = fast_path(step, self.belt)
+        if fp:
+            return fp[0], self.belt.fill(fp[0], fp[1], step)
+        msgs = [*self.history[-MAX_HISTORY:-1], {"role": "user", "content": step}]
+        decision = await self._decide(client, ctx["skills"], gathered if dependent else [], messages=msgs)
+        tool = decision.get("tool", "none")
+        if tool in ("none", "unavailable") or not self.belt.has(tool):
+            return None
+        if not (self.belt.guard_ok(tool, step) or self.belt.guard_ok(tool, original) or tool in self._recent()):
+            logger.info(f"MULTI guard: {tool} blocked for {step!r}")
+            return None
+        schema = self.belt.by_name[tool]
+        args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), step)
+        if missing_required(schema, args):
+            saved, self.history = self.history, msgs            # the repair call sees only this step
+            try:
+                args = {**args, **args_for(schema, await self._repair_args(client, tool), self.belt.names())}
+            finally:
+                self.history = saved
+            if missing_required(schema, args):
+                return None
+        return tool, args
+
+    async def _flush(self, batch: list, gathered: list) -> AsyncIterator[dict]:
+        """Run independent steps: each family (spotify_*, lights_*) in order, different families at once.
+        Results are reported in the order you said them."""
+        if not batch:
+            return
+        groups: dict[str, list[int]] = {}
+        for i, (tool, _) in enumerate(batch):
+            groups.setdefault(multistep.family(tool), []).append(i)
+        if len(groups) == 1:
+            for tool, args in batch:
+                async for ev in self._run(tool, args, gathered):
+                    yield ev
+            return
+        ack = next((self.belt.ack(t) for t, _ in batch if self.belt.ack(t)), None) or "On it, sir."
+        outs: dict[int, dict] = {}
+
+        async def run_group(idx: list[int]) -> None:
+            for i in idx:
+                tool, args = batch[i]
+                try:
+                    outs[i] = await self.belt.aexecute(tool, args)
+                except Exception as e:                       # one failed step never sinks the others
+                    outs[i] = {"result": json.dumps({"error": str(e)})}
+        async for kind, value in self._with_ack(ack, asyncio.gather(*(run_group(idx) for idx in groups.values()))):
+            if kind == "ack":
+                yield {"type": "ack", "text": value}
+        for i, (tool, args) in enumerate(batch):
+            for ev in self._post(tool, args, outs[i], gathered):
+                yield ev
+
+    async def _multi(self, client, steps, user_input, gathered, used, ctx) -> AsyncIterator[dict]:
+        self._context(user_input, ctx)
+        batch, confirms, skipped = [], [], []
+        for step in steps:
+            if step["uses_previous"]:
+                async for ev in self._flush(batch, gathered):
+                    yield ev
+                batch = []
+            picked = await self._pick(client, step["command"], user_input, ctx, gathered, step["uses_previous"])
+            if not picked:
+                skipped.append(step["command"])
+                continue
+            tool, args = picked
+            if self.belt.needs_confirm(tool):
+                confirms.append({"tool": tool, "args": args, "desc": self.belt.describe(tool, args)})
+                continue
+            used.add(tool)
+            if step["uses_previous"]:
+                async for ev in self._run(tool, args, gathered):
+                    yield ev
+            else:
+                batch.append((tool, args))
+        async for ev in self._flush(batch, gathered):
+            yield ev
+
+        # one combined answer: exact lines for actions and exact tools, the model only for plain data
+        parts, info = [], []
+        for tool, out in gathered:
+            exactish = (self.belt.is_action(tool) or tool in self.belt.exact or out.get("exact")
+                        or '"error"' in out.get("result", ""))
+            if exactish and out.get("say"):
+                parts.append(out["say"])
+            elif not exactish:
+                info.append((tool, out))
+        if info:
+            ask = " and ".join(s["command"] for s in steps if s["command"] not in skipped)
+            text = await self._collect(client, ctx["facts"], ctx["skills"], info, ask)
+            if _CLAIM.search(text):                  # data answers never claim actions
+                logger.warning(f"claim guard (multi): {text!r}")
+                text = ""
+            if text:
+                parts.append(text)
+        for cmd in skipped:
+            parts.append(f"I didn't do \"{cmd}\", sir; I wasn't sure how.")
+        answer = " ".join(dict.fromkeys(p.strip() for p in parts if p.strip()))
+        if confirms:
+            self.pending_queue = confirms
+            answer, widget = self._next_confirmation(answer, first=True)
+            yield widget
+        yield {"type": "final", "text": answer or "Done, sir."}
+
     async def _collect(self, client, facts, skills, gathered, user_input) -> str:
         text = ""
         async for ev in self._stream_answer(client, facts, skills, gathered, user_input):
@@ -752,6 +936,7 @@ class HybridOrchestrator:
 
     def _finish(self, user_input: str, answer: str, used: set[str] | None = None) -> None:
         self.last_tools = set(used or ())
+        self.recent_tools.append(set(used or ()))
         self.history.append({"role": "assistant", "content": answer})
         self.cortex.log_turn(self.session_id, "user", user_input)
         self.cortex.log_turn(self.session_id, "assistant", answer)
@@ -797,7 +982,12 @@ class HybridOrchestrator:
                         yield ev
                     answer = ""
                     async for ev in self._answer(client, gathered, user_input, ctx):
-                        answer = ev["text"] if ev["type"] == "final" else answer
+                        if ev["type"] == "final":
+                            answer = ev["text"]
+                            if self.pending_queue:          # multi-step: the next action that needs a yes
+                                answer, widget = self._next_confirmation(answer)
+                                yield widget
+                                ev = {"type": "final", "text": answer}
                         yield ev
                     self._finish(user_input, answer, used)
                     return
@@ -805,10 +995,27 @@ class HybridOrchestrator:
                     audit.log("confirm_denied", "orchestrator", {"tool": p["tool"]})
                     rest = _NO.sub("", user_input, count=1).lstrip(" ,.!")
                     if len(rest.split()) < 3:                      # a plain "no"
-                        self._finish(user_input, "Cancelled, sir.", used)
-                        yield {"type": "final", "text": "Cancelled, sir."}
+                        text = "Cancelled, sir."
+                        if self.pending_queue:
+                            text, widget = self._next_confirmation(text)
+                            yield widget
+                        self._finish(user_input, text, used)
+                        yield {"type": "final", "text": text}
                         return
+                    self.pending_queue = []
                     user_input = rest                              # "no, make a skill that ...": handle the rest
+
+            # 0b. several commands in one sentence (v0.2.5): plan, run, one combined answer
+            if not fp_override and multistep.looks_multi(user_input):
+                steps = await multistep.plan(client, self.cfg, user_input)
+                if steps:
+                    answer = ""
+                    async for ev in self._multi(client, steps, user_input, gathered, used, ctx):
+                        if ev["type"] == "final":
+                            answer = ev["text"]
+                        yield ev
+                    self._finish(user_input, answer, used)
+                    return
 
             # 1. fast path: no LLM, no embeddings
             fp = fp_override or fast_path(user_input, self.belt)
@@ -840,8 +1047,16 @@ class HybridOrchestrator:
                         return
                     if tool == "none" or not self.belt.has(tool) or tool in succeeded:
                         break                      # a tool that already answered is not asked again
-                    if not (self.belt.guard_ok(tool, user_input) or tool in self.last_tools):
+                    if not (self.belt.guard_ok(tool, user_input) or tool in self._recent()):
                         logger.info(f"guard: {tool} blocked, the request doesn't ask for it")
+                        if self.belt.is_action(tool) and not gathered:
+                            # never let the model claim or deny it: ask about the exact action instead
+                            schema = self.belt.by_name[tool]
+                            args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), user_input)
+                            if not missing_required(schema, args):
+                                for ev in self._ask_confirmation(tool, args, user_input, used):
+                                    yield ev
+                                return
                         break
                     schema = self.belt.by_name[tool]
                     args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), user_input)
@@ -872,6 +1087,8 @@ class HybridOrchestrator:
                         succeeded.add(tool)
                     if self.belt.is_action(tool) and ok:
                         break                      # an action is the whole job; don't chain more
+                    if self.belt.is_action(tool) and not ok and out.get("say"):
+                        break                      # it failed and said why honestly: don't retry blindly
 
             # 5-6. answer
             answer = ""

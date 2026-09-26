@@ -185,6 +185,19 @@ def save_mood(name: str, mood: dict) -> None:
     MOODS_PATH.write_text(json.dumps(custom, indent=2), encoding="utf-8")
 
 
+def delete_mood(name: str) -> bool:
+    """Remove a custom mood. A built-in mood you edited goes back to its default."""
+    try:
+        custom = json.loads(MOODS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if name not in custom:
+        return False
+    del custom[name]
+    MOODS_PATH.write_text(json.dumps(custom, indent=2), encoding="utf-8")
+    return True
+
+
 def find_mood(name: str) -> Optional[tuple[str, dict]]:
     moods = load_moods()
     n = (name or "").lower().strip()

@@ -62,8 +62,16 @@ def _guarded(fn, *a, exact=True, **k):
     except NeedAuth:
         return {"result": json.dumps({"error": "not connected to Google"}), "say": auth_message(), "exact": True}
     except Exception as e:
-        return {"result": json.dumps({"error": str(e)}), "say": f"Gmail didn't answer, sir: {str(e)[:120]}.",
-                "exact": True}
+        return {"result": json.dumps({"error": str(e)}), "say": gmail_error(e), "exact": True}
+
+
+def gmail_error(e: Exception) -> str:
+    """Plain words, not the raw HttpError with its URL."""
+    import re
+    m = re.search(r'returned "([^"]+)"', str(e)) or re.search(r"'message': '([^']+)'", str(e))
+    if m:
+        return f"Gmail refused that, sir: {m.group(1).rstrip('.')}."
+    return f"Gmail didn't answer, sir: {str(e)[:100].rstrip('.')}."
 
 
 def email_unread(**_):

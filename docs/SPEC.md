@@ -56,6 +56,10 @@ read this file and `EVA.md` first.
 | `voice/listen.py` | v0.2.5 server-side listening: pre-roll, VAD + Smart Turn state machine, armed windows, wake word, barge-in, echo guard. Protocol: docs/VOICE_PROTOCOL.md. |
 | `voice/pipecat_audio.py` | Adapters for Pipecat's bundled Silero VAD and Smart Turn v3 (ONNX, CPU), plus a silence fallback. |
 | `voice/stt.py` | Local faster-whisper: GPU first, CPU fallback, Vocabulary terms as hotwords, hallucination filter. |
+| `core/netsec.py` | v0.2.5 network safety: 127.0.0.1 by default, remote token (Bearer, pairing cookie), origin check against cross-site requests, proxies count as remote. |
+| `core/multistep.py` | v0.2.5 multi-step commands: cheap detection, constrained planner, grounding (no invented steps). The orchestrator runs families in order and different families in parallel, with one combined answer and a confirmation queue. |
+| `core/shopping.py`, `skills/shopping/` | Shopping list as the Obsidian note "Shopping list" (checkboxes). |
+| `interfaces/web/routines_api.py` | Routines panel API: reminders, routines (pause), moods, shopping list, week view. Audited. |
 | `interfaces/web/server_stream.py` | FastAPI + WebSocket on port 8001; streams Kokoro audio per sentence; barge-in; `GET /api/status`. |
 | `interfaces/web/eva.html` | Claude Design interface (untouched) + bridge script (WebSocket, Kokoro audio with level and spoken-caption progress, speech recognition, UI events). `eva_classic.html` at /classic. |
 | `EVA.md` | Standing context, instructions, and speech vocabulary, read every turn (like CLAUDE.md). |
@@ -175,6 +179,8 @@ moved past, so an interrupted answer can never talk over the next one.
   line replaces the answer.
 - Intent guards: each action declares words that must appear in the request (`GUARDS`), so a cut-off
   sentence can't open a website and a chit-chat question can't write a standing instruction.
+  v0.2.5: a blocked ACTION turns into "Just to confirm, sir: ...?" (never a model-written claim), and tools used
+  in the last three turns pass the guard, so follow-ups like "No, I want Monday" reach the data tool.
 - Small talk and questions about herself skip tools entirely.
 - An argument equal to a tool name is discarded; parameters are named distinctly (`app`, `site`).
 - Apps launch without a shell (known apps, URI schemes, or programs on PATH); unknown sites go

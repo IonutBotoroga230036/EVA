@@ -4,6 +4,14 @@ system:
   log_level: "INFO"
   data_dir: "./data"
 
+server:
+  # v0.2.5 network safety. "local": only this PC can reach E.V.A. (default).
+  # "network": other devices on your Wi-Fi can connect, but only with the remote token
+  # (the terminal prints a one-time pairing link; apps send "Authorization: Bearer <token>").
+  listen: "local"
+  port: 8001
+  allowed_origins: []                  # extra web origins allowed to call her, e.g. ["http://localhost:5173"]
+
 personas:
   default: "eva"
   available:
@@ -111,6 +119,9 @@ voice:
     device: "auto"                     # auto = GPU if CUDA libraries load, else CPU; or "cuda" / "cpu"
     compute_type: "auto"               # auto = int8_float16 on GPU, int8 on CPU
     beam_size: 5
+  acks:
+    # "One moment, sir." only when a tool is still busy after this long; quick things stay silent.
+    after_ms: 900                      # 0 = always at once, -1 = never
   pipeline:
     # Server-side listening: your mic streams to E.V.A.; Silero VAD + Smart Turn v3 (Pipecat, CPU) + Whisper.
     # Off, or packages missing: the interface uses the browser's speech recognition as before.

@@ -82,3 +82,42 @@ def test_bridge_speaks_the_listening_protocol():
     for needle in ("type: 'speaking'", "type: 'listen', arm:", "type: 'listen', wake: true", "case 'stt':",
                    "case 'barge_in':", "case 'wake':", "echoCancellation: true", "registerProcessor('eva-pcm16'"):
         assert needle in html, needle
+
+
+def test_routines_panel_is_wired():
+    html = HTML.read_text(encoding="utf-8")
+    for needle in ('id="evaRoutinesBtn"', 'id="evaRoutines"', "emit('routines'", "addEventListener('eva:routines'",
+                   "api('POST', '/reminders'", "api('PATCH', '/routines/'", "api('POST', '/shopping/tick'",
+                   "'routines-open'"):
+        assert needle in html, needle
+    bridge = html.split("E.V.A. bridge")[1]
+    assert ".innerHTML" not in bridge and "insertAdjacentHTML" not in bridge   # user text never becomes markup
+
+
+def test_panel_helper_renders_deeply_nested_content():
+    """Sep 26: the Week tab printed "[object HTMLDivElement]" because nested lists were only flattened once."""
+    html = HTML.read_text(encoding="utf-8")
+    m = re.search(r"/\*EL-START\*/(.*?)/\*EL-END\*/", html, re.S)
+    assert m
+    code = r"""
+class Node { constructor(tag) { this.tag = tag; this.kids = []; this.nodeType = 1; this.attrs = {}; }
+  append(x) { this.kids.push(x); } setAttribute(k, v) { this.attrs[k] = v; } }
+const document = { createElement: t => new Node(t), createTextNode: t => ({ nodeType: 3, text: t }) };
+""" + m.group(1) + r"""
+const day = (n) => [el('div', null, 'Day ' + n), [el('div', null, 'a'), el('div', null, 'b')]];
+const box = el('div', null, [day(1), day(2)], null, false, 'tail');
+const texts = [];
+(function walk(n) { for (const k of n.kids) { if (k.nodeType === 3) texts.push(k.text); else walk(k); } })(box);
+console.log(JSON.stringify({ direct: box.kids.map(k => k.nodeType), texts }));
+"""
+    r = run_node(code)
+    assert r["direct"] == [1, 1, 1, 1, 1, 1, 3]                     # six elements and the tail text, no strings
+    assert r["texts"] == ["Day 1", "a", "b", "Day 2", "a", "b", "tail"]
+    assert not any("[object" in t for t in r["texts"])
+
+
+def test_status_and_routines_open_separately():
+    html = HTML.read_text(encoding="utf-8")
+    assert ".eva.panel-open .eva-panel{" not in html                # that rule opened BOTH panels
+    assert ".eva.panel-open #evaPanel{transform:none;visibility:visible}" in html
+    assert ".eva.routines-open #evaRoutines{transform:none;visibility:visible}" in html

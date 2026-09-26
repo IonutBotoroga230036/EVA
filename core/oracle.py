@@ -67,6 +67,29 @@ class ReminderStore:
                 self._save(items)
             return due
 
+    def update(self, rid: str, text: Optional[str] = None, due: Optional[datetime] = None) -> Optional[dict]:
+        """Edit an open reminder from the Routines panel."""
+        with self._lock:
+            items = self._load()
+            for r in items:
+                if r["id"] == rid and not r["done"]:
+                    if text is not None and text.strip():
+                        r["text"] = text.strip().rstrip(".")
+                    if due is not None:
+                        r["due"] = due.timestamp()
+                    self._save(items)
+                    return r
+            return None
+
+    def delete(self, rid: str) -> bool:
+        with self._lock:
+            items = self._load()
+            keep = [r for r in items if r["id"] != rid]
+            if len(keep) == len(items):
+                return False
+            self._save(keep)
+            return True
+
     def cancel(self, query: str) -> Optional[dict]:
         with self._lock:
             items = self._load()
@@ -131,6 +154,25 @@ class RoutineStore:
         self._save(items)
         return r
 
+    EDITABLE = {"days", "hour", "minute", "action", "text", "paused"}
+
+    def update(self, rid: str, **fields) -> Optional[dict]:
+        items = self.all()
+        for r in items:
+            if r["id"] == rid:
+                r.update({k: v for k, v in fields.items() if k in self.EDITABLE and v is not None})
+                self._save(items)
+                return r
+        return None
+
+    def delete(self, rid: str) -> bool:
+        items = self.all()
+        keep = [r for r in items if r["id"] != rid]
+        if len(keep) == len(items):
+            return False
+        self._save(keep)
+        return True
+
     def cancel(self, query: str) -> Optional[dict]:
         items = self.all()
         q = (query or "").lower()
@@ -147,6 +189,8 @@ class RoutineStore:
         today = now.date().isoformat()
         for r in items:
             at = now.replace(hour=r["hour"], minute=r["minute"], second=0, microsecond=0)
+            if r.get("paused"):
+                continue                                   # paused in the Routines panel
             if now.weekday() in r["days"] and r.get("last") != today and at <= now < at + timedelta(minutes=window_min):
                 r["last"] = today
                 fired.append(r)

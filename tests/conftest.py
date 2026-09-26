@@ -79,3 +79,30 @@ def hang_watchdog():
     faulthandler.dump_traceback_later(90, exit=True)
     yield
     faulthandler.cancel_dump_traceback_later()
+
+
+@pytest.fixture(autouse=True)
+def local_test_client(tmp_path, monkeypatch):
+    """Starlette's TestClient connects as host "testclient": treat it as this PC, and never use a real token."""
+    import core.netsec as netsec
+    monkeypatch.setattr(netsec, "LOOPBACK", netsec.LOOPBACK | {"testclient"})
+    monkeypatch.setattr(netsec, "TOKEN_FILE", tmp_path / "remote_token.txt")
+    monkeypatch.setattr(netsec, "SECRETS_ENV", tmp_path / "no-secrets.env")
+    monkeypatch.delenv("EVA_REMOTE_TOKEN", raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_moods(tmp_path, monkeypatch):
+    """Never your real data/moods.json."""
+    import core.lights as lights
+    monkeypatch.setattr(lights, "MOODS_PATH", tmp_path / "moods.json")
+    yield
+
+
+@pytest.fixture(autouse=True)
+def immediate_acks(monkeypatch):
+    """Existing tests expect the ack at once; tests/test_acks.py sets its own delays."""
+    import core.orchestrator_hybrid as orch
+    monkeypatch.setattr(orch, "ACK_AFTER_OVERRIDE", 0.0)
+    yield

@@ -91,6 +91,40 @@ def compose_body(instructions: str, original: str = "", sender_name: str = "", b
     return text.replace("\u2014", ", ")
 
 
+def _fold(text: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", text or "") if not unicodedata.combining(c)).lower()
+
+
+def resolve_address(google, name: str):
+    """A name -> the one email address it matches in your recent mail, or an exact question.
+
+    Returns the address, or {"error", "say"} when there is none ("What is it?") or more than one ("Which one?").
+    Never guesses: Gmail would reject a bare name anyway ("Invalid To header")."""
+    import re as _re
+    q = " ".join((name or "").split())
+    key = _fold(q)
+    try:
+        _, msgs = google.list_messages(f'from:"{q}" OR to:"{q}" OR cc:"{q}"', 15)
+    except Exception:
+        msgs = []
+    found: dict[str, str] = {}
+    for m in msgs:
+        header = ", ".join(m.get(k, "") or "" for k in ("from", "to", "cc"))
+        # tolerant parse: email.utils.getaddresses drops non-ASCII names like "Ionuț Boțoroga"
+        pairs = [(d.strip(' "\''), a) for d, a in _re.findall(r'([^<>,]*)<([^<>\s]+@[^<>\s]+)>', header)]
+        pairs += [("", a) for a in _re.findall(r'(?<![<\w.+-])([\w.+-]+@[\w-]+\.[\w.-]+)(?![\w>])', header)]
+        for disp, addr in pairs:
+            if "@" in addr and key and (key in _fold(disp) or key in _fold(addr.split("@")[0])):
+                found.setdefault(addr.lower(), disp or addr)
+    if len(found) == 1:
+        return next(iter(found))
+    if not found:
+        return {"error": "no address", "say": f"I don't have an email address for {q}, sir. What is it?"}
+    opts = list(found)[:3]
+    return {"error": "ambiguous", "say": f"I found more than one address for {q}, sir: {', '.join(opts)}. Which one?"}
+
+
 def draft(google, instructions: str, reply_to: str = "", to: str = "", subject: str = "",
           sender_name: str = "", base_url: str = "http://localhost:11434", model: str = "qwen2.5:3b-instruct") -> dict:
     thread_id = in_reply_to = original = ""
@@ -106,6 +140,11 @@ def draft(google, instructions: str, reply_to: str = "", to: str = "", subject: 
         original = google.get_body(m["id"])
     if not recipient:
         return {"error": "no recipient", "say": "Who should the email go to, sir?"}
+    if "@" not in recipient:                              # "Muaad": find the address in your mail
+        found = resolve_address(google, recipient)
+        if isinstance(found, dict):
+            return found
+        recipient = found
     body = compose_body(instructions, original, sender_name, base_url, model)
     google.create_draft(recipient, subject or "(no subject)", body, thread_id, in_reply_to)
     target = who(recipient) if not reply_to else who(m["from"])
