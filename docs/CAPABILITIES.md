@@ -64,6 +64,13 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - "Note that I need to follow up with Tom" (today's daily note in Obsidian)
 - "Make a project note about ZippZapp branding" / "What did I note about Deloitte?"
 
+## Lights and moods (after docs/LIGHTS_SETUP.md)
+- "Turn the lights purple" / "Lights to 30 percent" / "Warm white" / "Dim the lights" / "Turn off the bed lights"
+- "I'm home" / "I'm home, I feel red" / "I feel blue" / "Set the mood to relax" / "What moods do I have?"
+- Built-in moods: home, red (The Weeknd), blue (blues), purple, relax (jazz), focus (Deep Focus), party, night
+- "Create a mood called study: cool white at 80 percent with Deep Focus" (lights plus a playlist)
+- Any colour works as a mood: "I feel crimson"
+
 ## Computer
 - "Open YouTube" / "Open VS Code" / "Open github.com"
 - Spotify (after docs/SPOTIFY_SETUP.md, Premium): "Play The Weeknd", "Play my Chill Evenings playlist",
@@ -100,6 +107,6 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - Edge or Chrome: open http://localhost:8001, click the install icon in the address bar.
 
 ## Not yet
-- WhatsApp (no official API for personal accounts; Telegram covers it), smart lights, phone alarms,
+- WhatsApp (no official API for personal accounts; Telegram covers it), phone alarms,
   full Spotify control (needs Spotify Premium and a developer app), deep research into notes,
   FORGE pull requests from her own git account.

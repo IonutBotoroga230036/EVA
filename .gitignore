@@ -17,3 +17,8 @@ secrets/
 skills/_forge/
 # your personal settings, never pushed or overwritten
 config/settings.local.yaml
+# tinytuya wizard output holds your devices' secret local keys
+devices.json
+snapshot.json
+tinytuya.json
+tuya-raw.json

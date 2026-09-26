@@ -451,6 +451,32 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     if m and belt.has("spotify_play") and not re.search(r"\b(game|chess|video|movie|film|youtube|role|part|piano|guitar)\b",
                                                          m.group(1), re.I):
         return "spotify_play", {"what": m.group(1).strip().rstrip("?.!")}
+    # lights and moods
+    m = re.search(r"\bi(?:'m| am) home\b(?:.*?\bi (?:feel|am feeling|'m feeling)\s+(?:like\s+)?(\w+(?:\s\w+)?))?|"
+                  r"^(?:eva,?\s*)?i (?:feel|am feeling|'m feeling)\s+(?:like\s+)?(\w+(?:\s\w+)?)[.!]?$|"
+                  r"\b(?:set|change|switch) (?:the )?mood (?:to\s+)?(\w+(?:\s\w+)?)|\b(\w+) mood(?: please)?[.!]?$", t, re.I)
+    if m and belt.has("set_mood") and not re.search(r"\b(create|make|new|save|add)\b", t, re.I):
+        from core.lights import find_mood
+        name = (next((g for g in m.groups() if g), None) or "home").strip().lower()
+        explicit = bool(re.search(r"\b(mood|i'?m home|i am home)\b", t, re.I))
+        if name not in ("my", "the", "a", "your", "this", "good", "bad", "what") and (explicit or find_mood(name)):
+            return "set_mood", {"name": name}                # "I feel tired" stays a conversation
+    if belt.has("list_moods") and re.search(r"\b(what|which|list|show)\b.*\bmoods\b", t, re.I):
+        return "list_moods", {}
+    m = re.search(r"\b(?:turn|switch)\s+(on|off)\s+(?:the\s+)?(?:(\w+)\s+)?(?:lights?|leds?|strips?)\b|"
+                  r"\b(?:lights?|leds?|strips?)\s+(on|off)\b|\b(?:turn|switch)\s+(?:the\s+)?(?:(\w+)\s+)?"
+                  r"(?:lights?|leds?|strips?)\s+(on|off)\b", t, re.I)
+    if m and belt.has("lights_power"):
+        state = (m.group(1) or m.group(3) or m.group(6)).lower()
+        which = (m.group(2) or m.group(5) or "").lower()
+        which = "" if which in ("the", "all", "my") else which
+        return "lights_power", {"on": state == "on", **({"which": which} if which else {})}
+    if belt.has("lights_set") and re.search(r"\b(lights?|leds?|strips?)\b", t, re.I) and \
+            re.search(r"\b(make|set|turn|change|put|dim|brighten|go)\b|\bto\s+\d|%|percent", t, re.I):
+        from core.lights import parse_brightness, parse_color
+        c, b = parse_color(t), parse_brightness(t)
+        if c or b:
+            return "lights_set", {**({"color": c["name"]} if c else {}), **({"brightness": b} if b else {})}
     if belt.has("calendar_next") and re.search(
             r"what(?:'s| is) (?:coming )?(?:up )?next|my next (?:meeting|event|appointment|thing|call)|"
             r"what do i have next|what(?:'s| is) coming up\b", t, re.I):
