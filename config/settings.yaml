@@ -4,6 +4,18 @@ system:
   log_level: "INFO"
   data_dir: "./data"
 
+conversation:
+  # v0.2.5 milestone 4. When no tool is needed and you're talking rather than commanding, she answers
+  # warmer and a little longer, may ask one question back, and knows her own abilities from the docs.
+  # Turn it off here, with the status panel switch (Brain > Conversation lane), or by voice
+  # ("turn conversation mode off"). The panel and voice save to data/conversation.json and win over
+  # this file; delete that file to go back to what this says.
+  enabled: true
+  sticky_turns: 2                      # follow-ups that stay in the conversation lane
+  voice_sentences: 4                   # longest spoken answer
+  max_sentences: 6
+  question_window_ms: 12000            # when she ends on a question, the mic stays open this long
+
 server:
   # v0.2.5 network safety. "local": only this PC can reach E.V.A. (default).
   # "network": other devices on your Wi-Fi can connect, but only with the remote token

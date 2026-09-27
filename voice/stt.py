@@ -66,9 +66,27 @@ def clean_transcript(segments: list[dict]) -> str:
     text = " ".join(text.split())
     if not _WORDISH.search(text.lower()):
         return ""
-    if _norm(text) in _HALLUCINATIONS:
-        return ""
+    if _norm(text) in _HALLUCINATIONS or _norm(text) in _FILLER_ONLY:
+        return ""                                            # "The", "you", "um": noise, never a command
     return text
+
+
+_FILLER_ONLY = {"the", "a", "an", "uh", "um", "oh", "ah", "hmm", "huh", "you", "i", "it", "is", "to", "of", "in", "on",
+                "at", "this", "that", "me", "we", "he", "she", "they"}
+
+
+def is_hint_echo(text: str, hints: str) -> bool:
+    """Whisper repeats its hint words when it hears music instead of speech: "Nijmegen, Breda, Tilburg, Deloitte".
+    A list of three or more hint terms (or a comma list made mostly of them) is that echo, not a command."""
+    if not text or not hints:
+        return False
+    hint_words_set = {w for h in hints.split(",") for w in _WORDISH.findall(h.lower()) if len(w) >= 3}
+    words = [w for w in _WORDISH.findall(text.lower()) if len(w) >= 3]
+    if len(words) < 2:
+        return False
+    hits = sum(1 for w in words if w in hint_words_set)
+    commas = text.count(",")
+    return (hits >= 3 and hits / len(words) >= 0.6) or (commas >= 2 and hits / len(words) >= 0.5)
 
 
 def hint_words(vocab_text: str, extra: tuple[str, ...] = ("Eva",)) -> str:
@@ -188,7 +206,12 @@ class WhisperSTT:
                 condition_on_previous_text=False, without_timestamps=True, hotwords=self.hotwords())
             segs = [{"text": s.text, "no_speech_prob": getattr(s, "no_speech_prob", 0.0),
                      "avg_logprob": getattr(s, "avg_logprob", 0.0)} for s in segments]
-        return clean_transcript(segs)
+        text = clean_transcript(segs)
+        hints = self.hotwords() or ""
+        if is_hint_echo(text, hints):
+            logger.info(f"ECHO: dropped Whisper's hint-word echo (music?): {text!r}")
+            return ""
+        return text
 
     def describe(self) -> str:
         where = self.active_device or (self.device or "auto")

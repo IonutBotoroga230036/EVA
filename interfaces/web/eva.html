@@ -676,6 +676,10 @@ function renderPanel() {
       h('div', { class: 'seg', role: 'group', 'aria-label': 'Brain mode' }, modes.map(m => h('button', { 'aria-pressed': String((s.brainMode || 'local') === m),
         onclick: () => { s.brainMode = m; emit('brain-mode', { mode: m }); renderPanel(); } }, { local: 'Local', auto: 'Auto', cloud: 'Claude' }[m]))),
       h('div', { class: 'panel__help' }, { auto: 'Claude when a key and budget are available, otherwise local.', cloud: 'Heavy thinking goes to Claude.', local: 'Everything stays on this machine.' }[s.brainMode || 'local']),
+      h('div', { class: 'brain-feat' },
+        h('div', { class: 'panel__row' }, h('span', null, 'Conversation lane'), h('span', { class: 'muted', style: 'font-size:12px' }, 'warmer, longer answers when you just talk')),
+        h('div', { class: 'seg seg--sm', style: 'grid-template-columns:repeat(2,1fr)', role: 'group', 'aria-label': 'Conversation lane' }, [['on', 'On'], ['off', 'Off']].map(([v, t]) =>
+          h('button', { 'aria-pressed': String((s.conversation !== false) === (v === 'on')), onclick: () => { s.conversation = v === 'on'; emit('conversation', { on: v === 'on' }); renderPanel(); } }, t)))),
       s.brainFeatures ? feats.map(([k, label]) => { const f = s.brainFeatures[k] || { setting: 'default', effective: 'local' };
         return h('div', { class: 'brain-feat' },
           h('div', { class: 'panel__row' }, h('span', null, label), h('span', { class: 'muted', style: 'font-size:12px' }, f.effective === 'cloud' ? 'uses Claude' : 'runs locally')),
@@ -921,7 +925,8 @@ function handle(ev) {
     case 'hello': ttsMode = ev.tts || 'browser'; break;
     case 'phrase': if (ev.key === 'wake') decode(ev.audio).then(b => { P.wake = b; }); break;
     case 'turn_start': beginTurn(ev.turn); streamBuf = ''; turnText = ''; turnProactive = false; proactiveWidget = null; skipFollow = false; break;
-    case 'turn_meta': if (ev.follow_up === false) skipFollow = true; break;   // music just started: lyrics aren't commands
+    case 'turn_meta': if (ev.follow_up === false) skipFollow = true;           // music just started: lyrics aren't commands
+      followMs = ev.listen_ms || 7000; break;                                    // she asked a question: more time
     case 'heard':
       if (ev.stt) { lastWasVoice = true; E.addTranscript({ role: 'you', text: ev.text, time: hm() }); setState('thinking'); micTouch(); }
       caption(ev.text); break;
@@ -1094,10 +1099,11 @@ function listen(windowMs) {
     const done = fin.trim(); if (done) send(done, true); else { setState('idle'); idleHint(); if (wakeMode) ensureWake(); } };
   try { r.start(); } catch (_) { setState('idle'); }
 }
-let skipFollow = false;
+let skipFollow = false, followMs = 7000;
 const followUp = () => {
   if (skipFollow) { skipFollow = false; setState('idle'); idleHint(); if (wakeMode) ensureWake(); return; }
-  return (sttMode === 'server' && micOn()) ? armServer(7000, 'Go on...') : listen(7000);
+  const ms = followMs; followMs = 7000;
+  return (sttMode === 'server' && micOn()) ? armServer(ms, 'Go on...') : listen(ms);
 };
 function ensureWake() { if (wakeMode && SR && !wakeRec && !isSpeaking() && state !== 'listening') startWake(); }
 function startWake() {
@@ -1142,6 +1148,11 @@ async function setBrain(body) {                                // v0.2.5: a swit
 }
 addEventListener('eva:brain-mode', e => setBrain({ mode: e.detail.mode }));
 addEventListener('eva:brain-feature', e => setBrain({ feature: e.detail.feature, mode: e.detail.mode }));
+addEventListener('eva:conversation', async e => {
+  try { await fetch('/api/conversation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !!e.detail.on }) }); }
+  catch (_) {}
+  refreshStatus();
+});
 addEventListener('eva:forge-review', () => send('which skills are waiting', false));
 
 /* ---------------- Routines panel (v0.2.5): reminders, routines, moods, shopping list ---------------- */
@@ -1279,6 +1290,7 @@ async function refreshStatus() {
         detail: (s.voice === 'kokoro' ? 'local' : 'fallback') + (sttMode === 'server' ? ' · hears you locally' : ' · browser listening') },
       brainMode: s.brain_mode || 'local',
       brainFeatures: s.brain && s.brain.features, forgeJob: s.forge_jobs,
+      conversation: s.conversation ? s.conversation.enabled : true,
       budget: { today: [s.budget.spent, s.budget.limit], month: [s.budget.month_spent, s.budget.month_limit] },
       memory: { facts: s.memory.facts, turns: s.memory.episodes },
       connections: [{ name: 'Google', detail: 'Calendar, Gmail', live: !!s.google }, { name: 'Telegram', live: !!s.telegram },

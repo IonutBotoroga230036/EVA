@@ -175,6 +175,7 @@ def test_real_models_end_to_end_with_pre_roll():
         await lst.close()
     asyncio.run(go())
     assert commands and commands[0] == "this is a test."
-    assert len(rec.lengths) == 1                               # Smart Turn waited through the pause mid-clip
+    full = [n for n in rec.lengths if n / 16000 >= 2.8]       # early "Eva?" peeks are shorter
+    assert len(full) == 1                                      # Smart Turn waited through the pause mid-clip
+    assert len(rec.lengths) - 1 <= 2                           # at most two early peeks
     # speech runs from 0.99 s to 3.23 s of the padded clip; with 0.7 s pre-roll Whisper gets ~0.45 s to ~3.4 s
-    assert rec.lengths[0] / 16000 >= 2.8

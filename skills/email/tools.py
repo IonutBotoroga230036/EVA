@@ -117,8 +117,25 @@ def draft_content(text: str) -> str:
     return "" if content.lower() in _VAGUE else content
 
 
+_TO_RX = [re.compile(r"\b(?:e-?mail|mail|message|note|write)\b.{0,20}?\bto\s+([A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?)"),
+          re.compile(r"\b(?:e-?mail|write to|message)\s+(?!Him\b|Her\b|Them\b|Me\b)([A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?)")]
+
+
+def recipient_from(text: str) -> str:
+    """'send an email to Muaad' -> 'Muaad' (Whisper capitalises names)."""
+    for rx in _TO_RX:
+        m = rx.search(text or "")
+        if m and m.group(1).lower() not in {"him", "her", "them", "me", "you", "someone", "somebody"}:
+            return m.group(1)
+    return ""
+
+
 def _fill_draft(args: dict, text: str) -> dict:
     out = dict(args)
+    if not out.get("to") and not out.get("reply_to"):
+        who = recipient_from(text)
+        if who:
+            out["to"] = who
     out["instructions"] = draft_content(text)            # the model's paraphrase is never used
     if not _REPLY_WORDS.search(text or ""):
         out.pop("reply_to", None)                        # no "reply" in what you said: no reply target
@@ -181,5 +198,14 @@ GUARDS["email_delete_drafts"] = r"\b(delete|remove|discard|clear|get rid of|tras
 GUARDS["email_draft"] = (r"^(?!.*\b(?:before you|from now on|next time|in the future|whenever you|every time you)\b)"
                          r".*\b(e-?mail|mail|reply|respond|draft|write to|write back)\b")
 CONFIRM = {"email_draft": describe_draft, "email_delete_drafts": _describe_delete}
-ASK = {"email_draft": ("instructions", "What should the email to {to} say, sir?")}
+def _ask_draft(args: dict):
+    """Who first, then what. Only then "shall I go ahead?"."""
+    if not args.get("to") and not args.get("reply_to"):
+        return ("to", "Who should the email go to, sir?")
+    if not str(args.get("instructions") or "").strip():
+        return ("instructions", "What should the email to {to} say, sir?")
+    return None
+
+
+ASK = {"email_draft": _ask_draft}
 FILLERS = {"email_draft": _fill_draft}

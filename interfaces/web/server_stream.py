@@ -60,6 +60,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from loguru import logger
 
 import core.netsec as netsec
+from core import conversation
 from core.brain import get_brain
 from core.security.audit import audit
 from core.events.bus import get_bus
@@ -179,9 +180,12 @@ async def lifespan(_app: FastAPI):
     loop = asyncio.get_running_loop()
 
     def _on_forge_done(data: dict) -> None:
+        if loop.is_closed():
+            return
         asyncio.run_coroutine_threadsafe(announce_forge(data.get("message") or {}), loop)
     get_bus().subscribe("forge.done", _on_forge_done)
     yield
+    get_bus().unsubscribe("forge.done", _on_forge_done)
     oracle.stop()
     oracle_task.cancel()
     if telegram:
@@ -252,6 +256,20 @@ def _forge_jobs_status() -> dict:
     run = jobs.running()
     return {"running": run.request if run else "", "minutes": round((time.time() - run.started) / 60) if run else 0,
             "waiting": len(jobs.waiting())}
+
+
+@app.get("/api/conversation")
+async def conversation_get():
+    return {"enabled": conversation.enabled()}
+
+
+@app.post("/api/conversation")
+async def conversation_set(body: dict):
+    """{enabled: true|false}: the status panel's Conversation lane switch (v0.2.5 milestone 4)."""
+    on = bool(body.get("enabled"))
+    conversation.set_enabled(on)
+    audit.log("conversation_lane", "status_panel", {"enabled": on})
+    return {"enabled": on}
 
 
 @app.get("/api/brain")
@@ -335,6 +353,7 @@ async def status():
         "stt": await asyncio.to_thread(pipeline_status),
         "brain": await asyncio.to_thread(get_brain().overview),
         "forge_jobs": _forge_jobs_status(),
+        "conversation": {"enabled": conversation.enabled()},
         "mcp": get_mcp().status(),
         "recent_events": get_bus().recent(20),
     })
@@ -378,11 +397,13 @@ class Connection:
         await self.send({"type": "turn_start", "turn": turn})
         speaker = TurnSpeaker(self.tts, self.send, turn) if self.tts else None
         chunker, streamed = SentenceChunker(), False
+        last_final = ""
         try:
             async for event in self.orch.process_stream(text):
                 await self.send(event)
                 if event["type"] == "final":
                     logger.info(f"EVA: {event['text']}")
+                    last_final = event["text"]
                     if self.listener:
                         self.listener.said(event["text"])
                 if not speaker:
@@ -398,7 +419,12 @@ class Connection:
                     rest = chunker.flush() if streamed else event["text"]
                     await speaker.say(rest)
             follow = not (set(getattr(self.orch, "last_tools", ()) or ()) & MUSIC_TOOLS)
-            await self.send({"type": "turn_meta", "turn": turn, "follow_up": follow})
+            meta = {"type": "turn_meta", "turn": turn, "follow_up": follow}
+            if getattr(self.orch, "last_lane", "") == "conversation":
+                ms = conversation.follow_window_ms(last_final)
+                if ms:
+                    meta["listen_ms"] = ms                 # she asked you something: more time to think
+            await self.send(meta)
             if speaker:
                 await speaker.finish()
         except asyncio.CancelledError:
@@ -523,6 +549,8 @@ class Connection:
                 listener.set_wake(bool(data.get("wake")))
             if "arm" in data:
                 ms = float(data.get("arm") or 0)
+                logger.info(f"ECHO: the window opened a {ms / 1000:.0f}s listening window" if ms > 0
+                            else "ECHO: the window closed its listening window")
                 listener.arm(ms / 1000) if ms > 0 else listener.disarm()
 
     async def run(self) -> None:

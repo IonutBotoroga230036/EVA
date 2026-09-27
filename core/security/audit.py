@@ -31,7 +31,7 @@ class AuditLog:
         entry_hash = hashlib.sha256(entry_json.encode()).hexdigest()[:16]
         entry["hash"] = entry_hash
         self._last_hash = entry_hash
-        with open(self._today_file(), "a") as f:
+        with open(self._today_file(), "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
         if not sensitive:
             logger.debug(f"AEGIS AUDIT [{subsystem}]: {action}")

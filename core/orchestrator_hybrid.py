@@ -82,7 +82,28 @@ _CLAIM = re.compile(r"\b(?:has|have|had) been (?:added|scheduled|created|booked|
                     r"[^.]*\b(?:added|scheduled|sent|done)\b|^\s*(?:now )?playing\b|^\s*(?:i'?m |i am )?opening\b"
                     r"|\breminder (?:is )?(?:set|added|created)\b|^\s*(?:done|added|scheduled|created|set)\b[ ,:]"
                     r"|\badded\b.{0,60}\bto your (?:calendar|list|notes|shopping list|reminders)\b"
-                    r"|\blights? (?:are |is )?(?:now )?set to\b", re.I)
+                    r"|\blights? (?:are |is )?(?:now )?set to\b"
+                    r"|\bi(?:'ve| have| just) (?:set|turned|changed|played|started|opened|put|drafted|sent|made)\b"
+                    r"|^\s*i (?:set|turned|changed|played|started|opened|put|drafted|sent)\b"
+                    r"|\b(?:e-?mail|message|draft|reminder)s? (?:was |were |has been |have been )?sent\b"
+                    r"|\bsent (?:it |the e-?mail |your e-?mail |a message |the message )?to\b"
+                    r"|\b(?:tasks?|all|everything) (?:is |are |has been |have been )?(?:completed|done|finished)\b", re.I)
+
+WEATHER_RX = re.compile(r"\b(weather|forecast|temperature|rain(?:ing|y)?|umbrella|snow(?:ing)?|how (?:cold|warm|hot))\b",
+                        re.I)
+_PLACE_RX = re.compile(r"\b(?:in|for|at|around)\s+([A-Z][A-Za-z'\-]+(?:\s+[A-Z][A-Za-z'\-]+){0,2})")
+
+
+def place_from(text: str) -> str:
+    """'weather for Nijmegen tomorrow' -> 'Nijmegen'. Capitalised words only, so 'in the morning' isn't a city."""
+    for m in _PLACE_RX.finditer(text or ""):
+        cand = m.group(1).strip()
+        if cand.lower() not in {"the", "my", "a", "this", "next", "monday", "tuesday", "wednesday", "thursday",
+                                "friday", "saturday", "sunday", "i", "celsius", "fahrenheit"}:
+            return cand
+    return ""
+
+
 NOT_DONE = "No, sir, I haven't done that. Nothing was changed. Tell me exactly what you'd like and I'll do it."
 MISSING_SKILL = ("I don't have a skill for that yet, sir. Once FORGE is live I can build "
                  "one, with your approval.")
@@ -134,12 +155,12 @@ def _to_float(tok: str) -> float | None:
 
 def ungrounded_numbers(answer: str, data: str) -> list[str]:
     """Significant numbers in the answer that appear nowhere in the tool data (rounding allowed).
-    Small numbers, years, and times are ignored; they are rarely what a model invents."""
+    Single digits, years, and times are ignored. (v0.2.5: was < 100, which let invented temperatures through.)"""
     have = [v for v in (_to_float(m.group(0)) for m in _NUM.finditer(data)) if v is not None]
     bad = []
     for m in _NUM.finditer(answer):
         v = _to_float(m.group(0))
-        if v is None or v < 100 or (1900 <= v <= 2100 and v.is_integer()):
+        if v is None or v < 10 or (1900 <= v <= 2100 and v.is_integer()):    # v0.2.5: 10+, temperatures count
             continue
         if not any(abs(v - d) <= max(0.006 * abs(d), 0.5) for d in have):
             bad.append(m.group(0))
@@ -155,6 +176,7 @@ def load_persona(name: str = "eva") -> str:
 
 # ============================================================ tool belt
 from core import multistep  # noqa: E402  (v0.2.5 multi-step commands)
+from core import conversation  # noqa: E402  (v0.2.5 conversation lane)
 import random  # noqa: E402
 
 # Acks (v0.2.5): spoken only when a tool is still busy after this long, so quick things stay silent.
@@ -581,10 +603,25 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
             r"\b(delete|remove|discard|clear|get rid of|trash)\b.{0,40}\bdrafts?\b", t, re.I):
         return "email_delete_drafts", {}
 
+    m = re.search(r"\b(?:turn|switch|set|put)\s+(on|off)\s+(?:the\s+)?conversation(?: mode| lane)?\b"
+                  r"|\b(?:turn|switch|set|put)\s+(?:the\s+)?conversation(?: mode| lane)?\s+(on|off)\b"
+                  r"|\bconversation (?:mode|lane) (on|off)\b|\b(enable|disable)\s+(?:the\s+)?conversation", t, re.I)
+    if m and belt.has("set_conversation_mode"):
+        word = next(g for g in m.groups() if g).lower()
+        return "set_conversation_mode", {"on": word in ("on", "enable")}
+
+    # weather words always mean the weather tool, never a web search (Sep 27: invented 12 and 3 degrees)
+    if belt.has("get_weather") and WEATHER_RX.search(t) and not re.search(
+            r"\b(remind|calendar|note|email|skill|app|website)\b", t, re.I):
+        place = place_from(t)
+        return "get_weather", ({"city": place} if place else {})
+
     simple = [
         (r"what time is it|what'?s the time|^\s*time\s*\??$", "get_datetime", {}),
-        (r"\bvolume up\b|\blouder\b|\bturn it up\b", "media_control", {"action": "volup"}),
-        (r"\bvolume down\b|\bquieter\b|\bturn it down\b", "media_control", {"action": "voldown"}),
+        (r"\bvolume up\b|\blouder\b|\bturn (?:(?:it|this|that|the music|the volume|the sound) )?up\b",
+         "media_control", {"action": "volup"}),
+        (r"\bvolume down\b|\bquieter\b|\bturn (?:(?:it|this|that|the music|the volume|the sound) )?down\b"
+         r"|\blower (?:it|the volume|the music)\b", "media_control", {"action": "voldown"}),
         (r"^\s*(mute|unmute)\b", "media_control", {"action": "mute"}),
         (r"^\s*(pause|resume)\b", "media_control", {"action": "playpause"}),
         (r"\b(stop|pause) (the |this )?(music|song|playback)\b|\bstop playing\b", "media_control",
@@ -623,6 +660,9 @@ class HybridOrchestrator:
         self.pending_queue: list[dict] = []        # more confirmations waiting after the current one
         self._last_ack: str | None = None
         self.awaiting: dict | None = None          # a question is open ("What should the email to Muaad say?")
+        self._conv_left = 0                        # conversation lane: follow-ups that stay in it
+        self._conv_turn = False                    # this turn was answered in the conversation lane
+        self.last_lane = "task"
         self.last_missing: str | None = None       # what FORGE would build if the user says "build it"
         self._stale = False
         self._bg: set[asyncio.Task] = set()
@@ -778,7 +818,10 @@ class HybridOrchestrator:
 
     def _question(self, tool: str, args: dict) -> str | None:
         """The tool's required question if its field is still empty; also opens the answer slot."""
-        field, question = self.belt.asks.get(tool, (None, None))
+        spec = self.belt.asks.get(tool)
+        if callable(spec):
+            spec = spec(args)                            # a skill can ask different things in turn
+        field, question = spec or (None, None)
         if not field or str(args.get(field) or "").strip():
             return None
         self.awaiting = {"tool": tool, "args": args, "field": field, "ts": time.time()}
@@ -832,6 +875,65 @@ class HybridOrchestrator:
                     logger.warning(f"claim guard: {ev['text']!r} but no action ran")
                     ev = {"type": "final", "text": NOT_DONE}
             yield ev
+
+    # ------------------------------------------------------------ conversation lane (v0.2.5)
+    @staticmethod
+    def _alternating(history: list[dict]) -> list[dict]:
+        """Claude wants user/assistant turns alternating, starting with the user."""
+        out: list[dict] = []
+        for m in history:
+            if m.get("role") not in ("user", "assistant") or not m.get("content"):
+                continue
+            if out and out[-1]["role"] == m["role"]:
+                out[-1] = {"role": m["role"], "content": out[-1]["content"] + "\n" + m["content"]}
+            else:
+                out.append({"role": m["role"], "content": m["content"]})
+        while out and out[0]["role"] != "user":
+            out.pop(0)
+        return out
+
+    async def _converse(self, client, user_input: str, ctx: dict) -> AsyncIterator[dict]:
+        self._context(user_input, ctx)
+        system = conversation.system_prompt(self.persona, ctx.get("facts") or [], voice=True)
+        text, streamed = "", False
+        try:
+            from core.brain import get_brain
+            b = get_brain()
+            if b.pick("conversation") == "cloud":
+                out = await asyncio.to_thread(b.claude.message, system=system,
+                                              messages=self._alternating(self.history[-MAX_HISTORY:]),
+                                              max_tokens=500, purpose="conversation")
+                text = (out.get("text") or "").strip()
+                logger.info("CONVERSATION: answered with Claude")
+        except Exception as e:
+            logger.warning(f"CONVERSATION: Claude unavailable ({e}); answering locally")
+            text = ""
+        if not text:
+            full: list[str] = []
+            try:
+                async with client.stream("POST", f"{self.cfg['base_url']}/api/chat", json={
+                    "model": self.cfg["answer_model"], "stream": True, "keep_alive": self.cfg["keep_alive"],
+                    "options": {"temperature": 0.6, "num_predict": 320},
+                    "messages": [{"role": "system", "content": system}, *self.history[-MAX_HISTORY:]],
+                }) as resp:
+                    async for line in resp.aiter_lines():
+                        if not line.strip():
+                            continue
+                        chunk = json.loads(line)
+                        tok = chunk.get("message", {}).get("content", "")
+                        if tok:
+                            full.append(tok)
+                            streamed = True
+                            yield {"type": "token", "text": tok}
+                        if chunk.get("done"):
+                            break
+            except Exception as e:
+                logger.error(f"CONVERSATION: local answer failed: {e}")
+            text = "".join(full).strip()
+        if _CLAIM.search(text):                         # a chat never claims an action
+            logger.warning(f"claim guard (conversation): {text!r}")
+            text = NOT_DONE
+        yield {"type": "final", "text": text or "I lost my train of thought there, sir. Say that again?"}
 
     # ------------------------------------------------------------ multi-step (v0.2.5)
     def _next_confirmation(self, prefix: str, first: bool = False) -> tuple[str, dict]:
@@ -984,6 +1086,10 @@ class HybridOrchestrator:
             return "The search results didn't give a clear number, sir."
 
     def _finish(self, user_input: str, answer: str, used: set[str] | None = None) -> None:
+        conv, self._conv_turn = self._conv_turn, False
+        self.last_lane = "conversation" if conv else "task"
+        if used:
+            self._conv_left = 0                        # a task ends the conversation lane's stickiness
         self.last_tools = set(used or ())
         self.recent_tools.append(set(used or ()))
         self.history.append({"role": "assistant", "content": answer})
@@ -991,7 +1097,7 @@ class HybridOrchestrator:
         self.cortex.log_turn(self.session_id, "assistant", answer)
         self.bus.publish("turn.completed", {"session": self.session_id})
         memory_ops = {"remember_fact", "forget_memory", "forget_recent_facts", "add_instruction", "recall_memory"}
-        if self.mem_cfg.get("extract_facts", True) and not (used and used & memory_ops):
+        if self.mem_cfg.get("extract_facts", True) and not (used and used & memory_ops) and not conv:
             task = asyncio.create_task(self._extract(user_input))
             self._bg.add(task)
             task.add_done_callback(self._bg.discard)
@@ -1120,7 +1226,15 @@ class HybridOrchestrator:
                         return
                     if tool == "none" or not self.belt.has(tool) or tool in succeeded:
                         break                      # a tool that already answered is not asked again
-                    if not (self.belt.guard_ok(tool, user_input) or tool in self._recent()):
+                    if tool == "web_search" and self.belt.has("get_weather") and \
+                            WEATHER_RX.search(f"{user_input} {decision.get('query', '')}"):
+                        place = place_from(f"{user_input} {decision.get('query', '')}")
+                        logger.info("weather: web search rerouted to the weather tool")
+                        tool, decision = "get_weather", {"tool": "get_weather", **({"city": place} if place else {})}
+                        rerouted = True
+                    else:
+                        rerouted = False
+                    if not (rerouted or self.belt.guard_ok(tool, user_input) or tool in self._recent()):
                         logger.info(f"guard: {tool} blocked, the request doesn't ask for it")
                         if self.belt.is_action(tool) and not gathered and not self.belt.needs_confirm(tool):
                             # never let the model claim or deny it: ask about the exact action instead
@@ -1164,9 +1278,14 @@ class HybridOrchestrator:
                     if self.belt.is_action(tool) and not ok and out.get("say"):
                         break                      # it failed and said why honestly: don't retry blindly
 
-            # 5-6. answer
+            # 5-6. answer (v0.2.5: no tool and you're talking, not commanding -> the conversation lane)
             answer = ""
-            async for ev in self._answer(client, gathered, user_input, ctx):
+            talk = not gathered and conversation.enabled() and (conversation.wants(user_input) or self._conv_left > 0)
+            if talk:
+                self._conv_left = conversation.sticky_turns() if conversation.wants(user_input) else self._conv_left - 1
+                self._conv_turn = True
+            async for ev in (self._converse(client, user_input, ctx) if talk
+                             else self._answer(client, gathered, user_input, ctx)):
                 if ev["type"] == "final":
                     answer = ev["text"]
                 yield ev

@@ -251,7 +251,7 @@ def run_sandbox(skill_dir: Path, timeout: int = SANDBOX_TIMEOUT_S) -> dict:
                     "NO_PROXY": "", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"})
         try:
             proc = subprocess.run([sys.executable, "-I", "_runner.py"], cwd=work, env=env, capture_output=True,
-                                  text=True, timeout=timeout)
+                                  text=True, encoding="utf-8", errors="replace", timeout=timeout)   # child writes UTF-8
         except subprocess.TimeoutExpired:
             return {"contract": [f"tests took longer than {timeout}s"], "passed": [], "failed": {}}
         line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("FORGE_RESULT ")), None)

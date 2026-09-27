@@ -65,7 +65,8 @@ ACK_PHRASES = {
 ACTION_TOOLS = {"spotify_play", "media_control", "set_volume", "open_app", "open_website", "send_to_phone"}
 
 # Information tools whose "say" line IS the answer (exact data, no LLM rephrasing).
-EXACT_TOOLS = {"get_weather", "get_datetime", "calculate", "budget_status", "set_brain_mode", "convert_currency",
+EXACT_TOOLS = {"get_weather", "get_datetime", "calculate", "budget_status", "set_brain_mode", "set_conversation_mode",
+               "convert_currency",
                "crypto_price"}
 
 # Before a tool runs, the user's own words can fill or correct its arguments.
@@ -91,6 +92,7 @@ GUARDS = {
     "calculate": r"\d|\b(square root|percent|plus|minus|times|divided)\b",
     "budget_status": r"\b(budget|spent|spend|spending|cost|costs|credit|credits|money)\b",
     "set_brain_mode": r"\b(local|offline|cloud|online|claude|auto|automatic)\b",
+    "set_conversation_mode": r"\bconversation\b",
     "send_to_phone": r"\b(telegram|phone|text me|message me|send me)\b",
     "convert_currency": r"\b(euros?|eur|dollars?|usd|pounds?|gbp|lei|ron|yen|francs?|currency|exchange|convert)\b|[€$£]",
     "crypto_price": r"\b(bitcoin|btc|ethereum|eth|crypto|solana|sol|dogecoin|doge|cardano|ada|xrp|ripple)\b",
@@ -131,6 +133,10 @@ TOOL_SCHEMAS = [
         "description": "Send the user a message on their phone (Telegram).",
         "parameters": {"type": "object", "properties": {
             "text": {"type": "string", "description": "The message, in the user's words."}}, "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "set_conversation_mode",
+        "description": "Turn the conversation lane on or off (warmer, longer answers when the user just wants to talk).",
+        "parameters": {"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]}}},
     {"type": "function", "function": {
         "name": "set_brain_mode",
         "description": "Switch where heavy thinking and skill-building run: cloud (Claude), local (private, free), or auto.",
@@ -554,6 +560,14 @@ def tool_set_brain_mode(mode: str = "local", feature: str = "", **_):
     return {"result": json.dumps({"mode": m}), "say": f"Done, sir. Heavy thinking now uses {where}.{note}"}
 
 
+def tool_set_conversation_mode(on: bool = True, **_):
+    from core import conversation
+    conversation.set_enabled(bool(on))
+    say = ("Conversation mode is on, sir. When you just want to talk, I'll answer like a conversation."
+           if on else "Conversation mode is off, sir. I'll keep every answer short and to the point.")
+    return {"result": json.dumps({"conversation": bool(on)}), "say": say}
+
+
 def tool_budget_status(**_):
     from core.budget import get_budget
     s = get_budget().today_summary()
@@ -568,6 +582,7 @@ REGISTRY = {
     "calculate": tool_calculate,
     "budget_status": tool_budget_status,
     "set_brain_mode": tool_set_brain_mode,
+    "set_conversation_mode": tool_set_conversation_mode,
     "send_to_phone": tool_send_to_phone,
     "convert_currency": tool_convert_currency,
     "crypto_price": tool_crypto_price,

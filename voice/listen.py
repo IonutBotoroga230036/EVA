@@ -60,6 +60,7 @@ class ListenConfig:
     wake_words: tuple[str, ...] = ("eva", "eve", "ava", "iva", "evah")
     wake_phrase: str = "Yes, sir?"
     carry_secs: float = 8.0             # "and..." waits this long for the rest of the sentence
+    early_wake_ms: int = 900            # wake mode: after this much speech, peek for "Eva" so the UI reacts at once
 
     @classmethod
     def from_settings(cls, cfg: dict) -> "ListenConfig":
@@ -126,6 +127,8 @@ class _Utterance:
     chunks: list = field(default_factory=list)
     speech_ms: float = 0.0
     barge: Optional[str] = None             # None | "duck" | "stopped"
+    wake_checked: int = 0                   # early "Eva?" peeks done (at most two)
+    woke: bool = False                      # a peek heard the wake word: this utterance is for her
 
 
 class Listener:
@@ -155,6 +158,7 @@ class Listener:
     # ---------------------------------------------------------------- control
     def arm(self, secs: float | None = None) -> None:
         secs = self.cfg.command_window_secs if secs is None else secs
+        logger.debug(f"ECHO: listening window open for {secs:.1f}s")
         self.armed_until = self.clock() + max(0.0, secs)
         self._armed_notified = secs <= 0
 
@@ -221,6 +225,11 @@ class Listener:
             utt.chunks.append(chunk)
             if speaking:
                 utt.speech_ms += FRAME_MS
+                if (self.wake_mode and not utt.woke and utt.barge is None and not self.speaking and not self.armed()
+                        and utt.wake_checked < 2
+                        and utt.speech_ms >= self.cfg.early_wake_ms * (1 + utt.wake_checked * 1.2)):
+                    utt.wake_checked += 1               # peek at ~0.9 s and ~2 s: is this "Eva, ..."?
+                    asyncio.create_task(self._early_wake(utt, b"".join(utt.chunks)))
                 if utt.barge == "duck" and utt.speech_ms >= self.cfg.barge_in_secs * 1000:
                     utt.barge = "stopped"
                     logger.info("ECHO: barge-in, stopping her reply")
@@ -249,7 +258,7 @@ class Listener:
         if utt.barge == "duck":                                       # too short to be a real interruption
             await self._emit({"type": "barge_in", "stage": "resume"})
             return
-        armed = utt.barge == "stopped" or utt.started < self.armed_until
+        armed = utt.barge == "stopped" or utt.started < self.armed_until or utt.woke
         if utt.speech_ms < self.cfg.min_speech_ms:
             if armed:
                 await self._emit({"type": "listen", "state": "noise"})
@@ -262,6 +271,21 @@ class Listener:
             await self._emit({"type": "listen", "state": "end"})
         pcm = b"".join(utt.chunks)
         await self._jobs.put((pcm, armed, window_end))
+
+    async def _early_wake(self, utt: "_Utterance", pcm: bytes) -> None:
+        """Wake mode: transcribe the first second or two while you're still talking. If it starts with her name,
+        say so right away (the listening animation starts now, not after you finish)."""
+        try:
+            audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+            text = await asyncio.to_thread(self.stt.transcribe, audio)
+        except Exception:
+            return
+        words = re.findall(r"[A-Za-z']+", (text or "").replace("E.V.A.", "Eva"))[:3]
+        if any(w.lower() in self.cfg.wake_words for w in words) and not utt.woke:
+            utt.woke = True
+            logger.info(f"ECHO: early wake ({text!r})")
+            if self._utt is utt:
+                await self._emit({"type": "listen", "state": "speech"})
 
     # ---------------------------------------------------------------- transcription
     async def _transcribe_loop(self) -> None:

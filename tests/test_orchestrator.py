@@ -75,7 +75,6 @@ def test_fast_path_screen(belt):
 
 @pytest.mark.parametrize("text", [
     "evaluate this plan for me",            # 'eva' prefix must not be stripped from 'evaluate'
-    "what's the weather tomorrow in Portugal",
     "I paused my gym membership",           # 'pause' mid-sentence is not a command
     "forget it",
 ])
@@ -253,7 +252,7 @@ def test_a_tool_that_succeeded_is_not_called_again(tmp_path, monkeypatch):
                                           {"tool": "echo_tool", "word": "06:00"}], answer="Done, sir.")
     monkeypatch.setattr(orch_mod.httpx, "AsyncClient", client)
     o = HybridOrchestrator(session_id="w", cortex=Cortex(str(tmp_path / "c.db")), registry=reg)
-    run_turn(o, "weather tomorrow at 6 in tilburg")
+    run_turn(o, "echo tomorrow at 6 for me")          # no weather words: those now go straight to the weather tool
     assert reg.functions()["echo_tool"].__globals__["CALLS"] == ["6"]      # the log bug: 3 calls -> 1
 
 
@@ -270,3 +269,14 @@ def test_a_failed_tool_may_be_retried_with_new_args(tmp_path, monkeypatch):
 
 def test_remember_to_is_a_reminder_not_a_fact(belt):
     assert fast_path("remember to call mom tomorrow", belt) == ("set_reminder", {"text": "call mom", "when": "tomorrow"})
+
+
+def test_weather_words_always_reach_the_weather_tool():
+    """Sep 27: 'What do you think about the weather for tomorrow in Nijmegen' got no tool, then a web search
+    with invented numbers. Countries are fine too: the weather tool resolves them to the capital."""
+    belt = ToolBelt(None, None)
+    assert fast_path("What do you think about the weather for tomorrow in Nijmegen", belt) == \
+        ("get_weather", {"city": "Nijmegen"})
+    assert fast_path("what's the weather tomorrow in Portugal", belt) == ("get_weather", {"city": "Portugal"})
+    assert fast_path("will it rain today", belt) == ("get_weather", {})
+    assert fast_path("remind me to check the weather", belt) != ("get_weather", {})

@@ -16,6 +16,16 @@ most work with natural variations too. Anything marked **asks first** waits for 
   (Radboud, Nijmegen, Breda, ZippZapp...). Add your own lines.
 - Small talk and questions about herself never trigger tools.
 
+## Just talking (v0.2.5 conversation lane)
+- "How are you?", "What would make you more useful to me?", "Should I take the Tilburg flat?": when no task is
+  involved she answers like a conversation: warmer, a bit longer (4 sentences at most on voice), may ask one
+  question back, and knows what she can really do (and what is only planned) from this guide and the roadmap.
+- Tasks always win: "what time is it" in the middle of a chat gets the short exact answer.
+- She doesn't learn facts in the background from chats; say "remember that..." to keep something.
+- Off / on: "turn conversation mode off", the status panel (Brain > Conversation lane), or
+  `conversation: enabled: false` in config/settings.local.yaml (the panel and voice win over the file;
+  delete data/conversation.json to go back to the file).
+
 ## Building new skills in the background (v0.2.5)
 - "Build a skill that tells me the moon phase": she confirms where it runs, then builds it in the background.
   Keep talking to her meanwhile. When it's done she tells you in every open window and on Telegram with
@@ -153,3 +163,6 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - WhatsApp (no official API for personal accounts; Telegram covers it), phone alarms,
   full Spotify control (needs Spotify Premium and a developer app), deep research into notes,
   FORGE pull requests from her own git account.
+
+## Testing her
+- docs/VOICE_TESTS.md: a checklist of voice requests to run after every update.

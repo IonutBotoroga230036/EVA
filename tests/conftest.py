@@ -134,3 +134,11 @@ def isolate_eva_drafts(tmp_path, monkeypatch):
     import core.scribe as scribe
     monkeypatch.setattr(scribe, "DRAFTS_PATH", tmp_path / "eva_drafts.json")
     yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_conversation(tmp_path, monkeypatch):
+    """Never your real data/conversation.json switch."""
+    import core.conversation as conv
+    monkeypatch.setattr(conv, "STATE", tmp_path / "conversation.json")
+    yield
