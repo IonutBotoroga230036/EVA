@@ -135,7 +135,9 @@ TOOL_SCHEMAS = [
         "name": "set_brain_mode",
         "description": "Switch where heavy thinking and skill-building run: cloud (Claude), local (private, free), or auto.",
         "parameters": {"type": "object", "properties": {
-            "mode": {"type": "string", "enum": ["auto", "cloud", "local"]}}, "required": ["mode"]}}},
+            "mode": {"type": "string", "enum": ["auto", "cloud", "local"]},
+            "feature": {"type": "string", "enum": ["", "conversation", "planning", "thinking", "forge"],
+                        "description": "Only this feature; empty for everything."}}, "required": ["mode"]}}},
     {"type": "function", "function": {
         "name": "budget_status",
         "description": "Report how much of the cloud budget (Claude API) has been spent today and this month.",
@@ -519,9 +521,30 @@ def tool_send_to_phone(text: str = "", **_):
             {"result": json.dumps({"error": "send failed"}), "say": "Telegram didn't take the message, sir."})
 
 
-def tool_set_brain_mode(mode: str = "auto", **_):
-    from core.brain import get_brain
+FEATURE_WORDS = {"forge": r"\b(forge|skill[- ]?build\w*|build(?:ing)? skills?|coding)\b",
+                 "thinking": r"\b(think\w*|reasoning|deep thought)\b",
+                 "planning": r"\b(plan\w*|multi-?step)\b",
+                 "conversation": r"\b(conversation\w*|chat\w*|talking)\b"}
+FEATURE_NAMES = {"forge": "FORGE", "thinking": "deep thinking", "planning": "planning", "conversation": "conversation"}
+
+
+def feature_from_words(text: str) -> str:
+    for f, rx in FEATURE_WORDS.items():
+        if re.search(rx, text or "", re.I):
+            return f
+    return ""
+
+
+def tool_set_brain_mode(mode: str = "local", feature: str = "", **_):
+    from core.brain import FEATURES, get_brain
     b = get_brain()
+    if feature in FEATURES:
+        mode = mode if mode in ("cloud", "local", "auto") else "local"
+        b.set_feature(feature, mode)
+        where = {"cloud": "Claude", "local": "local models only", "auto": "Claude when available, otherwise local"}[mode]
+        note = " Note: Claude isn't available right now." if mode == "cloud" and not b.cloud_ready() else ""
+        return {"result": json.dumps({"feature": feature, "mode": mode}),
+                "say": f"Done, sir. {FEATURE_NAMES[feature][0].upper() + FEATURE_NAMES[feature][1:]} now uses {where}.{note}"}
     m = b.set_mode(mode)
     where = {"cloud": "Claude, in the cloud", "local": "local models only, nothing leaves this machine",
              "auto": "Claude when a key and budget are available, otherwise local"}[m]

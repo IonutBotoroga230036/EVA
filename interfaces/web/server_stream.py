@@ -60,6 +60,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from loguru import logger
 
 import core.netsec as netsec
+from core.brain import get_brain
+from core.security.audit import audit
 from core.events.bus import get_bus
 from core.mcp_client import get_mcp
 from core.prompt_builder import vocabulary_text
@@ -80,6 +82,22 @@ PORT = 8001
 STARTED = time.time()
 CONNECTIONS: set["Connection"] = set()
 MAX_AUDIO_FRAME = 256 * 1024          # bytes; a larger binary frame is dropped, never buffered
+
+
+MUSIC_TOOLS = {"spotify_play", "set_mood"}       # no follow-up window after music starts: lyrics aren't commands
+
+
+async def announce_forge(msg: dict) -> None:
+    """A finished FORGE build: every open window says it, and its next "yes" installs a ready skill."""
+    from core.forge_jobs import offer_install
+    if not msg.get("say"):
+        return
+    for conn in list(CONNECTIONS):
+        try:
+            offer_install(conn.orch, msg)
+            await conn.proactive(msg["say"], msg.get("widget"))
+        except Exception as e:
+            logger.warning(f"FORGE: could not tell a window ({e})")
 
 
 async def broadcast(text: str, widget: dict | None = None) -> bool:
@@ -157,6 +175,12 @@ async def lifespan(_app: FastAPI):
                 f"{sum(s.connected for s in mcp.servers.values())} MCP servers, "
                 f"voice: {'Kokoro' if tts else 'browser'}, "
                 f"listening: {pipeline_status().get('engine')}")
+    # v0.2.5 FORGE jobs: a build finishes in a worker thread; hop onto this loop before touching any window
+    loop = asyncio.get_running_loop()
+
+    def _on_forge_done(data: dict) -> None:
+        asyncio.run_coroutine_threadsafe(announce_forge(data.get("message") or {}), loop)
+    get_bus().subscribe("forge.done", _on_forge_done)
     yield
     oracle.stop()
     oracle_task.cancel()
@@ -222,6 +246,37 @@ self.addEventListener('fetch', () => {});
 """
 
 
+def _forge_jobs_status() -> dict:
+    from core.forge_jobs import get_jobs
+    jobs = get_jobs()
+    run = jobs.running()
+    return {"running": run.request if run else "", "minutes": round((time.time() - run.started) / 60) if run else 0,
+            "waiting": len(jobs.waiting())}
+
+
+@app.get("/api/brain")
+async def brain_overview():
+    return await asyncio.to_thread(get_brain().overview)
+
+
+@app.post("/api/brain")
+async def brain_set(body: dict):
+    """{mode} for the default, or {feature, mode} with mode default|local|auto|cloud (v0.2.5 milestone 7)."""
+    from core.brain import FEATURES, MODES
+    b = get_brain()
+    mode, feature = str(body.get("mode", "")), str(body.get("feature", ""))
+    if feature:
+        if feature not in FEATURES or mode not in (*MODES, "default"):
+            return JSONResponse({"error": "feature must be one of " + ", ".join(FEATURES)}, status_code=400)
+        b.set_feature(feature, mode)
+    else:
+        if mode not in MODES:
+            return JSONResponse({"error": "mode must be local, auto or cloud"}, status_code=400)
+        b.set_mode(mode)
+    audit.log("brain_mode_changed", "status_panel", {"feature": feature or "default", "mode": mode})
+    return await asyncio.to_thread(b.overview)
+
+
 @app.get("/eva-ca.crt")
 async def eva_ca():
     """E.V.A.'s local CA certificate, for installing on a phone (public; the key never leaves this PC)."""
@@ -278,6 +333,8 @@ async def status():
         "skills": get_registry().status(),
         "voice": "kokoro" if get_tts() else "browser",
         "stt": await asyncio.to_thread(pipeline_status),
+        "brain": await asyncio.to_thread(get_brain().overview),
+        "forge_jobs": _forge_jobs_status(),
         "mcp": get_mcp().status(),
         "recent_events": get_bus().recent(20),
     })
@@ -340,6 +397,8 @@ class Connection:
                 elif kind == "final":
                     rest = chunker.flush() if streamed else event["text"]
                     await speaker.say(rest)
+            follow = not (set(getattr(self.orch, "last_tools", ()) or ()) & MUSIC_TOOLS)
+            await self.send({"type": "turn_meta", "turn": turn, "follow_up": follow})
             if speaker:
                 await speaker.finish()
         except asyncio.CancelledError:

@@ -168,7 +168,7 @@ ACTIONS = ["remember_fact", "forget_memory", "forget_recent_facts", "add_instruc
 # An action only runs if the user's words ask for it (stops "how do you like it" -> add_instruction).
 GUARDS = {
     "remember_fact": r"\b(remember|keep in mind|don'?t forget|store|save|note that i|memori[sz]e)\b",
-    "forget_memory": r"\b(forget|delete|remove|erase|wipe)\b",
+    "forget_memory": r"^(?!.*\b(?:drafts?|e-?mails?|inbox|calendar|reminders?)\b).*\b(forget|delete|remove|erase|wipe)\b",
     "forget_recent_facts": r"\b(forget|delete|remove|erase|wipe|undo)\b",
     "add_instruction": r"\b(from now on|going forward|always|never|don'?t ever|stop (doing|saying|using)|in the future)\b",
 }

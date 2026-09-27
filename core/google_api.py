@@ -210,6 +210,13 @@ class GoogleClient:
         return self.gmail.users().drafts().create(userId="me", body={"message": msg}).execute().get("id", "")
 
 
+def _delete_draft(self, draft_id: str) -> None:
+    self.gmail.users().drafts().delete(userId="me", id=draft_id).execute()
+
+
+GoogleClient.delete_draft = _delete_draft
+
+
 _client: Optional[GoogleClient] = None
 
 

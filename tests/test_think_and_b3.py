@@ -40,12 +40,19 @@ def think(monkeypatch, fake):
     from core.brain import Brain
     fn = SkillRegistry("skills").discover().functions()["think_deeply"]
     brain = Brain(claude=fake)
-    brain.pick = lambda: "cloud"
+    brain.pick = lambda *a, **k: "cloud"
     monkeypatch.setitem(fn.__globals__, "get_brain", lambda: brain)
     return fn
 
 
-def test_think_fast_path_and_answer_is_spoken_as_is(belt, monkeypatch, tmp_path):
+@pytest.fixture
+def auto_mode(monkeypatch):
+    """These tests are about the Claude path; since v0.2.5 the default is local."""
+    from core.brain import Brain
+    monkeypatch.setattr(Brain, "mode", lambda self: "auto")
+
+
+def test_think_fast_path_and_answer_is_spoken_as_is(belt, monkeypatch, tmp_path, auto_mode):
     assert fast_path("think hard about whether I should move to Tilburg", belt) == \
         ("think_deeply", {"question": "whether I should move to Tilburg"})
     import core.prompt_builder as pb
@@ -58,7 +65,7 @@ def test_think_fast_path_and_answer_is_spoken_as_is(belt, monkeypatch, tmp_path)
     assert "SECRET-MARKER-XYZ" not in fake.calls[0]["system"]          # private context never leaves the machine
 
 
-def test_think_over_budget_suggests_local_mode(monkeypatch):
+def test_think_over_budget_suggests_local_mode(monkeypatch, auto_mode):
     from core.budget import BudgetExceeded
     say = think(monkeypatch, FakeClaude(boom=BudgetExceeded("EUR 0.01 left")))(question="x")["say"]
     assert "budget" in say and "local mode" in say

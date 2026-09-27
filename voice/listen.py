@@ -59,6 +59,7 @@ class ListenConfig:
     echo_secs: float = 20.0             # how long her own words count as possible echo
     wake_words: tuple[str, ...] = ("eva", "eve", "ava", "iva", "evah")
     wake_phrase: str = "Yes, sir?"
+    carry_secs: float = 8.0             # "and..." waits this long for the rest of the sentence
 
     @classmethod
     def from_settings(cls, cfg: dict) -> "ListenConfig":
@@ -109,6 +110,15 @@ def _norm(text: str) -> str:
     return " ".join(_WORD.findall(text.lower()))
 
 
+_TRAILING = re.compile(r"(?:\.\.\.|\u2026)\s*$|\b(?:and|or|but|so|also|then|because|like|plus|can you|could you|"
+                       r"would you|will you|and can you|and also|can you also)\s*[,.]?\s*$", re.I)
+
+
+def unfinished(text: str) -> bool:
+    """Whisper's "..." or a sentence that ends on "and" / "can you": the rest is still coming."""
+    return bool(_TRAILING.search((text or "").strip()))
+
+
 # ------------------------------------------------------------------ listener
 @dataclass
 class _Utterance:
@@ -140,6 +150,7 @@ class Listener:
         self._jobs: asyncio.Queue = asyncio.Queue()
         self._worker: Optional[asyncio.Task] = None
         self.failed = False                 # Whisper could not load: the client should fall back
+        self._carry: Optional[tuple[float, str]] = None
 
     # ---------------------------------------------------------------- control
     def arm(self, secs: float | None = None) -> None:
@@ -300,6 +311,16 @@ class Listener:
         await self._command(cmd)
 
     async def _command(self, text: str) -> None:
+        now = self.clock()
+        if self._carry and now - self._carry[0] <= self.cfg.carry_secs:
+            text = f"{self._carry[1]} {text}".strip()
+        self._carry = None
+        if unfinished(text) and len(text.split()) <= 40:
+            self._carry = (now, text.rstrip(" .\u2026"))       # "and...", "can you also...": wait for the rest
+            self.arm(self.cfg.carry_secs)
+            logger.info(f"ECHO: holding an unfinished sentence: {text!r}")
+            await self._emit({"type": "listen", "state": "pause"})
+            return
         logger.info(f"ECHO heard: {text}")
         await self.on_command(text)
 

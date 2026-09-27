@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from email.utils import parseaddr
 
 import httpx
@@ -91,6 +93,51 @@ def compose_body(instructions: str, original: str = "", sender_name: str = "", b
     return text.replace("\u2014", ", ")
 
 
+_AUTOMATED = ("noreply", "no-reply", "no_reply", "donotreply", "do-not-reply", "do_not_reply", "mailer-daemon",
+              "notification", "notify", "digest", "bounce", "alerts@", "newsletter")
+
+
+def is_automated(addr: str) -> bool:
+    """no-reply@canva.com, messaging-digest-noreply@linkedin.com: nobody reads replies there."""
+    a = (addr or "").lower()
+    return any(k in a for k in _AUTOMATED)
+
+
+DRAFTS_PATH = Path("data/eva_drafts.json")          # drafts E.V.A. made: the only ones she may delete
+
+
+def record_draft(draft_id: str, to: str, subject: str) -> None:
+    if not draft_id:
+        return
+    items = made_drafts()
+    items.append({"id": draft_id, "to": to, "subject": subject})
+    DRAFTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DRAFTS_PATH.write_text(json.dumps(items[-50:]), encoding="utf-8")
+
+
+def made_drafts() -> list[dict]:
+    try:
+        return json.loads(DRAFTS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def delete_made_drafts(google) -> tuple[int, int]:
+    """(deleted, already_gone). Your own drafts are never touched: only ids E.V.A. recorded."""
+    deleted = gone = 0
+    for d in made_drafts():
+        try:
+            google.delete_draft(d["id"])
+            deleted += 1
+        except Exception as e:
+            if "404" in str(e) or "not found" in str(e).lower():
+                gone += 1                                  # you already sent or deleted it
+            else:
+                raise
+    DRAFTS_PATH.write_text("[]", encoding="utf-8")
+    return deleted, gone
+
+
 def _fold(text: str) -> str:
     import unicodedata
     return "".join(c for c in unicodedata.normalize("NFKD", text or "") if not unicodedata.combining(c)).lower()
@@ -102,7 +149,7 @@ def resolve_address(google, name: str):
     Returns the address, or {"error", "say"} when there is none ("What is it?") or more than one ("Which one?").
     Never guesses: Gmail would reject a bare name anyway ("Invalid To header")."""
     import re as _re
-    q = " ".join((name or "").split())
+    q = " ".join(_re.sub(r"\([^)]*\)", " ", name or "").split())
     key = _fold(q)
     try:
         _, msgs = google.list_messages(f'from:"{q}" OR to:"{q}" OR cc:"{q}"', 15)
@@ -115,7 +162,7 @@ def resolve_address(google, name: str):
         pairs = [(d.strip(' "\''), a) for d, a in _re.findall(r'([^<>,]*)<([^<>\s]+@[^<>\s]+)>', header)]
         pairs += [("", a) for a in _re.findall(r'(?<![<\w.+-])([\w.+-]+@[\w-]+\.[\w.-]+)(?![\w>])', header)]
         for disp, addr in pairs:
-            if "@" in addr and key and (key in _fold(disp) or key in _fold(addr.split("@")[0])):
+            if "@" in addr and key and not is_automated(addr) and (key in _fold(disp) or key in _fold(addr.split("@")[0])):
                 found.setdefault(addr.lower(), disp or addr)
     if len(found) == 1:
         return next(iter(found))
@@ -136,6 +183,9 @@ def draft(google, instructions: str, reply_to: str = "", to: str = "", subject: 
         m = msgs[0]
         thread_id, in_reply_to = m["thread_id"], m["message_id"]
         recipient = parseaddr(m["from"])[1]
+        if is_automated(recipient):
+            return {"error": "automated sender", "say": f"That email came from an automated address ({recipient}), "
+                                                          f"sir, so a reply wouldn't reach anyone. Nothing was drafted."}
         subject = m["subject"] if m["subject"].lower().startswith("re:") else f"Re: {m['subject']}"
         original = google.get_body(m["id"])
     if not recipient:
@@ -146,7 +196,8 @@ def draft(google, instructions: str, reply_to: str = "", to: str = "", subject: 
             return found
         recipient = found
     body = compose_body(instructions, original, sender_name, base_url, model)
-    google.create_draft(recipient, subject or "(no subject)", body, thread_id, in_reply_to)
+    draft_id = google.create_draft(recipient, subject or "(no subject)", body, thread_id, in_reply_to)
+    record_draft(draft_id, recipient, subject or "(no subject)")
     target = who(recipient) if not reply_to else who(m["from"])
     return {"drafted_to": recipient, "subject": subject, "body": body,
             "widget": {"kind": "note", "title": f"Draft to {target}", "text": body[:300]},

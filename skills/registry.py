@@ -127,6 +127,7 @@ class SkillRegistry:
         sk.guards = dict(getattr(mod, "GUARDS", {}))
         sk.confirm = dict(getattr(mod, "CONFIRM", {}))
         sk.fillers = dict(getattr(mod, "FILLERS", {}))
+        sk.ask = dict(getattr(mod, "ASK", {}))          # v0.2.5: {tool: (field, question)} asked before acting
         if sk.source == "forge":                  # FORGE drafts: every tool gets an intent guard
             import re as _re
             generic = {"get", "set", "to", "from", "the", "a", "an", "of", "and", "for", "do", "make", "run", "tool"}
@@ -171,6 +172,10 @@ class SkillRegistry:
 
     def guards(self) -> dict[str, str]:
         return {k: v for s in self.enabled() for k, v in s.guards.items()}
+
+    def asks(self) -> dict[str, tuple]:
+        """Questions a tool needs answered before it may run or be confirmed ("What should the email say?")."""
+        return {k: v for s in self.enabled() for k, v in getattr(s, "ask", {}).items()}
 
     def fillers(self) -> dict[str, Callable]:
         return {k: v for s in self.enabled() for k, v in s.fillers.items()}

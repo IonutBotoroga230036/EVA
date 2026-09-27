@@ -45,11 +45,12 @@ def active() -> Optional["TelegramBridge"]:
     return _active if _active and _active.allowed else None
 
 
-def send_from_thread(text: str, timeout: float = 15) -> bool:
+def send_from_thread(text: str, timeout: float = 15, buttons: Optional[list] = None) -> bool:
     """Tools run in worker threads; this hands the message to the server's event loop."""
     if not active() or not _loop:
         return False
-    fut = asyncio.run_coroutine_threadsafe(_active.notify(text), _loop)
+    coro = _active.notify(text, buttons=buttons) if buttons else _active.notify(text)
+    fut = asyncio.run_coroutine_threadsafe(coro, _loop)
     return bool(fut.result(timeout))
 
 
@@ -108,21 +109,23 @@ class TelegramBridge:
             raise RuntimeError(f"telegram {method}: {data.get('description')}")
         return data.get("result", {})
 
-    async def send(self, chat_id: int, text: str, buttons: bool = False) -> None:
+    async def send(self, chat_id: int, text: str, buttons=False) -> None:
+        """buttons: True for Yes / No, or a custom inline keyboard (list of rows)."""
         chunks = [text[i:i + MAX_LEN] for i in range(0, len(text), MAX_LEN)] or [""]
         for i, chunk in enumerate(chunks):
             params = {"chat_id": chat_id, "text": chunk}
             if buttons and i == len(chunks) - 1:
-                params["reply_markup"] = {"inline_keyboard": [[{"text": "Yes, go ahead", "callback_data": "yes"},
-                                                              {"text": "No", "callback_data": "no"}]]}
+                rows = buttons if isinstance(buttons, list) else [[{"text": "Yes, go ahead", "callback_data": "yes"},
+                                                                   {"text": "No", "callback_data": "no"}]]
+                params["reply_markup"] = {"inline_keyboard": rows}
             await self.call("sendMessage", **params)
 
-    async def notify(self, text: str, widget: Optional[dict] = None) -> bool:
-        """ORACLE delivery. True if at least one paired phone got it."""
+    async def notify(self, text: str, widget: Optional[dict] = None, buttons: Optional[list] = None) -> bool:
+        """ORACLE and FORGE delivery. True if at least one paired phone got it."""
         ok = False
         for uid in self.allowed:
             try:
-                await self.send(uid, text)
+                await self.send(uid, text, buttons=buttons or False)
                 ok = True
             except Exception as e:
                 logger.warning(f"TELEGRAM: push failed: {e}")
@@ -175,6 +178,8 @@ class TelegramBridge:
             await self.call("answerCallbackQuery", callback_query_id=cq["id"])
             if uid in self.allowed and cq.get("data") in ("yes", "no"):
                 await self.handle_text(cq["message"]["chat"]["id"], cq["data"])
+            elif uid in self.allowed and str(cq.get("data", "")).startswith("forge:"):
+                await self.handle_forge_button(cq["message"]["chat"]["id"], cq["data"])
             return
         msg = upd.get("message") or {}
         chat, uid = msg.get("chat", {}), msg.get("from", {}).get("id")
@@ -202,6 +207,17 @@ class TelegramBridge:
         if text and not text.startswith("/"):
             logger.info(f"TELEGRAM USER: {text}")
             await self.handle_text(chat["id"], text)
+
+    async def handle_forge_button(self, chat_id: int, data: str) -> None:
+        """[Install] / [Discard] under a finished FORGE build. Your tap is the approval (paired users only)."""
+        _, action, name = (data.split(":", 2) + ["", ""])[:3]
+        if action not in ("install", "discard") or not name:
+            return
+        from skills.forge import tools as forge_tools
+        fn = forge_tools.forge_install if action == "install" else forge_tools.forge_discard
+        out = await asyncio.to_thread(fn, name=name)
+        logger.info(f"TELEGRAM: FORGE {action} {name}")
+        await self.send(chat_id, out.get("say") or "Done, sir.")
 
     async def poll_once(self) -> int:
         updates = await self.call("getUpdates", offset=self.offset, timeout=self.poll_timeout,

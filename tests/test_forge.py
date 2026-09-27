@@ -135,9 +135,15 @@ def test_the_whole_conversation(tmp_path, monkeypatch):
 
     ask = run_turn(o, "build a skill that converts km to miles")
     assert "draft a new skill" in ask[-1]["text"] and "Shall I go ahead" in ask[-1]["text"]
-    drafted = run_turn(o, "yes")
-    assert drafted[0] == {"type": "ack", "text": "Drafting it now, sir. This takes about a minute."}
-    assert "Shall I install it" in drafted[-1]["text"] and o.pending["tool"] == "forge_install"
+    drafted = run_turn(o, "yes")                                          # v0.2.5: queued, built in the background
+    assert "building it in the background" in drafted[-1]["text"]
+    import core.forge_jobs as fj
+    job = fj.get_jobs().latest()
+    assert job.status == "done" and job.result_status == "ready"
+    (_, msg), = fj.get_jobs().delivered                                    # what every channel is told
+    assert "Shall I install it" in msg["say"]
+    fj.offer_install(o, msg)                                               # the server does this per open window
+    assert o.pending["tool"] == "forge_install"
     installed = run_turn(o, "yes please")
     assert installed[-1]["text"].startswith("Installed, sir.")
     used = run_turn(o, "how many miles is 10 km")                         # hot-reloaded: new tool is live

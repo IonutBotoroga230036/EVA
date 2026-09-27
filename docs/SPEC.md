@@ -57,7 +57,9 @@ read this file and `EVA.md` first.
 | `voice/pipecat_audio.py` | Adapters for Pipecat's bundled Silero VAD and Smart Turn v3 (ONNX, CPU), plus a silence fallback. |
 | `voice/stt.py` | Local faster-whisper: GPU first, CPU fallback, Vocabulary terms as hotwords, hallucination filter. |
 | `core/netsec.py` | v0.2.5 network safety: 127.0.0.1 by default, remote token (Bearer, pairing cookie), origin check against cross-site requests, proxies count as remote. |
+| `core/brain.py` | Where heavy thinking runs. v0.2.5: local by default; per-feature modes (conversation, planning, thinking, forge) in settings, by voice, and via `/api/brain` from the status panel. |
 | `core/tls.py` | v0.2.5 HTTPS for phones: a local CA with X.509 name constraints (private IPs, localhost, *.local only) and an auto-renewed LAN certificate. The server runs HTTP :8001 (this PC; phones get the CA and a redirect) and HTTPS :8443. |
+| `core/forge_jobs.py` | v0.2.5 FORGE background jobs: a queue and one worker thread, no time limit, jobs kept in data/forge_jobs.json (interrupted builds marked at restart), PULSE `forge.done` for the web windows (the server hops onto its own loop) and Telegram [Install]/[Discard] buttons. |
 | `core/multistep.py` | v0.2.5 multi-step commands: cheap detection, constrained planner, grounding (no invented steps). The orchestrator runs families in order and different families in parallel, with one combined answer and a confirmation queue. |
 | `core/shopping.py`, `skills/shopping/` | Shopping list as the Obsidian note "Shopping list" (checkboxes). |
 | `interfaces/web/routines_api.py` | Routines panel API: reminders, routines (pause), moods, shopping list, week view. Audited. |

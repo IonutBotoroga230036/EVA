@@ -16,6 +16,18 @@ most work with natural variations too. Anything marked **asks first** waits for 
   (Radboud, Nijmegen, Breda, ZippZapp...). Add your own lines.
 - Small talk and questions about herself never trigger tools.
 
+## Building new skills in the background (v0.2.5)
+- "Build a skill that tells me the moon phase": she confirms where it runs, then builds it in the background.
+  Keep talking to her meanwhile. When it's done she tells you in every open window and on Telegram with
+  [Install] / [Discard] buttons. Nothing is installed without your yes.
+- "How's the build going?" / "Cancel the build".
+- Local builds use qwen2.5-coder:14b (ollama pull qwen2.5-coder:14b) with no time limit.
+
+## Where she thinks (v0.2.5)
+- Local by default: nothing leaves this PC unless you choose Claude.
+- Per feature, by voice or in the status panel: "use Claude for FORGE", "keep thinking local",
+  "switch planning to auto". Features: conversation, planning, thinking, FORGE.
+
 ## Several things at once (v0.2.5)
 - "Lights red, play The Weeknd, Spotify at 50 and the PC at 100": each part runs, independent ones at the same time,
   and she answers once with the exact result of each.
@@ -27,6 +39,10 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - "Add milk and eggs to my shopping list" / "Take eggs off my shopping list" / "I bought the milk, tick it off"
 - "What's on my shopping list?" / "Clear the ticked items" / "Empty my shopping list" **asks first**
 - Kept in Obsidian as the note "Shopping list", with checkboxes, so it syncs to your phone with the vault.
+
+## Email drafts (v0.2.5)
+- She asks what an email should say, then confirms the exact text and recipient before drafting.
+- "Delete the drafts you made": removes only drafts E.V.A. created (after a yes); yours are never touched.
 
 ## Routines panel (v0.2.5)
 - The clock button at the top right: a week view, and tabs to add, edit, pause, and delete reminders and routines,

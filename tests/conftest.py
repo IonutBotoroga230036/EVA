@@ -114,3 +114,23 @@ def isolate_tls(tmp_path, monkeypatch):
     import core.tls as tls
     monkeypatch.setattr(tls, "DIR", tmp_path / "tls")
     yield
+
+
+@pytest.fixture(autouse=True)
+def inline_forge_jobs(tmp_path, monkeypatch):
+    """FORGE jobs run inline in tests (no background threads) and never write your data/forge_jobs.json."""
+    import core.forge_jobs as fj
+    monkeypatch.setattr(fj, "JOBS_PATH", tmp_path / "forge_jobs.json")
+    delivered = []
+    manager = fj.JobManager(threaded=False, on_done=lambda job, msg: delivered.append((job, msg)))
+    manager.delivered = delivered
+    monkeypatch.setattr(fj, "_jobs", manager)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_eva_drafts(tmp_path, monkeypatch):
+    """Never your real data/eva_drafts.json (the list of drafts E.V.A. may delete)."""
+    import core.scribe as scribe
+    monkeypatch.setattr(scribe, "DRAFTS_PATH", tmp_path / "eva_drafts.json")
+    yield

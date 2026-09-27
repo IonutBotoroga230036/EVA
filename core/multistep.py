@@ -18,6 +18,7 @@ touch different things, dependent ones in order with the earlier results in view
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Optional
@@ -111,6 +112,17 @@ def parse_plan(raw: dict, original: str) -> Optional[list[dict]]:
 
 
 async def plan(client, cfg: dict, text: str) -> Optional[list[dict]]:
+    try:
+        from core.brain import get_brain
+        cloud = await asyncio.to_thread(get_brain().plan_json, PLAN_PROMPT, text, PLAN_SCHEMA)
+    except Exception as e:
+        logger.warning(f"MULTI: cloud planner unavailable ({e}); planning locally")
+        cloud = None
+    if cloud is not None:
+        steps = parse_plan(cloud, text)
+        if steps:
+            logger.info("MULTI (Claude): " + " | ".join(("-> " if s["uses_previous"] else "") + s["command"] for s in steps))
+        return steps
     try:
         r = await client.post(f"{cfg['base_url']}/api/chat", json={
             "model": cfg["decision_model"], "stream": False, "format": PLAN_SCHEMA,

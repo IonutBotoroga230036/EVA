@@ -28,7 +28,7 @@ inference:
     decision_model: "qwen2.5:3b-instruct"
     answer_model: "qwen2.5:3b-instruct"
     vision_model: "qwen2.5vl:3b"        # loaded only when she looks, unloaded right after
-    coder_model: "qwen2.5-coder:7b"     # FORGE in local mode (ollama pull qwen2.5-coder:7b)
+    coder_model: "qwen2.5-coder:14b"    # FORGE in local mode, in the background (ollama pull qwen2.5-coder:14b)
     think_model: "qwen3:4b"             # deep thinking in local mode (ollama pull qwen3:4b)
     keep_alive: "30m"
     # legacy v0.1 keys, still read by core/orchestrator.py
@@ -39,7 +39,12 @@ inference:
     provider: "anthropic"                 # key: ANTHROPIC_API_KEY in config/secrets.env (git-ignored)
     model_light: "claude-haiku-4-5-20251001"
     model_heavy: "claude-sonnet-5"        # FORGE code generation and deep thinking
-    mode: "auto"                          # auto | cloud | local ("switch to local mode" by voice)
+    mode: "local"                         # v0.2.5: local by default, Claude by choice. auto | cloud | local
+    features:                             # each follows the default or picks its own: default | local | auto | cloud
+      conversation: "default"             # the conversation lane (milestone 4)
+      planning: "default"                 # splitting multi-step commands
+      thinking: "default"                 # think_deeply
+      forge: "default"                    # writing skills ("use Claude for FORGE" by voice)
 
 budget:
   daily_limit_euros: 1.50

@@ -18,8 +18,8 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 | 3 | **Multi-step commands** (built, awaiting hardware test) | Any number of commands in one sentence, run in order or in parallel, with dependent steps passing results along: "lights red, play The Weeknd, Spotify at 50 and the PC at 100" or "read Tom's last emails and draft him a warm reply saying X, Y, Z". One combined answer. |
 | 4 | **Conversation lane** | Longer, reflective conversations ("what would make you more useful to me?") with a warmer prompt, longer answers, follow-up questions, and knowledge of her own abilities and roadmap. Tasks keep the fast lane. |
 | 5 | **Routines panel** (built, awaiting hardware test) | A section in the interface for routines, reminders, and moods: create, edit, pause, delete, and a week view. Plus a shopping list ("add milk to my shopping list"), kept as an Obsidian note. |
-| 6 | **FORGE background jobs** | Builds run in the background with no time limit and a Telegram push when done ("Install?" Yes / No). Default local coder: qwen2.5-coder:14b. |
-| 7 | **Local-first switches** | Default brain mode `local`. Per-feature choice (conversation, planning, thinking, FORGE) in settings and in the status panel. |
+| 6 | **FORGE background jobs** (built, awaiting hardware test) | Builds run in the background with no time limit and a Telegram push when done ("Install?" Yes / No). Default local coder: qwen2.5-coder:14b. |
+| 7 | **Local-first switches** (built, awaiting hardware test) | Default brain mode `local`. Per-feature choice (conversation, planning, thinking, FORGE) in settings and in the status panel. |
 
 ## v0.3 "Mobile and Autonomy"
 | # | Milestone | What you get |

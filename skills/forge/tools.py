@@ -1,6 +1,7 @@
 """FORGE skill: the conversation side of core/forge_engine.py."""
 
 import json
+import time
 
 from core.budget import BudgetExceeded
 from core.events.bus import get_bus
@@ -38,33 +39,56 @@ def _latest_ready_name() -> str:
 
 
 def forge_build(request: str = "", **_):
-    forge = get_forge()
-    try:
-        p = forge.build(request)
-    except BudgetExceeded as e:
-        return {"result": json.dumps({"error": str(e)}), "exact": True,
-                "say": f"That would go over your budget, sir. {e}."}
-    except Exception as e:
-        return {"result": json.dumps({"error": str(e)}), "exact": True, "say": f"The build failed, sir: {str(e)[:160]}."}
-    cost = (f"It cost {p.cost_eur * 100:.0f} cents." if p.cost_eur >= 0.005
-            else f"Built locally with {p.provider}, at no cost." if p.provider and p.provider != "Claude" else "")
-    if p.status == "infeasible":
-        return {"result": json.dumps({"status": p.status, "reason": p.reason}), "exact": True,
-                "say": f"I can't build that safely as a skill, sir. {p.reason} {cost}".strip()}
-    if p.status != "ready":
-        return {"result": json.dumps({"status": p.status, "reason": p.reason}), "exact": True,
-                "say": f"My draft didn't pass its own checks, sir, so I've kept it out. {cost}".strip(),
-                "widget": {"kind": "note", "title": f"Draft rejected · {_pretty(p.name)}", "text": p.reason[:240]}}
-    net = (f" It needs internet access to {', '.join(p.network_hosts)}." if p.network_hosts
-           else " It works fully offline.")
-    say = (f"I've drafted a skill called {_pretty(p.name)}. {p.summary}{net} It passed the security review and "
-           f"{p.tests_passed} tests. {cost} Shall I install it, sir?").replace("  ", " ")
-    return {"result": json.dumps({"status": "ready", "name": p.name, "tools": p.tools}), "exact": True, "say": say,
-            "widget": {"kind": "forge", "name": _pretty(p.name), "summary": p.summary, "tools": p.tools,
-                       "hosts": p.network_hosts, "tests": p.tests_passed, "review_passed": True,
-                       "cost": (f"EUR {p.cost_eur:.2f}" if p.cost_eur >= 0.005 else "Free, built locally")},
-            "confirm_next": {"tool": "forge_install", "args": {"name": p.name},
-                             "desc": f"install the {_pretty(p.name)} skill"}}
+    """v0.2.5: the build runs in the background; she tells you when it's done (here and on Telegram)."""
+    from core import telegram_bridge
+    from core.brain import get_brain
+    from core.forge_jobs import get_jobs
+    request = " ".join((request or "").split())
+    if not request:
+        return {"result": json.dumps({"error": "no request"}), "say": "What should the skill do, sir?"}
+    jobs = get_jobs()
+    job = jobs.submit(request)
+    ahead = jobs.queued_before(job)
+    where = "with Claude" if get_brain().pick("forge") == "cloud" else "locally"
+    also = " and on Telegram" if telegram_bridge.active() else ""
+    queue = f" It's number {ahead + 1} in line." if ahead else ""
+    say = (f"I'm building it in the background {where}, sir.{queue} I'll tell you here{also} when it's ready, "
+           f"and you can keep talking to me meanwhile.")
+    return {"result": json.dumps({"job": job.id, "status": job.status, "ahead": ahead}), "exact": True, "say": say}
+
+
+def forge_status(**_):
+    from core.forge_jobs import get_jobs, pretty
+    jobs = get_jobs()
+    run, wait = jobs.running(), jobs.waiting()
+    if run:
+        mins = max(1, round((time.time() - run.started) / 60))
+        more = f" {len(wait)} more waiting." if wait else ""
+        return {"result": json.dumps({"running": run.request, "minutes": mins, "waiting": len(wait)}), "exact": True,
+                "say": f"Still building \"{run.request}\", sir, {mins} minute{'s' if mins != 1 else ''} so far.{more}"}
+    last = jobs.latest()
+    if not last:
+        return {"result": json.dumps({"jobs": 0}), "exact": True, "say": "No skill builds so far, sir."}
+    if last.status == "done" and last.result_status == "ready":
+        say = f"The last build finished: {pretty(last.result_name)} is waiting for your approval, sir."
+    elif last.status == "interrupted":
+        say = f"The last build, \"{last.request}\", was interrupted by a restart, sir. Ask me again to rebuild it."
+    else:
+        say = last.say or f"The last build ended as {last.status}, sir."
+    return {"result": json.dumps({"last": last.status, "name": last.result_name}), "exact": True, "say": say}
+
+
+def forge_cancel(**_):
+    from core.forge_jobs import get_jobs
+    job = get_jobs().cancel()
+    if not job:
+        return {"result": json.dumps({"error": "nothing to cancel"}), "exact": True,
+                "say": "There's no skill build running, sir."}
+    if job.status == "cancelled":
+        return {"result": json.dumps({"cancelled": job.id}), "exact": True,
+                "say": f"Cancelled the build of \"{job.request}\", sir."}
+    return {"result": json.dumps({"cancelling": job.id}), "exact": True,
+            "say": "I'll stop as soon as the current step finishes, sir, and throw the result away."}
 
 
 def forge_install(name: str = "", **_):
@@ -99,13 +123,22 @@ def forge_list(**_):
 
 
 FUNCTIONS = {"forge_build": forge_build, "forge_install": forge_install,
-             "forge_discard": forge_discard, "forge_list": forge_list}
-ACKS = {"forge_build": "Drafting it now, sir. This takes about a minute."}
-ACTIONS = ["forge_build", "forge_install", "forge_discard"]
+             "forge_discard": forge_discard, "forge_list": forge_list,
+             "forge_status": forge_status, "forge_cancel": forge_cancel}
+TOOLS = TOOLS + [
+    {"type": "function", "function": {"name": "forge_status", "description": "How the skill build in the background "
+     "is going, or how the last one ended.", "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "forge_cancel", "description": "Cancel the skill build in the background.",
+     "parameters": {"type": "object", "properties": {}}}},
+]
+ACKS = {}
+ACTIONS = ["forge_build", "forge_install", "forge_discard", "forge_cancel"]
 GUARDS = {
     "forge_build": r"\b(skills?|abilit(?:y|ies)|capabilit(?:y|ies)|forge)\b|\bbuild it\b|\b(?:learn|teach yourself)(?: how)? to\b",
     "forge_install": r"\b(install|yes|enable|activate|add it)\b",
     "forge_discard": r"\b(discard|delete|remove|drop|reject|throw)\b",
+    "forge_status": r"\b(build|building|forge|skill)\b",
+    "forge_cancel": r"\b(cancel|stop|abort)\b.*\b(build|building|forge|skill)\b|\b(build|forge)\b.*\b(cancel|stop|abort)\b",
 }
 def _build_confirm(args: dict) -> str:
     from core.brain import get_brain

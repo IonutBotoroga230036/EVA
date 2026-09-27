@@ -88,7 +88,7 @@ def test_calendar_add_asks_first_with_a_readable_description():
     assert belt.needs_confirm("calendar_add") and belt.needs_confirm("calendar_delete")
     assert belt.describe("calendar_add", {"title": "Dentist", "day": "friday", "time": "14:00"}) == \
         "add Dentist to your calendar friday at 14:00"
-    assert not belt.needs_confirm("email_draft")                             # drafts are never sent
+    assert belt.needs_confirm("email_draft")                     # v0.2.5: drafts ask first, with the exact content
 
 
 def test_today_focuses_on_what_is_still_coming(g):

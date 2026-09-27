@@ -39,6 +39,7 @@ def local(handler):
 
 
 def test_auto_prefers_cloud_and_falls_back_to_local():
+    Brain(claude=Claude()).set_mode("auto")                  # v0.2.5: the default is local; auto is a choice
     assert Brain(claude=Claude()).pick() == "cloud"
     assert Brain(claude=Claude(key=False)).pick() == "local"
     assert Brain(claude=Claude(budget_ok=False)).pick() == "local"             # out of budget: stay useful
@@ -48,7 +49,7 @@ def test_mode_switch_persists_and_overrides_auto():
     b = Brain(claude=Claude())
     assert b.set_mode("local") == "local" and Brain(claude=Claude()).pick() == "local"
     b.set_mode("nonsense")
-    assert b.mode() == "auto"
+    assert b.mode() == "local"                               # v0.2.5: anything unknown means local
 
 
 def test_local_code_uses_constrained_json_with_the_schema():
@@ -60,7 +61,7 @@ def test_local_code_uses_constrained_json_with_the_schema():
     b = Brain(claude=Claude(key=False), http=local(h))
     data, cost, provider = b.code_json("sys", [{"role": "user", "content": "build x"}],
                                        {"name": "write_skill", "input_schema": {"type": "object"}})
-    assert data == {"feasible": True, "name": "demo"} and cost == 0 and provider == "qwen2.5-coder:7b"
+    assert data == {"feasible": True, "name": "demo"} and cost == 0 and provider == "qwen2.5-coder:14b"
     assert seen["format"] == {"type": "object"} and seen["options"]["num_ctx"] >= 8192
 
 
@@ -84,6 +85,7 @@ def test_missing_local_model_says_how_to_fix_it():
 
 
 def test_confirmation_text_says_where_and_what_it_costs():
+    Brain(claude=Claude()).set_mode("auto")
     assert "Claude" in Brain(claude=Claude()).describe("code")
     assert "locally" in Brain(claude=Claude(key=False)).describe("code")
 

@@ -81,7 +81,8 @@ _CLAIM = re.compile(r"\b(?:has|have|had) been (?:added|scheduled|created|booked|
                     r"deleted|removed|cancel+ed|set up|saved|installed|moved|updated)\b|^\s*yes,? (?:it|that|an event)"
                     r"[^.]*\b(?:added|scheduled|sent|done)\b|^\s*(?:now )?playing\b|^\s*(?:i'?m |i am )?opening\b"
                     r"|\breminder (?:is )?(?:set|added|created)\b|^\s*(?:done|added|scheduled|created|set)\b[ ,:]"
-                    r"|\badded\b.{0,60}\bto your (?:calendar|list|notes|shopping list|reminders)\b", re.I)
+                    r"|\badded\b.{0,60}\bto your (?:calendar|list|notes|shopping list|reminders)\b"
+                    r"|\blights? (?:are |is )?(?:now )?set to\b", re.I)
 NOT_DONE = "No, sir, I haven't done that. Nothing was changed. Tell me exactly what you'd like and I'll do it."
 MISSING_SKILL = ("I don't have a skill for that yet, sir. Once FORGE is live I can build "
                  "one, with your approval.")
@@ -186,6 +187,7 @@ class ToolBelt:
         self.actions: set[str] = set(BUILTIN_ACTIONS) | (registry.actions() if registry else set())
         self.exact: set[str] = set(BUILTIN_EXACT)
         self.fillers: dict[str, Callable] = {**BUILTIN_FILLERS, **(registry.fillers() if registry else {})}
+        self.asks: dict[str, tuple] = registry.asks() if registry and hasattr(registry, "asks") else {}
         schemas = list(BUILTIN_SCHEMAS)
         taken = {t["function"]["name"] for t in schemas}
         # built-ins first, then skills, then MCP: nothing can shadow a trusted tool
@@ -398,7 +400,7 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     m = re.match(polite + r"(?:forget|delete|remove)(?: the fact| that| about)?\s+(.{4,})$", t, re.I)
     vague = ("about it", "it", "that", "this", "that one", "all of it", "everything")
     if m and belt.has("forget_memory") and m.group(1).lower().strip(" .!?") not in vague \
-            and not re.search(r"\bnote\b", m.group(1), re.I):
+            and not re.search(r"\b(note|drafts?|e-?mails?|mails?|inbox)\b", m.group(1), re.I):
         return "forget_memory", {"query": m.group(1).strip().rstrip("?.!")}
     m = re.search(r"what (?:did|have) i (?:tell|told|say|said to) you about (.{2,})$"
                   r"|do you remember (?:anything )?about (.{2,})$", t, re.I)
@@ -434,12 +436,15 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
         return "forge_build", {"request": m.group(1).strip()}
     if belt.has("forge_list") and re.search(r"\b(pending|drafted|waiting) skills?\b|skills? (?:waiting|pending)", t, re.I):
         return "forge_list", {}
-    m = re.search(r"\b(?:switch|go|change|set|use|stay)(?: back)?(?: to| on)?(?: the)?\s+(local|offline|cloud|online|claude|auto|automatic)"
-                  r"(?: mode| models?)?\b|\b(local|cloud|auto) mode\b", t, re.I)
+    m = re.search(r"\b(?:switch|go|change|set|use|stay|keep|put)(?: back)?(?: \w+)?(?: to| on)?(?: the)?\s+"
+                  r"(local|offline|cloud|online|claude|auto|automatic)(?: mode| models?)?\b|\b(local|cloud|auto) mode\b"
+                  r"|\b(?:use|with)\s+(claude)\s+for\b", t, re.I)
     if m and belt.has("set_brain_mode"):
-        word = (m.group(1) or m.group(2)).lower()
+        word = (m.group(1) or m.group(2) or m.group(3)).lower()
         mode = {"offline": "local", "online": "cloud", "claude": "cloud", "automatic": "auto"}.get(word, word)
-        return "set_brain_mode", {"mode": mode}
+        from core.tools_native import feature_from_words
+        feature = feature_from_words(t)
+        return "set_brain_mode", ({"mode": mode, "feature": feature} if feature else {"mode": mode})
     if belt.has("budget_status") and re.search(r"\b(budget|how much (?:have you|did you|did we) spen[dt]|api costs?)\b", t, re.I):
         return "budget_status", {}
 
@@ -561,6 +566,21 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     if m and belt.has("calculate"):
         return "calculate", {"expression": m.group(1).strip()}
 
+    # "volume up to 75%... or no, actually 90%": a number beats "up", and the LAST number is what you meant
+    if re.search(r"\bvolume\b|\b(?:put|set|turn) (?:it|them) (?:up |down )?to\b", t, re.I):
+        nums = re.findall(r"\b(\d{1,3})\s*(?:%|percent)", t, re.I) or \
+            re.findall(r"\bvolume(?: up| down)?(?: to| at)? (\d{1,3})\b", t, re.I)
+        if nums:
+            level = max(0, min(100, int(nums[-1])))
+            if re.search(r"\b(spotify|phone)\b", t, re.I):
+                if belt.has("spotify_volume"):
+                    return "spotify_volume", {"level": level}
+            elif belt.has("set_volume"):
+                return "set_volume", {"level": level}
+    if belt.has("email_delete_drafts") and re.search(
+            r"\b(delete|remove|discard|clear|get rid of|trash)\b.{0,40}\bdrafts?\b", t, re.I):
+        return "email_delete_drafts", {}
+
     simple = [
         (r"what time is it|what'?s the time|^\s*time\s*\??$", "get_datetime", {}),
         (r"\bvolume up\b|\blouder\b|\bturn it up\b", "media_control", {"action": "volup"}),
@@ -579,6 +599,11 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
 
 
 # ============================================================ orchestrator
+class _Blank(dict):
+    def __missing__(self, key):
+        return "them"
+
+
 class HybridOrchestrator:
     def __init__(self, persona: str = "eva", session_id: str | None = None,
                  cortex: Cortex | None = None, registry: SkillRegistry | None = None,
@@ -597,6 +622,7 @@ class HybridOrchestrator:
         self.recent_tools: deque[set[str]] = deque(maxlen=3)   # the last three turns, for longer follow-ups
         self.pending_queue: list[dict] = []        # more confirmations waiting after the current one
         self._last_ack: str | None = None
+        self.awaiting: dict | None = None          # a question is open ("What should the email to Muaad say?")
         self.last_missing: str | None = None       # what FORGE would build if the user says "build it"
         self._stale = False
         self._bg: set[asyncio.Task] = set()
@@ -740,6 +766,8 @@ class HybridOrchestrator:
                 err = ""
             out["say"] = f"That didn't work, sir. {err[:160]}".strip()
         self.bus.publish("tool.executed", {"tool": tool, "args": args, "ok": ok})
+        if out.get("ask_next"):
+            self.awaiting = {"tool": tool, "args": args, "field": out["ask_next"]["field"], "ts": time.time()}
         nxt = out.get("confirm_next")
         if nxt and ok:
             self.pending = {"tool": nxt["tool"], "args": nxt.get("args", {}), "desc": nxt.get("desc", ""), "ts": time.time()}
@@ -748,7 +776,19 @@ class HybridOrchestrator:
         gathered.append((tool, out))
         return events
 
+    def _question(self, tool: str, args: dict) -> str | None:
+        """The tool's required question if its field is still empty; also opens the answer slot."""
+        field, question = self.belt.asks.get(tool, (None, None))
+        if not field or str(args.get(field) or "").strip():
+            return None
+        self.awaiting = {"tool": tool, "args": args, "field": field, "ts": time.time()}
+        return question.format_map(_Blank({k: v for k, v in args.items() if v}))
+
     def _ask_confirmation(self, tool: str, args: dict, user_input: str, used: set) -> list[dict]:
+        q = self._question(tool, args)
+        if q:                                            # first what, then "shall I go ahead?"
+            self._finish(user_input, q, used)
+            return [{"type": "final", "text": q}]
         desc = self.belt.describe(tool, args)
         self.pending = {"tool": tool, "args": args, "desc": desc, "ts": time.time()}
         text = f"Just to confirm, sir: {desc}. Shall I go ahead?"
@@ -819,7 +859,8 @@ class HybridOrchestrator:
         if missing_required(schema, args):
             saved, self.history = self.history, msgs            # the repair call sees only this step
             try:
-                args = {**args, **args_for(schema, await self._repair_args(client, tool), self.belt.names())}
+                args = self.belt.fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool),
+                                                                self.belt.names())}, step)
             finally:
                 self.history = saved
             if missing_required(schema, args):
@@ -859,6 +900,7 @@ class HybridOrchestrator:
     async def _multi(self, client, steps, user_input, gathered, used, ctx) -> AsyncIterator[dict]:
         self._context(user_input, ctx)
         batch, confirms, skipped = [], [], []
+        skipped_q = None
         for step in steps:
             if step["uses_previous"]:
                 async for ev in self._flush(batch, gathered):
@@ -869,6 +911,10 @@ class HybridOrchestrator:
                 skipped.append(step["command"])
                 continue
             tool, args = picked
+            q = self._question(tool, args)
+            if q:
+                skipped_q = q                             # asked at the end; nothing runs for this step
+                continue
             if self.belt.needs_confirm(tool):
                 confirms.append({"tool": tool, "args": args, "desc": self.belt.describe(tool, args)})
                 continue
@@ -900,6 +946,9 @@ class HybridOrchestrator:
                 parts.append(text)
         for cmd in skipped:
             parts.append(f"I didn't do \"{cmd}\", sir; I wasn't sure how.")
+        if skipped_q:
+            parts.append(skipped_q)
+            confirms = []                                 # one open question at a time
         answer = " ".join(dict.fromkeys(p.strip() for p in parts if p.strip()))
         if confirms:
             self.pending_queue = confirms
@@ -1005,6 +1054,30 @@ class HybridOrchestrator:
                     self.pending_queue = []
                     user_input = rest                              # "no, make a skill that ...": handle the rest
 
+            # 0a. the answer to an open question ("What should the email to Muaad say, sir?")
+            if self.awaiting:
+                a, self.awaiting = self.awaiting, None
+                if time.time() - a["ts"] < CONFIRM_TTL_S:
+                    if _NO.search(user_input) and len(user_input.split()) <= 4:
+                        text = "Alright, sir, I won't write it."
+                        self._finish(user_input, text, used)
+                        yield {"type": "final", "text": text}
+                        return
+                    args = {**a["args"], a["field"]: user_input.strip()}
+                    if self.belt.needs_confirm(a["tool"]):
+                        for ev in self._ask_confirmation(a["tool"], args, user_input, used):
+                            yield ev
+                        return
+                    used.add(a["tool"])
+                    async for ev in self._run(a["tool"], args, gathered):
+                        yield ev
+                    answer = ""
+                    async for ev in self._answer(client, gathered, user_input, ctx):
+                        answer = ev["text"] if ev["type"] == "final" else answer
+                        yield ev
+                    self._finish(user_input, answer, used)
+                    return
+
             # 0b. several commands in one sentence (v0.2.5): plan, run, one combined answer
             if not fp_override and multistep.looks_multi(user_input):
                 steps = await multistep.plan(client, self.cfg, user_input)
@@ -1049,7 +1122,7 @@ class HybridOrchestrator:
                         break                      # a tool that already answered is not asked again
                     if not (self.belt.guard_ok(tool, user_input) or tool in self._recent()):
                         logger.info(f"guard: {tool} blocked, the request doesn't ask for it")
-                        if self.belt.is_action(tool) and not gathered:
+                        if self.belt.is_action(tool) and not gathered and not self.belt.needs_confirm(tool):
                             # never let the model claim or deny it: ask about the exact action instead
                             schema = self.belt.by_name[tool]
                             args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), user_input)
@@ -1061,7 +1134,8 @@ class HybridOrchestrator:
                     schema = self.belt.by_name[tool]
                     args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), user_input)
                     if missing_required(schema, args):
-                        args = {**args, **args_for(schema, await self._repair_args(client, tool), self.belt.names())}
+                        args = self.belt.fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool),
+                                                                        self.belt.names())}, user_input)
                         if missing_required(schema, args):
                             logger.warning(f"{tool}: still missing {missing_required(schema, args)}; skipping")
                             break
