@@ -126,7 +126,8 @@ most work with natural variations too. Anything marked **asks first** waits for 
 
 ## Other devices and safety (v0.2.5)
 - By default only this PC can reach E.V.A. To use her from your phone on the same Wi-Fi, set
-  `server: listen: network` in config/settings.local.yaml, restart, and open the pairing link the terminal prints.
+  `server: listen: network` in config/settings.local.yaml and follow docs/PHONE_SETUP.md: she serves HTTPS
+  on port 8443 with her own (name-constrained) certificate, so the phone's microphone works.
 - Websites you visit can't talk to her behind your back (cross-site requests are refused).
 
 ## Installing her as an app

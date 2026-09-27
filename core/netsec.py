@@ -39,6 +39,7 @@ TOKEN_FILE = Path("data/remote_token.txt")
 SECRETS_ENV = Path("config/secrets.env")
 COOKIE = "eva_token"
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+PUBLIC_PATHS = {"/eva-ca.crt"}         # the CA certificate is public: a phone needs it before it can pair
 
 
 def server_cfg() -> dict:
@@ -56,6 +57,15 @@ def bind_host() -> str:
 
 def port() -> int:
     return int(server_cfg().get("port", 8001))
+
+
+def https_enabled() -> bool:
+    """Network mode serves HTTPS too, so phones get a secure page (and with it, the microphone)."""
+    return network_mode() and bool(server_cfg().get("https", True))
+
+
+def https_port() -> int:
+    return int(server_cfg().get("https_port", 8443))
 
 
 def _from_secrets_env(key: str) -> Optional[str]:
@@ -132,11 +142,13 @@ def origin_ok(headers: Mapping[str, str]) -> bool:
 
 
 def verdict(method: str, client_host: Optional[str], headers: Mapping[str, str], query: Mapping[str, str],
-            cookies: Mapping[str, str], websocket: bool = False) -> tuple[bool, str, bool]:
+            cookies: Mapping[str, str], websocket: bool = False, path: str = "") -> tuple[bool, str, bool]:
     """(allowed, reason, set_cookie). set_cookie: a valid ?token= arrived and the browser should keep it."""
     if (websocket or method.upper() in UNSAFE_METHODS) and not origin_ok(headers):
         return False, "cross-site request refused", False
     if is_local(client_host, headers):
+        return True, "", False
+    if method.upper() == "GET" and path in PUBLIC_PATHS and not websocket:
         return True, "", False
     tok = presented_token(headers, query, cookies)
     if token_ok(tok):
@@ -155,6 +167,19 @@ def lan_ip() -> str:
 
 
 def startup_banner() -> str:
+    if https_enabled():
+        from core import tls
+        ip = lan_ip()
+        try:
+            fp = tls.ca_fingerprint()
+        except (OSError, ValueError):
+            fp = "(created at first start)"
+        return (f"  E.V.A. -> http://localhost:{port()}   (this PC)\n"
+                f"  Phone, first time only: install E.V.A.'s certificate from  http://{ip}:{port()}/eva-ca.crt\n"
+                f"    (fingerprint starts {fp}); see docs/PHONE_SETUP.md\n"
+                f"  Then open this once, it pairs the browser:\n"
+                f"    https://{ip}:{https_port()}/?token={load_token()}\n"
+                f"  Apps: send the header  Authorization: Bearer <token>  (token in {TOKEN_FILE} or EVA_REMOTE_TOKEN)")
     if not network_mode():
         return (f"  E.V.A. -> http://localhost:{port()}   (this PC only; set server.listen: network "
                 f"in config/settings.local.yaml for other devices)")

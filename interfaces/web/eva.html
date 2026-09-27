@@ -1030,6 +1030,7 @@ function micTouch() {                                          // tap mode: free
 function sendCtl(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
 function armServer(ms, hint) { sendCtl({ type: 'listen', arm: ms }); setState('listening'); E.setHint(hint || 'Listening...'); micTouch(); }
 async function tapServer() {
+  if (micBlocked()) return;
   if (await micStart()) armServer(8000, 'Listening...');
   else { idleHint(); listen(0); }
 }
@@ -1057,7 +1058,15 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null, fol = null, wakeRec = null;
 function stopListening() { for (const r of [rec, fol, wakeRec]) if (r) { try { r.onend = null; r.stop(); } catch (_) {} } rec = fol = wakeRec = null; }
 function recognizer(continuous) { const r = new SR(); r.lang = 'en-US'; r.interimResults = true; r.continuous = continuous; return r; }
+function micBlocked() {                                       // browsers allow the mic only on https or localhost
+  if (window.isSecureContext !== false) return false;
+  caption("I can't use the microphone on this page, sir. It needs a secure connection.");
+  E.setHint('Open the https:// link from E.V.A.\'s terminal to talk here');
+  setState('idle');
+  return true;
+}
 function listen(windowMs) {
+  if (micBlocked()) return;
   if (!SR) { E.setHint('Voice input needs Chrome or Edge. Type instead.'); return; }
   stopListening(); const r = recognizer(false); let fin = '';
   if (windowMs) fol = r; else rec = r;

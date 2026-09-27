@@ -106,3 +106,11 @@ def immediate_acks(monkeypatch):
     import core.orchestrator_hybrid as orch
     monkeypatch.setattr(orch, "ACK_AFTER_OVERRIDE", 0.0)
     yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_tls(tmp_path, monkeypatch):
+    """Never your real data/tls (the CA your phone trusts)."""
+    import core.tls as tls
+    monkeypatch.setattr(tls, "DIR", tmp_path / "tls")
+    yield

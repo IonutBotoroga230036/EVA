@@ -10,6 +10,8 @@ server:
   # (the terminal prints a one-time pairing link; apps send "Authorization: Bearer <token>").
   listen: "local"
   port: 8001
+  https: true                          # network mode also serves HTTPS, so phones can use the mic (docs/PHONE_SETUP.md)
+  https_port: 8443
   allowed_origins: []                  # extra web origins allowed to call her, e.g. ["http://localhost:5173"]
 
 personas:

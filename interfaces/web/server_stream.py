@@ -179,8 +179,13 @@ if _extra_origins:                         # no wildcard: only origins you list 
 async def network_guard(request, call_next):
     """This PC is trusted; remote devices need the token; cross-site writes are refused. See core/netsec.py."""
     host = request.client.host if request.client else None
+    if (netsec.https_enabled() and request.url.scheme == "http" and request.url.path not in netsec.PUBLIC_PATHS
+            and not netsec.is_local(host, request.headers)):
+        # other devices use HTTPS (the mic needs a secure page); the pairing token travels along
+        target = request.url.replace(scheme="https", port=netsec.https_port())
+        return RedirectResponse(str(target), status_code=307)
     ok, reason, set_cookie = netsec.verdict(request.method, host, request.headers, request.query_params,
-                                            request.cookies)
+                                            request.cookies, path=request.url.path)
     if not ok:
         logger.warning(f"NETSEC: refused {request.method} {request.url.path} from {host}: {reason}")
         code = 403 if reason.startswith("cross-site") else 401
@@ -189,7 +194,7 @@ async def network_guard(request, call_next):
         clean = request.url.remove_query_params("token")
         resp = RedirectResponse(clean.path + (f"?{clean.query}" if clean.query else ""), status_code=303)
         resp.set_cookie(netsec.COOKIE, request.query_params["token"], httponly=True, samesite="strict",
-                        max_age=365 * 24 * 3600)
+                        max_age=365 * 24 * 3600, secure=request.url.scheme == "https")
         logger.info(f"NETSEC: paired a browser at {host}")
         return resp
     return await call_next(request)
@@ -215,6 +220,17 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', () => {});
 """
+
+
+@app.get("/eva-ca.crt")
+async def eva_ca():
+    """E.V.A.'s local CA certificate, for installing on a phone (public; the key never leaves this PC)."""
+    from core import tls
+    path = tls.ca_path()
+    if not path.exists():
+        return PlainTextResponse("No certificate yet: set server.listen: network and restart E.V.A.", status_code=404)
+    return Response(path.read_bytes(), media_type="application/x-x509-ca-cert",
+                    headers={"Content-Disposition": 'attachment; filename="eva-ca.crt"'})
 
 
 @app.get("/manifest.webmanifest")
@@ -495,6 +511,8 @@ async def ws(websocket: WebSocket):
     host = websocket.client.host if websocket.client else None
     ok, reason, _ = netsec.verdict("GET", host, websocket.headers, websocket.query_params, websocket.cookies,
                                    websocket=True)
+    if ok and netsec.https_enabled() and websocket.url.scheme == "ws" and not netsec.is_local(host, websocket.headers):
+        ok, reason = False, "other devices must use wss:// (HTTPS)"
     if not ok:
         logger.warning(f"NETSEC: refused WebSocket from {host}: {reason}")
         await websocket.close(code=1008)                   # before accept: the handshake gets a 403
@@ -508,6 +526,27 @@ async def ws(websocket: WebSocket):
         logger.info(f"client disconnected (session {conn.session_id})")
 
 
+async def _serve_both(cert: str, key: str) -> None:
+    """HTTP on :8001 (this PC; phones only get the CA and a redirect) and HTTPS on :8443 for other devices.
+    One app, one lifespan: the HTTPS server skips startup/shutdown so ORACLE and Telegram run once."""
+    plain = uvicorn.Server(uvicorn.Config(app, host=netsec.bind_host(), port=netsec.port(), log_level="info"))
+    secure = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=netsec.https_port(), log_level="info",
+                                           ssl_certfile=cert, ssl_keyfile=key, lifespan="off"))
+    tasks = [asyncio.create_task(plain.serve()), asyncio.create_task(secure.serve())]
+    await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    plain.should_exit = secure.should_exit = True           # one stops (Ctrl+C), both stop
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
 if __name__ == "__main__":
-    print("\n" + netsec.startup_banner() + "\n")
-    uvicorn.run(app, host=netsec.bind_host(), port=netsec.port(), log_level="info")
+    if netsec.https_enabled():
+        from core import tls
+        cert_file, key_file = tls.ensure([netsec.lan_ip()])
+        print("\n" + netsec.startup_banner() + "\n")
+        try:
+            asyncio.run(_serve_both(cert_file, key_file))
+        except KeyboardInterrupt:
+            pass
+    else:
+        print("\n" + netsec.startup_banner() + "\n")
+        uvicorn.run(app, host=netsec.bind_host(), port=netsec.port(), log_level="info")
