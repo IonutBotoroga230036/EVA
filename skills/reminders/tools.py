@@ -1,6 +1,7 @@
 """Reminders skill: the conversation side of core/oracle.py."""
 
 import json
+import re
 from datetime import datetime, timedelta
 
 from core.oracle import briefing, describe_routine, get_oracle, parse_routine, when_words
@@ -53,7 +54,13 @@ TOOLS = [
 ]
 
 
+_REPEAT = re.compile(r"\b(every|each|daily|weekdays?|weekends?|mondays|tuesdays|wednesdays|thursdays|fridays|"
+                     r"saturdays|sundays)\b", re.I)
+
+
 def set_reminder(text: str = "", when: str = "", **_):
+    if _REPEAT.search(f"{when} {text}"):                      # "every weekday at 8": that's a routine
+        return schedule_routine(request=f"{when} {text}".strip())
     text = (text or "").strip()
     if not text:
         return {"result": json.dumps({"error": "nothing to remind"}), "say": "What should I remind you about, sir?"}
@@ -104,7 +111,12 @@ def do_not_disturb(minutes: int = 60, **_):
             "say": f"Understood, sir. I'll stay quiet until {until:%H:%M} and keep your reminders for you."}
 
 
+_BRIEF = re.compile(r"\b(?:brief|believe|breathe|brave|breed|breathing)\s+me\b", re.I)   # Whisper on "brief me"
+
+
 def schedule_routine(request: str = "", **_):
+    if _REPEAT.search(request or ""):
+        request = _BRIEF.sub("brief me", request)
     r = parse_routine(request)
     if not r:
         return {"result": json.dumps({"error": "couldn't parse"}),

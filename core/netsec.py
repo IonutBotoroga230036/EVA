@@ -132,6 +132,9 @@ def origin_ok(headers: Mapping[str, str]) -> bool:
         return True
     netloc = urlsplit(origin).netloc.lower()
     host = (headers.get("host") or "").lower()
+    fwd = (headers.get("x-forwarded-host") or "").lower()       # behind Tailscale Serve: the browser's real host
+    if netloc and fwd and netloc == fwd:
+        return True
     if netloc and netloc == host:
         return True
     # localhost and 127.0.0.1 are the same PC: allow either spelling against the other
@@ -167,6 +170,12 @@ def lan_ip() -> str:
 
 
 def startup_banner() -> str:
+    from core import tailnet
+    line = tailnet.banner_line(port())
+    return _banner() + (f"\n{line}" if line else "")
+
+
+def _banner() -> str:
     if https_enabled():
         from core import tls
         ip = lan_ip()

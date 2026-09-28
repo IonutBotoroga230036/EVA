@@ -87,11 +87,31 @@ _CLAIM = re.compile(r"\b(?:has|have|had) been (?:added|scheduled|created|booked|
                     r"|^\s*i (?:set|turned|changed|played|started|opened|put|drafted|sent)\b"
                     r"|\b(?:e-?mail|message|draft|reminder)s? (?:was |were |has been |have been )?sent\b"
                     r"|\bsent (?:it |the e-?mail |your e-?mail |a message |the message )?to\b"
-                    r"|\b(?:tasks?|all|everything) (?:is |are |has been |have been )?(?:completed|done|finished)\b", re.I)
+                    r"|\b(?:tasks?|all|everything) (?:is |are |has been |have been )?(?:completed|done|finished)\b"
+                    r"|\b(?:calendar|event|reminder|list|playlist|routine)s? (?:is |was |has been )?(?:updated|changed|moved|booked)\b"
+                    r"|^\s*(?:spotify |pc |system )?(?:volume|brightness) (?:is |set )?(?:now )?(?:at|to) \d+", re.I)
 
-WEATHER_RX = re.compile(r"\b(weather|forecast|temperature|rain(?:ing|y)?|umbrella|snow(?:ing)?|how (?:cold|warm|hot))\b",
+WEATHER_RX = re.compile(r"\b(weather|forecast|temperature|rain(?:ing|y)?|raincoat|umbrella|snow(?:ing)?|how (?:cold|warm|hot))\b",
                         re.I)
 _PLACE_RX = re.compile(r"\b(?:in|for|at|around)\s+([A-Z][A-Za-z'\-]+(?:\s+[A-Z][A-Za-z'\-]+){0,2})")
+
+
+def volume_level(n: int) -> int:
+    """Whisper hears "to fifty" as "250": 200-300 means "to" + the number. Always 0-100."""
+    if 200 <= n <= 300:
+        n -= 200
+    return max(0, min(100, n))
+
+
+_CANCEL = re.compile(r"^\s*(?:no[,.!]?\s*)?(?:never ?mind|forget (?:it|about it)|don'?t(?: do it| bother)?|do not|cancel(?: that| it)?|"
+                     r"nothing|no thanks?|it'?s (?:fine|ok|okay|alright)|leave it)(?:[\s,.!]+(?:it'?s (?:fine|ok|okay)|thanks?|"
+                     r"please|sir))*[\s.!]*$", re.I)
+_MD_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://)[^)]+\)")
+
+
+def spoken(text: str) -> str:
+    """Markdown links and bold are for screens; she says the words."""
+    return re.sub(r"\*\*|__", "", _MD_LINK.sub(r"\1", text or "")).strip()
 
 
 def place_from(text: str) -> str:
@@ -262,7 +282,8 @@ class ToolBelt:
                 return text if isinstance(text, str) else f"run {name}"
         if self.is_mcp(name):
             return self.mcp.describe(name, args)
-        return f"run {name}"
+        details = ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in (args or {}).items() if v not in (None, "", [], {}))
+        return name.replace("_", " ") + (f" ({details})" if details else "")
 
     def list_text(self) -> str:
         return "\n".join(f"- {n}: {t['function']['description']}" for n, t in self.by_name.items())
@@ -365,7 +386,7 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     m = re.search(r"(?:set |turn |change )?(?:the )?volume (?:to |at )?(\d{1,3})\s*%?", t, re.I)
     if m and re.search(r"\b(spotify|phone)\b", t, re.I):   # "the Spotify volume": never the PC's volume
         if belt.has("spotify_volume"):
-            return "spotify_volume", {"level": int(m.group(1))}
+            return "spotify_volume", {"level": volume_level(int(m.group(1)))}
         m = None
     if m and belt.has("set_volume"):
         return "set_volume", {"level": int(m.group(1))}
@@ -593,7 +614,7 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
         nums = re.findall(r"\b(\d{1,3})\s*(?:%|percent)", t, re.I) or \
             re.findall(r"\bvolume(?: up| down)?(?: to| at)? (\d{1,3})\b", t, re.I)
         if nums:
-            level = max(0, min(100, int(nums[-1])))
+            level = volume_level(int(nums[-1]))
             if re.search(r"\b(spotify|phone)\b", t, re.I):
                 if belt.has("spotify_volume"):
                     return "spotify_volume", {"level": level}
@@ -609,6 +630,29 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     if m and belt.has("set_conversation_mode"):
         word = next(g for g in m.groups() if g).lower()
         return "set_conversation_mode", {"on": word in ("on", "enable")}
+
+    # "add coffee with Tom tomorrow at 3": a calendar event (it asks first), never a silent refusal
+    m = re.match(r"^(?:please |can you |could you |would you )?(?:add|put|schedule|book)\s+(.+?)\s+"
+                 r"((?:tomorrow|today|tonight|on \w+day|next \w+day)(?:\s+at\s+[\w:. ]+?)?|at\s+\d{1,2}(?:[:.]\d{2})?"
+                 r"(?:\s*(?:am|pm|o'?clock))?(?:\s+(?:tomorrow|today|tonight|on \w+day))?)[?.!]*$", t, re.I)
+    if m and belt.has("calendar_add") and not re.search(r"\b(remind|reminder|list|note|shopping|grocery)\b", t, re.I):
+        from core.weather import extract_when
+        day, hour = extract_when(t)
+        tm = re.search(r"\bat\s+(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm|o'?clock)?)", m.group(2), re.I)
+        return "calendar_add", {"title": re.sub(r"^(?:a |an |my )", "", m.group(1).strip()),
+                                **({"day": day} if day else {}), **({"time": tm.group(1).strip()} if tm else {})}
+    m = re.search(r"\b(?:move|reschedule|push|change)\s+(?:my\s+|the\s+)?(?!everything\b|all\b)(.+?)\s+(?:to|for|at)\s+"
+                  r"(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm|o'?clock)?)", t, re.I)
+    if m and belt.has("calendar_move"):
+        return "calendar_move", {"title": re.sub(r"\s+(?:tomorrow|today)$", "", m.group(1).strip()),
+                                 "time": m.group(2).strip()}
+    if belt.has("forge_status") and re.search(
+            r"\bhow(?:'s| is) (?:the |my |that |this )?(?:skill|build|building|forge)\b|\bis (?:the skill|the build|it) "
+            r"(?:done|ready|finished)\b|\bhow(?:'s| is) (?:it|that|this) going\b", t, re.I):
+        from core.forge_jobs import get_jobs
+        last = get_jobs().latest()
+        if re.search(r"\b(skill|build|forge)\b", t, re.I) or (last and time.time() - (last.finished or last.created) < 1800):
+            return "forge_status", {}
 
     # weather words always mean the weather tool, never a web search (Sep 27: invented 12 and 3 degrees)
     if belt.has("get_weather") and WEATHER_RX.search(t) and not re.search(
@@ -850,7 +894,7 @@ class HybridOrchestrator:
             return
         if any(t == "web_search" for t, _ in gathered):   # web answers are checked BEFORE they are spoken
             self._context(user_input, ctx)
-            text = await self._grounded_web_answer(client, ctx, gathered, user_input)
+            text = spoken(await self._grounded_web_answer(client, ctx, gathered, user_input))
             acted = any(self.belt.is_action(t) and '"error"' not in out.get("result", "") for t, out in gathered)
             if not acted and _CLAIM.search(text):
                 logger.warning(f"claim guard (web): {text!r} but no action ran")
@@ -1126,11 +1170,24 @@ class HybridOrchestrator:
             fp_override = None
 
         async with httpx.AsyncClient(timeout=120) as client:
+            # -1. "never mind" / "don't" / "it's fine": drop whatever was open, do nothing
+            if _CANCEL.match(user_input):                  # never a request of its own: always a quiet no-op
+                self.pending, self.awaiting, self.pending_queue = None, None, []
+                text = "Okay, sir."
+                self._finish(user_input, text, used)
+                yield {"type": "final", "text": text}
+                return
+
             # 0. an answer to "shall I go ahead?"
             if self.pending:
                 p, self.pending = self.pending, None
                 fresh = time.time() - p["ts"] < CONFIRM_TTL_S
-                if fresh and _YES.search(user_input):
+                loose_yes = (re.search(r"\b(yes|yeah|yep|sure|go ahead|do it|please do|correct|right)\b", user_input, re.I)
+                             and len(user_input.split()) <= 10 and not _NO.search(user_input))
+                if fresh and (_YES.search(user_input) or loose_yes):
+                    extra = self.belt.fill(p["tool"], dict(p["args"]), user_input)      # "At 3 o'clock, yes"
+                    p["args"] = {**p["args"], **{k: extra[k] for k in ("day", "time", "when", "hour", "level")
+                                                 if extra.get(k) and extra.get(k) != p["args"].get(k)}}
                     audit.log("confirm_granted", "orchestrator", {"tool": p["tool"]})
                     used.add(p["tool"])
                     async for ev in self._run(p["tool"], p["args"], gathered):
@@ -1226,6 +1283,10 @@ class HybridOrchestrator:
                         return
                     if tool == "none" or not self.belt.has(tool) or tool in succeeded:
                         break                      # a tool that already answered is not asked again
+                    if tool in ("web_search", "think_deeply") and not gathered and conversation.enabled() and \
+                            conversation.wants(user_input) and not WEATHER_RX.search(user_input):
+                        logger.info(f"conversation: talking, not a {tool}")
+                        break                                  # the conversation lane answers below
                     if tool == "web_search" and self.belt.has("get_weather") and \
                             WEATHER_RX.search(f"{user_input} {decision.get('query', '')}"):
                         place = place_from(f"{user_input} {decision.get('query', '')}")

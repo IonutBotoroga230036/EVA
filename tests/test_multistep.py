@@ -257,7 +257,7 @@ def test_a_guard_blocked_action_asks_instead_of_pretending(tmp_path, registry, m
     calls(registry).clear()
     o = orch(tmp_path, registry)
     text = final(turn(o, "Add coffee with Tom tomorrow at 3 o'clock"))
-    assert text == "Just to confirm, sir: run remind_set. Shall I go ahead?"
+    assert text == "Just to confirm, sir: remind set (text coffee with Tom tomorrow at 15:00). Shall I go ahead?"
     assert calls(registry) == [] and seen["answers"] == 0 and o.pending["tool"] == "remind_set"
 
 

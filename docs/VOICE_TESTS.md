@@ -145,11 +145,26 @@ most voice bugs show up.
 | 12.4 | "Add coffee with Tom tomorrow at 3." | Asks before doing anything ("Just to confirm, sir: ..."). Never claims it's done. |
 | 12.5 | Any answer with a number from a web search | Only numbers that are in the results, or "the results don't give that". |
 
-## 13. Phone (network mode)
+## 13. Calendar changes and cancelling (Sep 27 night)
+
+| # | Say | Expect |
+|---|---|---|
+| 13.1 | "Add coffee with Tom tomorrow at 3." | "Just to confirm, sir: add coffee with Tom to your calendar tomorrow at 3." |
+| 13.2 | "Move coffee with Tom to 4pm." | Asks, then moves only that event (same day, same length). |
+| 13.3 | "Push everything an hour later." | The whole rest of the day, after a yes. |
+| 13.4 | *(when she asks "Shall I go ahead?")* "At 3 o'clock, yes." | Does it, at 15:00. |
+| 13.5 | "Remind me to stretch" then "Never mind." then "Don't." | "Okay, sir." each time, nothing set. |
+| 13.6 | "Every weekday at 8, brief me." | A routine (panel > Routines), not a one-off reminder. |
+| 13.7 | "Set the Spotify volume to 50." *(heard as "250")* | 50, never above 100. |
+| 13.8 | *(music playing)* stay quiet for a minute | No turns from lyrics; "Eva, ..." still works. |
+
+## 14. Phone (network mode)
 
 | # | Do | Expect |
 |---|---|---|
-| 13.1 | Open `https://<pc-ip>:8443` on the phone | Padlock, no warning. |
-| 13.2 | Tap the mic on the phone | Listens; the mic works. |
-| 13.3 | Open `http://<pc-ip>:8001` on the phone | Redirects to https. |
-| 13.4 | Another device without the token | Refused. |
+| 14.1 | Open `https://<pc-ip>:8443` on the phone | Padlock, no warning. |
+| 14.2 | Tap the mic on the phone | Listens; the mic works. |
+| 14.3 | Open `http://<pc-ip>:8001` on the phone | Redirects to https. |
+| 14.4 | Another device without the token | Refused. |
+| 14.5 | App via Tailscale, on mobile data | Connects, talks, answers. |
+| 14.6 | Long-press power (after "Make E.V.A. my phone assistant") | E.V.A. opens, listening. |

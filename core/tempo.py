@@ -162,6 +162,23 @@ def find_event(google, title: str, day: str = "today") -> Optional[dict]:
     return best if score >= 0.55 else None
 
 
+def move_event_to(google, title: str, time_text: str, day: str = "") -> dict:
+    """'Move coffee with Tom to 4pm': that one event, same length. The day stays unless you name one."""
+    e = find_event(google, title, day or "today")
+    if not e:
+        return {"error": "not found", "say": f"I couldn't find {title} in your calendar, sir."}
+    if e.get("all_day"):
+        return {"error": "all day", "say": f"{e['title']} is an all-day event, sir; I can't give it a time."}
+    base = resolve_start(day, time_text) if day else resolve_start("today", time_text)
+    if not base:
+        return {"error": "no time given", "say": f"What time should {e['title']} move to, sir?"}
+    start = base if day else e["start"].replace(hour=base.hour, minute=base.minute, second=0, microsecond=0)
+    length = (e["end"] - e["start"]) if e.get("end") else timedelta(hours=1)
+    google.move_event(e["id"], start, start + length)
+    return {"moved": e["title"], "start": start.isoformat(),
+            "say": f"Moved {e['title']} to {start:%A} at {_hm(start)}, sir."}
+
+
 def delete_event(google, title: str, day: str = "today") -> dict:
     e = find_event(google, title, day)
     if not e:

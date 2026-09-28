@@ -142,3 +142,12 @@ def isolate_conversation(tmp_path, monkeypatch):
     import core.conversation as conv
     monkeypatch.setattr(conv, "STATE", tmp_path / "conversation.json")
     yield
+
+
+@pytest.fixture(autouse=True)
+def no_real_tailscale(monkeypatch):
+    """Never run the real tailscale CLI in tests."""
+    import core.tailnet as tn
+    monkeypatch.setattr(tn, "_run", lambda args: None)
+    tn._cache.update(t=0.0, v=None)
+    yield

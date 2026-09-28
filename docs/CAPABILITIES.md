@@ -156,6 +156,12 @@ most work with natural variations too. Anything marked **asks first** waits for 
   on port 8443 with her own (name-constrained) certificate, so the phone's microphone works.
 - Websites you visit can't talk to her behind your back (cross-site requests are refused).
 
+## E.V.A. on your phone (v0.3)
+- The Android app (apps/eva_android): talk to her, hear her voice, confirm actions with buttons, type.
+- From anywhere with Tailscale (docs/REMOTE_ACCESS.md), or on home Wi-Fi.
+- "Make E.V.A. my phone assistant": long-press power opens her, already listening.
+- While the app is open: "Eva, ..." hands-free. (Screen-off wake word is the next step.)
+
 ## Installing her as an app
 - Edge or Chrome: open http://localhost:8001, click the install icon in the address bar.
 

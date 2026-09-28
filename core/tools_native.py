@@ -78,7 +78,30 @@ def _fill_spotify(args: dict, text: str) -> dict:
     return out
 
 
-ARG_FILLERS = {"get_weather": fill_from_words, "spotify_play": _fill_spotify}
+def _fill_level(args: dict, text: str) -> dict:
+    """Volume is 0-100 whatever the model or Whisper made of it ("250" was "to fifty")."""
+    out = dict(args)
+    try:
+        n = int(float(out.get("level", 0)))
+    except (TypeError, ValueError):
+        return out
+    if 200 <= n <= 300:
+        n -= 200
+    out["level"] = max(0, min(100, n))
+    return out
+
+
+def _fill_currency(args: dict, text: str) -> dict:
+    out = dict(args)
+    for k in ("from_currency", "to_currency"):
+        v = str(out.get(k) or "").strip().lower()
+        if v in ("lay", "lays", "lei", "leu"):
+            out[k] = "RON"
+    return out
+
+
+ARG_FILLERS = {"get_weather": fill_from_words, "spotify_play": _fill_spotify, "spotify_volume": _fill_level,
+               "set_volume": _fill_level, "convert_currency": _fill_currency}
 
 # The user's message must match before an action runs (case-insensitive search).
 GUARDS = {
@@ -471,7 +494,7 @@ def tool_open_website(site: str = "", **_):
 
 
 _CUR = {"euro": "EUR", "euros": "EUR", "eur": "EUR", "€": "EUR", "dollar": "USD", "dollars": "USD", "usd": "USD", "$": "USD",
-        "pound": "GBP", "pounds": "GBP", "gbp": "GBP", "£": "GBP", "lei": "RON", "leu": "RON", "ron": "RON",
+        "pound": "GBP", "pounds": "GBP", "gbp": "GBP", "£": "GBP", "lay": "RON", "lays": "RON", "lei": "RON", "leu": "RON", "ron": "RON",
         "yen": "JPY", "jpy": "JPY", "franc": "CHF", "francs": "CHF", "chf": "CHF", "zloty": "PLN", "pln": "PLN"}
 _COINS = {"bitcoin": "bitcoin", "btc": "bitcoin", "ethereum": "ethereum", "eth": "ethereum", "solana": "solana",
           "sol": "solana", "dogecoin": "dogecoin", "doge": "dogecoin", "cardano": "cardano", "ada": "cardano",

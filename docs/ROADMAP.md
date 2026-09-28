@@ -24,11 +24,14 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 ## v0.3 "Mobile and Autonomy"
 | # | Milestone | What you get |
 |---|---|---|
-| 8 | **Private remote access** | Tailscale: your phone reaches E.V.A. at home securely from anywhere, no open ports. |
-| 9 | **E.V.A. for Android** (Flutter) | Talks to the v0.2.5 voice pipeline. Set as your default assistant (long-press power), an on-device "Hey Eva" wake word in a background service, push notifications, cards, and location for store reminders. Runs alongside "Hey Google". |
+| 8 | **Private remote access** (built, awaiting hardware test) | Tailscale: your phone reaches E.V.A. at home securely from anywhere, no open ports. |
+| 9 | **E.V.A. for Android** (Flutter; first version built: talk, listen, voice, confirmations, default assistant) | Talks to the v0.2.5 voice pipeline. Set as your default assistant (long-press power), an on-device "Hey Eva" wake word in a background service, push notifications, cards, and location for store reminders. Runs alongside "Hey Google". |
 | 10 | **ORACLE v2: proposals** | She plans with you: "Sir, you have a free evening tomorrow and haven't worked on ZippZapp this week. Plan a session, or relax since it's the weekend?" Project tracking, weekly review. |
 | 11 | **Deep research** | Research across your notes and the web in the background, with a cited report written to Obsidian and a notification when it's ready. |
 | 12 | **Voice identity** | A custom "Hey Eva" wake word trained on your voice, and speaker verification so she only takes commands from you. |
+| 9b | **Android, hands-free** | On-device "Hey Eva" in a foreground service (screen off), a VoiceInteractionService overlay above the current app, push notifications. |
+| 13a | **FORGE Code: E.V.A. edits her own projects** | "Eva, make the orb bigger in the phone app": she reads apps/eva_android, proposes a diff, runs `flutter analyze` and the tests, shows you the change, and applies it on a git branch only after your yes. Never on main, never unattended. |
+| 13b | **FORGE crew** | Separate roles instead of one model grading its own homework: a planner, a coder, an independent test writer, and a reviewer. Sequential on the local GPU; parallel only with Claude. |
 | 13 | **FORGE v1.1** | Skills delivered as pull requests from her own GitHub account, a Docker sandbox, and a Hermes skill importer through the same safety review. You approve every merge. |
 
 ## v0.4 "Presence"

@@ -87,8 +87,12 @@ Rules:
   network_hosts, always with a timeout. Prefer free services that need no API key.
 - Files: only read or write under data/skills/<name>/ (relative path).
 - Keep tools.py under 200 lines. Simple, readable, correct.
-- If the request can't be done safely this way (needs hardware, a paid key, other software, or admin
-  rights), set feasible=false and explain in reason."""
+- Prefer computing things OFFLINE when a formula exists: the moon phase from the date (synodic month
+  29.530588853 days from the new moon of 2000-01-06 18:14 UTC), unit and date maths, calendars, sunrise
+  estimates. That needs no network at all.
+- Needing the internet is NEVER by itself a reason for feasible=false: list the host and use it.
+- Only if the request needs a paid key, an account or login, hardware, other software, or admin rights,
+  set feasible=false and explain in reason."""
 
 WRITE_SKILL_TOOL = {
     "name": "write_skill",

@@ -223,7 +223,7 @@ class Spotify:
         name = (m.group(1) if m else re.sub(r"^(?:my|the)\s+", "", low)).strip()
         mine = self.match_mine(name, threshold=0.6 if said_playlist else 0.72)
         if mine:                                   # your library first, all of it, even when misheard
-            return {"context_uri": mine["uri"], "label": f"your {mine['name']} playlist"}
+            return {"context_uri": mine["uri"], "label": _pl(f"your {mine['name']}")}
         kind = "playlist" if "playlist" in low else "album" if "album" in low else None
         term = re.sub(r"\b(the |my )?(playlist|album)( called| named)?\b", "", q, flags=re.I).strip()
         res = self.req("GET", "/search", params={"q": term, "type": kind or "artist,track,playlist", "limit": 3})
@@ -239,7 +239,7 @@ class Spotify:
             t = tracks[0]
             return {"uris": [t["uri"]], "label": f"{t['name']} by {t['artists'][0]['name']}"}
         if lists:
-            return {"context_uri": lists[0]["uri"], "label": f"the {lists[0]['name']} playlist"}
+            return {"context_uri": lists[0]["uri"], "label": _pl(f"the {lists[0]['name']}")}
         if artists:
             return {"context_uri": artists[0]["uri"], "label": artists[0]["name"]}
         raise LookupError(f"nothing on Spotify matches {what}")
@@ -321,3 +321,8 @@ if __name__ == "__main__":
     else:
         authorize_interactive()
         print("Signed in. E.V.A. can now control your Spotify.")
+
+
+def _pl(name: str) -> str:
+    """'your the weeknd sex playlist' stays as is; 'your Chill' becomes 'your Chill playlist'."""
+    return name if name.lower().rstrip().endswith("playlist") else f"{name} playlist"

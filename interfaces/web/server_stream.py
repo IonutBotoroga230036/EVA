@@ -45,6 +45,7 @@ Each reply runs as its own task, so a new message or a stop cancels it mid-sente
 from __future__ import annotations
 
 import asyncio
+import re
 import base64
 import json
 import threading
@@ -250,6 +251,11 @@ self.addEventListener('fetch', () => {});
 """
 
 
+def _remote_status() -> dict:
+    from core import tailnet
+    return tailnet.state(netsec.port())
+
+
 def _forge_jobs_status() -> dict:
     from core.forge_jobs import get_jobs
     jobs = get_jobs()
@@ -354,6 +360,7 @@ async def status():
         "brain": await asyncio.to_thread(get_brain().overview),
         "forge_jobs": _forge_jobs_status(),
         "conversation": {"enabled": conversation.enabled()},
+        "remote": await asyncio.to_thread(_remote_status),
         "mcp": get_mcp().status(),
         "recent_events": get_bus().recent(20),
     })
@@ -372,6 +379,7 @@ class Connection:
         self._send_lock = asyncio.Lock()     # token and audio sends come from two tasks
         self.stt: dict = {"engine": "browser"}
         self.listener = None                 # built on the first audio frame or listen message
+        self.music_on = False                # E.V.A. started music and nobody stopped it: lyrics aren't commands
         self._listener_lock = asyncio.Lock()
         self._resample = Resampler(16000)
         self._audio_errors = 0
@@ -418,7 +426,12 @@ class Connection:
                 elif kind == "final":
                     rest = chunker.flush() if streamed else event["text"]
                     await speaker.say(rest)
-            follow = not (set(getattr(self.orch, "last_tools", ()) or ()) & MUSIC_TOOLS)
+            tools = set(getattr(self.orch, "last_tools", ()) or ())
+            if tools & MUSIC_TOOLS or ("media_control" in tools and re.search(r"\b(play|resume)\b", text, re.I)):
+                self.music_on = True
+            elif "media_control" in tools and re.search(r"\b(stop|pause|quiet)\b", text, re.I):
+                self.music_on = False
+            follow = not self.music_on             # while music plays, only "Eva, ..." (or a tap) starts a turn
             meta = {"type": "turn_meta", "turn": turn, "follow_up": follow}
             if getattr(self.orch, "last_lane", "") == "conversation":
                 ms = conversation.follow_window_ms(last_final)

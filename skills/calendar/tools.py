@@ -33,6 +33,12 @@ TOOLS = [
             "minutes": {"type": "integer", "description": "Positive = later, negative = earlier."},
             "day": {"type": "string"}}, "required": ["minutes"]}}},
     {"type": "function", "function": {
+        "name": "calendar_move",
+        "description": "Move ONE event to a new time, e.g. 'move coffee with Tom to 4pm'.",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"}, "time": {"type": "string"}, "day": {"type": "string"}},
+            "required": ["title", "time"]}}},
+    {"type": "function", "function": {
         "name": "calendar_delete",
         "description": "Remove an event from the calendar.",
         "parameters": {"type": "object", "properties": {
@@ -75,28 +81,36 @@ def calendar_shift(minutes: int = 60, day: str = "today", **_):
     return _run(tempo.shift_events, int(minutes or 60), day or "today")
 
 
+def calendar_move(title: str = "", time: str = "", day: str = "", **_):
+    return _run(tempo.move_event_to, title, time, day or "")
+
+
 def calendar_delete(title: str = "", day: str = "today", **_):
     return _run(tempo.delete_event, title, day or "today")
 
 
 FUNCTIONS = {"calendar_agenda": calendar_agenda, "calendar_next": calendar_next, "calendar_free": calendar_free,
-             "calendar_add": calendar_add, "calendar_delete": calendar_delete, "calendar_shift": calendar_shift}
+             "calendar_add": calendar_add, "calendar_delete": calendar_delete, "calendar_shift": calendar_shift,
+             "calendar_move": calendar_move}
 ACKS = {"calendar_agenda": "One moment, sir. Pulling up your calendar.",
         "calendar_free": "Let me look at your calendar, sir.",
         "calendar_next": "One moment, sir."}
-ACTIONS = ["calendar_add", "calendar_delete", "calendar_shift"]
+ACTIONS = ["calendar_add", "calendar_delete", "calendar_shift", "calendar_move"]
 GUARDS = {
     "calendar_agenda": r"\b(calendar|schedule|agenda|plans?|meetings?|events?|appointments?|busy|doing|booked|on for)\b",
     "calendar_free": r"\b(free|opening|gap|available|slot|time for|room for)\b",
     "calendar_next": r"\b(next|now|coming up|upcoming|later)\b",
     "calendar_add": r"\b(add|schedule|book|put|create|set up|plan|block)\b",
     "calendar_delete": r"\b(delete|remove|cancel|clear|drop)\b",
-    "calendar_shift": r"\b(move|push|shift|delay|postpone|bring forward)\b",
+    "calendar_shift": r"\b(everything|all|the rest|remaining|whole day|my day)\b",     # "push everything later"
+    "calendar_move": r"\b(move|reschedule|push|shift|change|put)\b",
 }
 CONFIRM = {
     "calendar_add": lambda a: f"add {a.get('title', 'an event')} to your calendar "
                               f"{a.get('day') or 'today'}{(' at ' + a['time']) if a.get('time') else ''}",
     "calendar_delete": lambda a: f"remove {a.get('title', 'that event')} from your calendar",
+    "calendar_move": lambda a: f"move {a.get('title', 'that event')} to {a.get('time', 'a new time')}"
+                               f"{(' ' + a['day']) if a.get('day') else ''}",
     "calendar_shift": lambda a: f"move everything still ahead {a.get('day') or 'today'} "
                                 f"{abs(int(a.get('minutes', 60)))} minutes {'later' if int(a.get('minutes', 60)) > 0 else 'earlier'}",
 }

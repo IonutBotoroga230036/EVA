@@ -144,7 +144,7 @@ def test_content_in_the_first_sentence_goes_straight_to_the_confirmation(setup):
 def test_never_mind_cancels_the_question(setup):
     o, drafts = setup
     turn(o, "Can you draft an email to Muaad?")
-    assert turn(o, "never mind") == "Alright, sir, I won't write it." and drafts == []
+    assert turn(o, "never mind") == "Okay, sir." and drafts == []
 
 
 def test_the_meta_request_from_the_log_drafts_nothing(setup):
