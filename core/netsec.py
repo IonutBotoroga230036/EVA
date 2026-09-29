@@ -34,7 +34,12 @@ from urllib.parse import urlsplit
 from loguru import logger
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
-FORWARD_HEADERS = ("x-forwarded-for", "forwarded", "x-real-ip", "x-forwarded-host")
+FORWARD_HEADERS = ("x-forwarded-for", "forwarded", "x-real-ip", "x-forwarded-host", "tailscale-user-login")
+
+
+def proxied(headers) -> bool:
+    """Through a proxy on this PC (Tailscale Serve): TLS already happened there; the token is still needed."""
+    return any(headers.get(h) for h in FORWARD_HEADERS)
 TOKEN_FILE = Path("data/remote_token.txt")
 SECRETS_ENV = Path("config/secrets.env")
 COOKIE = "eva_token"

@@ -1,7 +1,9 @@
 package nl.ionut.eva_android
 
+import android.Manifest
 import android.app.role.RoleManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -9,12 +11,14 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 // Bridges Android's assistant plumbing to the Flutter app:
+//   requestMic            Android's microphone permission (the page's mic is granted only after this)
 //   launchedByAssist      was this start a long-press power / assistant gesture? (then listen at once)
-//   requestAssistantRole  ask Android to make E.V.A. the "Digital assistant app" (ROLE_ASSISTANT)
+//   requestAssistantRole  OPTIONAL: make E.V.A. the "Digital assistant app" instead of Gemini
 //   assist (to Flutter)   the gesture happened while E.V.A. was already open
 class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var launchedByAssist = false
+    private var micResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -26,6 +30,7 @@ class MainActivity : FlutterActivity() {
                         result.success(launchedByAssist)
                         launchedByAssist = false
                     }
+                    "requestMic" -> requestMic(result)
                     "requestAssistantRole" -> result.success(requestRole())
                     "isAssistant" -> result.success(isAssistant())
                     else -> result.notImplemented()
@@ -37,6 +42,23 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (isAssist(intent)) channel?.invokeMethod("assist", null)
+    }
+
+    private fun requestMic(result: MethodChannel.Result) {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            result.success(true)
+            return
+        }
+        micResult = result
+        requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC_REQUEST)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == MIC_REQUEST) {
+            micResult?.success(grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
+            micResult = null
+        }
     }
 
     private fun isAssist(i: Intent?): Boolean =
@@ -61,5 +83,9 @@ class MainActivity : FlutterActivity() {
         }
         startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
         return "settings"
+    }
+
+    companion object {
+        private const val MIC_REQUEST = 7001
     }
 }

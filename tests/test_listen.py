@@ -411,3 +411,19 @@ def test_config_from_settings():
                                     "wake_words": ["Eva", "Kira"]})
     assert (c.pre_roll_ms, c.barge_in, c.max_pause_secs, c.wake_words) == (900, False, 2.5, ("eva", "kira"))
     assert ListenConfig.from_settings(None).command_window_secs == 8.0
+
+
+def test_mic_diagnostics_say_what_is_wrong():
+    async def go():
+        lst, log, clock = make(FakeSTT())
+        assert "no mic audio at all" in lst.mic_problem()
+        await lst.feed(bytes(FRAME_BYTES * 10))                    # true digital silence
+        assert "silent" in lst.mic_problem()
+        await lst.feed(speech(5))
+        loud = bytearray(FRAME_BYTES)
+        loud[0], loud[2], loud[3] = 1, 0x00, 0x40                    # a sample at half scale
+        await lst.feed(bytes(loud))
+        assert lst.mic_problem() is None
+        clock.t += 5
+        assert "no mic audio has arrived for 5 s" in lst.mic_problem()
+    run(go)

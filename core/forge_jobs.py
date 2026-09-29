@@ -45,6 +45,7 @@ class Job:
     say: str = ""
     error: str = ""
     cancel_requested: bool = False
+    stage: str = ""                            # planning | coding and writing tests | fixing, round 2 of 4 | reviewing
 
 
 def pretty(name: str) -> str:
@@ -176,7 +177,14 @@ class JobManager:
         logger.info(f"FORGE job {job.id} building (no time limit)")
         msg: dict = {}
         try:
-            p = self._forge().build(job.request)
+            def progress(stage: str) -> None:
+                job.stage = stage
+                logger.info(f"FORGE job {job.id}: {stage}")
+            forge = self._forge()
+            try:
+                p = forge.build(job.request, progress=progress)
+            except TypeError:                   # an older or fake forge without progress reports
+                p = forge.build(job.request)
             msg = result_message(p)
             job.result_name, job.result_status, job.say = p.name, p.status, msg["say"]
             job.status = "done"

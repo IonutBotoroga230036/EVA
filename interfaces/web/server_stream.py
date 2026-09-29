@@ -209,7 +209,7 @@ async def network_guard(request, call_next):
     """This PC is trusted; remote devices need the token; cross-site writes are refused. See core/netsec.py."""
     host = request.client.host if request.client else None
     if (netsec.https_enabled() and request.url.scheme == "http" and request.url.path not in netsec.PUBLIC_PATHS
-            and not netsec.is_local(host, request.headers)):
+            and not netsec.is_local(host, request.headers) and not netsec.proxied(request.headers)):
         # other devices use HTTPS (the mic needs a secure page); the pairing token travels along
         target = request.url.replace(scheme="https", port=netsec.https_port())
         return RedirectResponse(str(target), status_code=307)
@@ -520,6 +520,16 @@ class Connection:
                     await self.send({"type": "stt", **self.stt})
         return self.listener
 
+    async def _check_mic(self, listener, delay: float = 3.0) -> None:
+        """3 s into an open window, still nothing: say why. (Right after her own voice, Android's echo
+        cancellation mutes the phone mic for a moment; checking at once gave false alarms.)"""
+        await asyncio.sleep(delay)
+        if not listener.armed() or listener.speaking or getattr(listener, "_utt", None) is not None:
+            return
+        problem = listener.mic_problem()
+        if problem:
+            logger.warning(f"ECHO: {problem} (session {self.session_id})")
+
     async def voice_command(self, text: str) -> None:
         await self.submit(text, voice=True, stt=True)
 
@@ -564,6 +574,8 @@ class Connection:
                 ms = float(data.get("arm") or 0)
                 logger.info(f"ECHO: the window opened a {ms / 1000:.0f}s listening window" if ms > 0
                             else "ECHO: the window closed its listening window")
+                if ms > 0 and hasattr(listener, "mic_problem"):
+                    asyncio.create_task(self._check_mic(listener))
                 listener.arm(ms / 1000) if ms > 0 else listener.disarm()
 
     async def run(self) -> None:
@@ -611,7 +623,8 @@ async def ws(websocket: WebSocket):
     host = websocket.client.host if websocket.client else None
     ok, reason, _ = netsec.verdict("GET", host, websocket.headers, websocket.query_params, websocket.cookies,
                                    websocket=True)
-    if ok and netsec.https_enabled() and websocket.url.scheme == "ws" and not netsec.is_local(host, websocket.headers):
+    if (ok and netsec.https_enabled() and websocket.url.scheme == "ws" and not netsec.is_local(host, websocket.headers)
+            and not netsec.proxied(websocket.headers)):
         ok, reason = False, "other devices must use wss:// (HTTPS)"
     if not ok:
         logger.warning(f"NETSEC: refused WebSocket from {host}: {reason}")

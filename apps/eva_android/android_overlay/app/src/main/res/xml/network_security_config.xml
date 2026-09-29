@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- E.V.A. app only: trust the system certificates (Tailscale's real one) and certificates YOU installed
+     (E.V.A.'s own CA for home Wi-Fi, which can only ever vouch for private addresses). No cleartext at all. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

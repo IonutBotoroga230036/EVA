@@ -168,6 +168,9 @@ class Spotify:
                 match = [d for d in devs if d.get("type", "").lower() == kind]
                 if match:
                     return match[0]
+                where = {"smartphone": "your phone", "speaker": "that speaker", "tv": "the TV"}.get(kind, "that device")
+                raise LookupError(f"{where} isn't showing up in Spotify right now: open Spotify on it once, then ask "
+                                  f"me again. I didn't play it anywhere else")
         if h:
             named = max(devs, key=lambda d: SequenceMatcher(None, h, d.get("name", "").lower()).ratio())
             if SequenceMatcher(None, h, named.get("name", "").lower()).ratio() > 0.5:

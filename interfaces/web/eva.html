@@ -1043,6 +1043,11 @@ function micRelease() {
   if (MIC.ctx) MIC.ctx.close().catch(() => {});
   MIC.stream = MIC.ctx = MIC.node = null;
 }
+const IN_APP = /EVA-Android/.test(navigator.userAgent);        // the E.V.A. Android app (v0.3)
+if (IN_APP) document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { micRelease(); }                          // the phone mic only runs while E.V.A. is on screen
+  else if (sttMode === 'server' && wakeMode) micStart().then(ok => { if (ok) sendCtl({ type: 'listen', wake: true }); });
+});
 function micTouch() {                                          // tap mode: free the mic after 30 s of nothing
   clearTimeout(MIC.idle);
   if (!wakeMode) MIC.idle = setTimeout(() => { if (!wakeMode && state === 'idle') micRelease(); else micTouch(); }, 30000);

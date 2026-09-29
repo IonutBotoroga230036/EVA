@@ -65,7 +65,8 @@ def forge_status(**_):
         mins = max(1, round((time.time() - run.started) / 60))
         more = f" {len(wait)} more waiting." if wait else ""
         return {"result": json.dumps({"running": run.request, "minutes": mins, "waiting": len(wait)}), "exact": True,
-                "say": f"Still building \"{run.request}\", sir, {mins} minute{'s' if mins != 1 else ''} so far.{more}"}
+                "say": f"Still building \"{run.request}\", sir, {mins} minute{'s' if mins != 1 else ''} so far"
+                       f"{(': ' + run.stage) if run.stage else ''}.{more}"}
     last = jobs.latest()
     if not last:
         return {"result": json.dumps({"jobs": 0}), "exact": True, "say": "No skill builds so far, sir."}

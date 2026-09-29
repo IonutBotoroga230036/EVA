@@ -4,13 +4,11 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
 
-    <!-- usesCleartextTraffic: ONLY for fetching E.V.A.'s public certificate (http://<pc>:8001/eva-ca.crt) once
-         on home Wi-Fi. The app refuses http:// for everything else; the token only travels over https/wss. -->
     <application
         android:label="E.V.A."
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
+        android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name=".MainActivity"
             android:exported="true"

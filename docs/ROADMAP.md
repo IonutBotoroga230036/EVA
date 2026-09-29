@@ -25,13 +25,16 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 | # | Milestone | What you get |
 |---|---|---|
 | 8 | **Private remote access** (built, awaiting hardware test) | Tailscale: your phone reaches E.V.A. at home securely from anywhere, no open ports. |
-| 9 | **E.V.A. for Android** (Flutter; first version built: talk, listen, voice, confirmations, default assistant) | Talks to the v0.2.5 voice pipeline. Set as your default assistant (long-press power), an on-device "Hey Eva" wake word in a background service, push notifications, cards, and location for store reminders. Runs alongside "Hey Google". |
+| 9 | **E.V.A. for Android** (Flutter shell around the real interface: same orb and panels, mic, voice, optional long-press) | Talks to the v0.2.5 voice pipeline. Set as your default assistant (long-press power), an on-device "Hey Eva" wake word in a background service, push notifications, cards, and location for store reminders. Runs alongside "Hey Google". |
 | 10 | **ORACLE v2: proposals** | She plans with you: "Sir, you have a free evening tomorrow and haven't worked on ZippZapp this week. Plan a session, or relax since it's the weekend?" Project tracking, weekly review. |
 | 11 | **Deep research** | Research across your notes and the web in the background, with a cited report written to Obsidian and a notification when it's ready. |
 | 12 | **Voice identity** | A custom "Hey Eva" wake word trained on your voice, and speaker verification so she only takes commands from you. |
 | 9b | **Android, hands-free** | On-device "Hey Eva" in a foreground service (screen off), a VoiceInteractionService overlay above the current app, push notifications. |
+| 9c | **Your phone as E.V.A.'s hands** | While the app is connected, the phone offers E.V.A. tools she can call: set alarms and timers, open apps, navigate, and (with your one-time permission) read incoming WhatsApp, Instagram and SMS notifications so she can tell you which new messages matter. Replies and calls only after your yes. Uses Android's own intents and the notification listener, never screen-scraping. |
+| 9d | **Romanian mode** | Piper's Romanian voice next to Kokoro (chosen per sentence), Whisper in Romanian when you switch ("Eva, hai să vorbim în română") or when you dictate to a contact marked Romanian (Mom). |
+| 10b | **Actions later** | "Turn the lights off in 5 minutes, stop the music in 10": ORACLE runs the tool at that time, with the same confirmation rules at the moment it runs. |
 | 13a | **FORGE Code: E.V.A. edits her own projects** | "Eva, make the orb bigger in the phone app": she reads apps/eva_android, proposes a diff, runs `flutter analyze` and the tests, shows you the change, and applies it on a git branch only after your yes. Never on main, never unattended. |
-| 13b | **FORGE crew** | Separate roles instead of one model grading its own homework: a planner, a coder, an independent test writer, and a reviewer. Sequential on the local GPU; parallel only with Claude. |
+| 13b | **FORGE crew** (built, awaiting hardware test) | Separate roles instead of one model grading its own homework: a planner, a coder, an independent test writer, and a reviewer. Sequential on the local GPU; parallel only with Claude. |
 | 13 | **FORGE v1.1** | Skills delivered as pull requests from her own GitHub account, a Docker sandbox, and a Hermes skill importer through the same safety review. You approve every merge. |
 
 ## v0.4 "Presence"
@@ -39,7 +42,7 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 |---|---|---|
 | 14 | **HERALD phone calls** (Twilio) | She can call you, and take or make calls on your behalf. |
 | 15 | **Native desktop app** (Tauri) | Tray icon, global hotkey, starts with Windows. |
-| 16 | **Location automations** | Arriving home sets your "home" mood; at the store she texts your shopping list. |
+| 16 | **Location automations** | Arriving home sets your "home" mood; at the store she texts your shopping list. Uses Android geofencing (the phone wakes only when you cross a boundary), not constant GPS, so the battery lasts. |
 | 17 | **Smart home expansion** | More devices, and a Home Assistant bridge. |
 
 Anytime: travel skills like NS train times make good FORGE tests.

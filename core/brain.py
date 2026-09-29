@@ -23,6 +23,7 @@ Pull them once:  ollama pull qwen2.5-coder:7b   and   ollama pull qwen3:4b
 from __future__ import annotations
 
 import json
+import time
 import re
 from pathlib import Path
 from typing import Optional
@@ -33,6 +34,10 @@ from loguru import logger
 MODES = ("auto", "cloud", "local")
 FEATURES = ("conversation", "planning", "thinking", "forge")
 STATE = Path("data/brain_mode.json")
+
+
+class Paused(RuntimeError):
+    """You started talking: the local coder stopped so the conversation gets the GPU back."""
 
 
 class LocalUnavailable(RuntimeError):
@@ -159,6 +164,69 @@ class Brain:
         except Exception as e:
             raise LocalUnavailable(f"local model {model} failed: {e}")
 
+    def _ollama_yielding(self, model: str, messages: list[dict], fmt: Optional[dict], num_ctx: int,
+                         max_tokens: int, abort) -> dict:
+        """Streamed, so it can stop the moment you talk (closing the stream makes Ollama stop generating)."""
+        body = {"model": model, "messages": messages, "stream": True, "keep_alive": "2m",
+                "options": {"temperature": 0.2, "num_ctx": num_ctx, "num_predict": max_tokens}}
+        if fmt:
+            body["format"] = fmt
+        parts: list[str] = []
+        try:
+            with self.http.stream("POST", f"{self._cfg()['base_url']}/api/chat", json=body,
+                                  timeout=httpx.Timeout(None, connect=10)) as r:
+                if r.status_code == 404:
+                    raise LocalUnavailable(f"the local model {model} isn't installed. Run: ollama pull {model}")
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if abort():
+                        raise Paused("you started talking")
+                    if not line.strip():
+                        continue
+                    chunk = json.loads(line)
+                    parts.append(chunk.get("message", {}).get("content", ""))
+                    if chunk.get("done"):
+                        break
+        except (Paused, LocalUnavailable):
+            raise
+        except Exception as e:
+            raise LocalUnavailable(f"local model {model} failed: {e}")
+        return {"content": "".join(parts)}
+
+    def _local_yielding(self, model: str, chat: list[dict], fmt: Optional[dict], num_ctx: int = 12288,
+                        max_tokens: int = 7000) -> dict:
+        """FORGE on your GPU: wait until you're quiet, stop the moment you talk, resume later."""
+        from core import activity
+        for _ in range(50):                      # a build may pause many times; it always resumes
+            activity.wait_quiet(20)              # the GPU belongs to the conversation first
+            t0 = activity.token()
+            try:
+                return self._ollama_yielding(model, chat, fmt, num_ctx, max_tokens,
+                                             abort=lambda: activity.busy_since(t0))
+            except Paused:
+                logger.info("FORGE: paused while you talk; resumes when it's quiet")
+        raise LocalUnavailable("the build kept being interrupted; try again when you're not using E.V.A.")
+
+    @staticmethod
+    def _flat(system: str, messages: list[dict]) -> list[dict]:
+        chat = [{"role": "system", "content": system}]
+        for m in messages:
+            content = m["content"]
+            if isinstance(content, list):
+                content = "\n".join(p.get("text", "") for p in content if isinstance(p, dict))
+            chat.append({"role": m["role"], "content": content})
+        return chat
+
+    def code_text(self, system: str, messages: list[dict], purpose: str = "forge") -> tuple[str, float, str]:
+        """Plain text (code in fences): far easier for small models than code inside JSON. (13b crew)"""
+        if self.pick("forge") == "cloud":
+            out = self.claude.message(system=system, messages=messages, max_tokens=6000, purpose=purpose)
+            return out.get("text", ""), out["cost_eur"], "Claude"
+        model = self._cfg()["coder"]
+        msg = self._local_yielding(model, self._flat(system, messages), None, max_tokens=5000)
+        logger.info(f"BRAIN local {model} [{purpose} text] (free)")
+        return msg.get("content", ""), 0.0, model
+
     # ------------------------------------------------------------ jobs
     def code_json(self, system: str, messages: list[dict], tool: dict, purpose: str = "forge") -> tuple[dict, float, str]:
         """A structured answer following tool['input_schema']. Returns (data, cost_eur, provider label)."""
@@ -173,7 +241,7 @@ class Brain:
             if isinstance(content, list):
                 content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
             chat.append({"role": m["role"], "content": content})
-        msg = self._ollama(model, chat, fmt=tool["input_schema"], num_ctx=12288, max_tokens=7000, unlimited=True)
+        msg = self._local_yielding(model, chat, tool["input_schema"])
         try:
             data = json.loads(msg.get("content", "") or "{}")
         except json.JSONDecodeError:

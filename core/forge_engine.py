@@ -324,8 +324,22 @@ class Forge:
         (d / "test_skill.py").write_text(spec.get("test_py", ""), encoding="utf-8")
         return d
 
-    def build(self, request: str) -> Proposal:
+    def _use_crew(self) -> bool:
+        if self.claude is not None:
+            return False                         # an injected Claude (tests, or explicit): the classic path
+        from core.settings import get_settings
+        return bool((get_settings().get("forge", {}) or {}).get("crew", True))
+
+    def build(self, request: str, progress=None) -> Proposal:
         request = " ".join((request or "").split())[:500]
+        if self._use_crew():
+            from core.forge_crew import Crew
+            p = Crew(self._brain(), self, progress=progress).build(request)
+            self.proposals[p.name] = p
+            self._save_state()
+            audit.log("forge_built", "forge", {"name": p.name, "status": p.status, "crew": True,
+                                                "cost_eur": round(p.cost_eur, 4), "tests_passed": p.tests_passed})
+            return p
         messages = [{"role": "user", "content": f"Build a skill for this request from the user:\n{request}"}]
         total_cost = 0.0
         last: Optional[Proposal] = None

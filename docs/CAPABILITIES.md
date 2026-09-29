@@ -31,7 +31,10 @@ most work with natural variations too. Anything marked **asks first** waits for 
   Keep talking to her meanwhile. When it's done she tells you in every open window and on Telegram with
   [Install] / [Discard] buttons. Nothing is installed without your yes.
 - "How's the build going?" / "Cancel the build".
-- Local builds use qwen2.5-coder:14b (ollama pull qwen2.5-coder:14b) with no time limit.
+- Local builds use qwen2.5-coder:14b (ollama pull qwen2.5-coder:14b) with no time limit. The build pauses while you
+  talk to her, so she stays responsive, and resumes when you're quiet.
+- A crew builds each skill: a planner, a coder, an independent test writer, a fixer that sees the real errors,
+  and a reviewer. "How's the build going?" tells you the stage (planning, coding, fixing round 2 of 4, reviewing).
 
 ## Where she thinks (v0.2.5)
 - Local by default: nothing leaves this PC unless you choose Claude.

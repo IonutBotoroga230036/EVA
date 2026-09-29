@@ -16,6 +16,9 @@ conversation:
   max_sentences: 6
   question_window_ms: 12000            # when she ends on a question, the mic stays open this long
 
+forge:
+  crew: true                           # v0.3 13b: planner, coder, tester, fixer, reviewer (false = one-shot)
+
 server:
   # v0.2.5 network safety. "local": only this PC can reach E.V.A. (default).
   # "network": other devices on your Wi-Fi can connect, but only with the remote token

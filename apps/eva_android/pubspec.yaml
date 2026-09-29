@@ -1,7 +1,7 @@
 name: eva_android
-description: E.V.A. for Android. Streams your voice to E.V.A. on your PC and plays her answers.
+description: E.V.A. for Android. Your desktop E.V.A. interface, on your phone.
 publish_to: none
-version: 0.3.0+1
+version: 0.3.1+2
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -9,11 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  web_socket_channel: ^3.0.1       # WebSocket with an Authorization header and a custom TLS context
-  record: ^6.2.1                   # mic as a PCM16 16 kHz mono stream, with echo cancellation
-  audioplayers: ^6.1.0             # plays her WAV sentences straight from memory (BytesSource)
-  flutter_secure_storage: ^9.2.2   # the token and the pinned certificate, in Android's keystore
-  crypto: ^3.0.3                   # SHA-256 fingerprint of E.V.A.'s certificate
+  webview_flutter: ^4.10.0          # E.V.A.'s real interface, same orb and animation as on the PC
+  webview_flutter_android: any      # mic permission for the page, audio without a tap (same major as above)
+  flutter_secure_storage: ^9.2.2    # address and token, in Android's encrypted storage
 
 dev_dependencies:
   flutter_test:

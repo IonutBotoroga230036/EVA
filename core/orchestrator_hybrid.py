@@ -106,6 +106,9 @@ def volume_level(n: int) -> int:
 _CANCEL = re.compile(r"^\s*(?:no[,.!]?\s*)?(?:never ?mind|forget (?:it|about it)|don'?t(?: do it| bother)?|do not|cancel(?: that| it)?|"
                      r"nothing|no thanks?|it'?s (?:fine|ok|okay|alright)|leave it)(?:[\s,.!]+(?:it'?s (?:fine|ok|okay)|thanks?|"
                      r"please|sir))*[\s.!]*$", re.I)
+_REPEAT = re.compile(r"^\s*(?:sorry,?\s*)?(?:can you |could you |would you |please )?(?:say (?:that|it) again|"
+                     r"repeat (?:that|it|yourself|the last (?:part|thing))?|what did you (?:just )?say|come again|pardon)"
+                     r"(?: please)?[\s?.!]*$", re.I)
 _MD_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://)[^)]+\)")
 
 
@@ -1130,6 +1133,8 @@ class HybridOrchestrator:
             return "The search results didn't give a clear number, sir."
 
     def _finish(self, user_input: str, answer: str, used: set[str] | None = None) -> None:
+        from core import activity
+        activity.mark()
         conv, self._conv_turn = self._conv_turn, False
         self.last_lane = "conversation" if conv else "task"
         if used:
@@ -1154,6 +1159,8 @@ class HybridOrchestrator:
 
     # ------------------------------------------------------------ main loop
     async def process_stream(self, user_input: str) -> AsyncIterator[dict]:
+        from core import activity
+        activity.mark()                                  # background GPU work steps aside
         if self._stale:
             self.refresh_tools()
         self.history.append({"role": "user", "content": user_input})
@@ -1170,6 +1177,14 @@ class HybridOrchestrator:
             fp_override = None
 
         async with httpx.AsyncClient(timeout=120) as client:
+            # -2. "say that again": her last answer, word for word (Sep 28: it took a screenshot instead)
+            if _REPEAT.match(user_input):
+                last = next((m["content"] for m in reversed(self.history[:-1]) if m.get("role") == "assistant"), "")
+                text = last or "I haven't said anything yet, sir."
+                self._finish(user_input, text, used)
+                yield {"type": "final", "text": text}
+                return
+
             # -1. "never mind" / "don't" / "it's fine": drop whatever was open, do nothing
             if _CANCEL.match(user_input):                  # never a request of its own: always a quiet no-op
                 self.pending, self.awaiting, self.pending_queue = None, None, []

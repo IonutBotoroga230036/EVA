@@ -153,6 +153,9 @@ class Listener:
         self._jobs: asyncio.Queue = asyncio.Queue()
         self._worker: Optional[asyncio.Task] = None
         self.failed = False                 # Whisper could not load: the client should fall back
+        self.frames = 0                     # diagnostics: frames received, when, and how loud recently
+        self.last_audio = 0.0
+        self._peaks: deque[tuple[float, float]] = deque(maxlen=200)
         self._carry: Optional[tuple[float, str]] = None
 
     # ---------------------------------------------------------------- control
@@ -197,8 +200,28 @@ class Listener:
                 pass
 
     # ---------------------------------------------------------------- audio in
+    def mic_problem(self) -> Optional[str]:
+        """Why a listening window can't hear anything, in plain words, or None when the mic looks fine."""
+        now = self.clock()
+        if not self.frames:
+            return "a listening window opened, but this device has sent no mic audio at all (mic off or blocked)"
+        age = now - self.last_audio
+        if age > 2.0:
+            return f"a listening window opened, but no mic audio has arrived for {age:.0f} s (the device's mic stopped)"
+        recent = [p for t, p in self._peaks if now - t <= 5.0]
+        if recent and max(recent) < 0.002:
+            return "mic audio is arriving but it is silent (another app may hold the mic, or it is muted)"
+        return None
+
     async def feed(self, data: bytes) -> None:
         """Any number of PCM16 bytes; they are re-cut into 32 ms frames."""
+        if not self.frames:
+            logger.info("ECHO: mic audio is arriving")
+        self.frames += 1
+        self.last_audio = self.clock()
+        if len(data) >= 2:
+            a = np.frombuffer(data[: len(data) // 2 * 2], dtype="<i2")
+            self._peaks.append((self.last_audio, float(np.abs(a).max()) / 32768.0))
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._transcribe_loop(), name="listener-stt")
         self._pending += data
