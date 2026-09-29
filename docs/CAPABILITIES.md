@@ -165,6 +165,14 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - "Make E.V.A. my phone assistant": long-press power opens her, already listening.
 - While the app is open: "Eva, ..." hands-free. (Screen-off wake word is the next step.)
 
+## Later, and on your phone (v0.3)
+- "Turn the lights off in 5 minutes", "stop the music in 10": she tells you the time it will happen, does it
+  then, and reports the real result. "What's planned for later?" / "Cancel the music one". Anything that needs
+  your yes is not done unattended (she offers a reminder instead).
+- With the phone app open: "Set an alarm for 7:30", "Wake me up at 7", "Set a timer for 10 minutes". They go
+  into your phone's own clock app. If the app isn't open, she says so.
+- Wake-word training: open /wakeword (PC or phone) and record the clips it asks for.
+
 ## Installing her as an app
 - Edge or Chrome: open http://localhost:8001, click the install icon in the address bar.
 

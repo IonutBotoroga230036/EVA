@@ -13,6 +13,11 @@ your PC over https. Her listening, Whisper, the brain, Kokoro and every safety r
 - Optional: "Use E.V.A. for long-press" instead of Gemini (switch back in Settings > Apps > Default apps >
   Digital assistant app). Gemini stays your assistant unless you choose this.
 
+## New in round 2
+- Alarms and timers: "Eva, set an alarm for 7:30" goes into your phone's clock app (the app must be open).
+- Her voice as media, not a phone call (settings: "Media" or "Call"). In Media mode the mic pauses while she
+  speaks, so talk after she finishes, or tap to interrupt.
+
 ## Build (after unzipping, once)
 ```powershell
 cd "D:\Project E.V.A\eva\apps\eva_android"

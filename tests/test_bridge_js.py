@@ -80,7 +80,7 @@ console.log(JSON.stringify({ ok }));
 def test_bridge_speaks_the_listening_protocol():
     html = HTML.read_text(encoding="utf-8")
     for needle in ("type: 'speaking'", "type: 'listen', arm:", "type: 'listen', wake: true", "case 'stt':",
-                   "case 'barge_in':", "case 'wake':", "echoCancellation: true", "registerProcessor('eva-pcm16'"):
+                   "case 'barge_in':", "case 'wake':", "echoCancellation: !phoneMedia()", "registerProcessor('eva-pcm16'"):
         assert needle in html, needle
 
 

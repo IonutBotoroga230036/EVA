@@ -168,3 +168,18 @@ most voice bugs show up.
 | 14.4 | Another device without the token | Refused. |
 | 14.5 | App via Tailscale, on mobile data | Connects, talks, answers. |
 | 14.6 | Long-press power (after "Make E.V.A. my phone assistant") | E.V.A. opens, listening. |
+
+## 15. Later, alarms, timers (v0.3 round 2)
+
+| # | Say | Expect |
+|---|---|---|
+| 15.1 | "Turn the lights off in 2 minutes." | "Okay, sir: turn the lights off in 2 minutes, at HH:MM." Two minutes later: "As planned: ..." |
+| 15.2 | "Close the lights in 2 minutes and stop the music in 3." | Both planned, both happen. |
+| 15.3 | "What's planned for later?" then "Cancel the music one." | The list; then only the music one is cancelled. |
+| 15.4 | "Delete the drafts you made in 5 minutes." | She won't do that unattended; offers a reminder. |
+| 15.5 | *(phone app open)* "Set an alarm for 7:30." | It appears in your phone's clock app. |
+| 15.6 | *(phone app open)* "Set a timer for 1 minute." | The phone's timer starts and rings after a minute. |
+| 15.7 | *(phone app closed)* "Set an alarm for 7." | "Your phone app isn't open, sir..." |
+| 15.8 | *(phone)* Tap the ear button once after opening the app. | It stays as you left it; one tap switches it. |
+| 15.9 | *(phone, media mode)* Ask something with a long answer. | Her voice sounds like media (not a call); volume keys change media volume. |
+

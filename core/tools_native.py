@@ -646,3 +646,40 @@ def execute_tool(name: str, args: dict, retries: int = 1) -> dict:
 
 def ack_for(name: str) -> str | None:
     return ACK_PHRASES.get(name, ACK_PHRASES["_default"])
+
+
+# ------------------------------------------------------------ v0.3: phone alarms/timers (9c), actions later (10b)
+def tool_later_list(**_):
+    from datetime import datetime as _dt
+    from core.later import get_later
+    items = get_later().pending()
+    if not items:
+        return {"result": json.dumps({"planned": []}), "say": "Nothing is planned for later, sir."}
+    parts = [f"at {_dt.fromtimestamp(i['due']):%H:%M}, {i['text']}" for i in items[:5]]
+    return {"result": json.dumps({"planned": [i["text"] for i in items]}),
+            "say": "Planned, sir: " + "; ".join(parts) + "."}
+
+
+def tool_later_cancel(what: str = "", **_):
+    from core.later import get_later
+    item = get_later().cancel(what)
+    if not item:
+        return {"result": json.dumps({"error": "nothing matched"}), "say": "I have nothing like that planned, sir."}
+    return {"result": json.dumps({"cancelled": item["text"]}), "say": f"Cancelled: {item['text']}, sir."}
+
+
+from core import device as _device  # noqa: E402
+
+TOOL_SCHEMAS += _device.SCHEMAS + [
+    {"type": "function", "function": {"name": "later_list", "description": "What E.V.A. has planned to do later.",
+     "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "later_cancel", "description": "Cancel something planned for later.",
+     "parameters": {"type": "object", "properties": {"what": {"type": "string"}}}}},
+]
+REGISTRY.update(_device.FUNCTIONS)
+REGISTRY.update({"later_list": tool_later_list, "later_cancel": tool_later_cancel})
+GUARDS.update(_device.GUARDS)
+GUARDS.update({"later_list": r"\b(later|planned|scheduled)\b",
+               "later_cancel": r"\b(cancel|don'?t|never mind)\b.*\b(later|planned|scheduled)\b|\bcancel\b"})
+ACTION_TOOLS |= {"phone_alarm", "phone_timer", "later_cancel"}
+EXACT_TOOLS |= {"phone_alarm", "phone_timer", "later_list", "later_cancel"}

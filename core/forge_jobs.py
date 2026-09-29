@@ -73,8 +73,12 @@ def result_message(p) -> dict:
                                            f"it out.{why} {cost}{offer}".strip(),
                 "widget": {"kind": "note", "title": f"Draft rejected · {pretty(p.name)}", "text": p.reason[:240]}}
     net = (f" It needs internet access to {', '.join(p.network_hosts)}." if p.network_hosts else " It works fully offline.")
+    dropped = sum(len(f["msg"].split(":", 1)[1].split(",")) for f in (getattr(p, "review", None) or [])
+                  if str(f.get("msg", "")).startswith("judge dropped tests"))
+    caution = (f" Heads-up: I dropped {dropped} of its tests that looked wrong, so its answers aren't fully verified. "
+               f"Check a couple of answers you know before relying on it.") if dropped else ""
     say = (f"Your skill is ready, sir: {pretty(p.name)}. {p.summary}{net} It passed the security review and "
-           f"{p.tests_passed} tests. {cost} Shall I install it?").replace("  ", " ")
+           f"{p.tests_passed} tests.{caution} {cost} Shall I install it?").replace("  ", " ")
     return {"status": "ready", "say": say, "name": p.name,
             "widget": {"kind": "forge", "name": pretty(p.name), "summary": p.summary, "tools": p.tools,
                        "hosts": p.network_hosts, "tests": p.tests_passed, "review_passed": True,

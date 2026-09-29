@@ -811,6 +811,11 @@ if (!E || /[?&]demo\b/.test(location.search)) return;          // ?demo keeps th
 const hm = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 let ws = null, connected = false, ttsMode = 'browser', streamBuf = '', turnText = '', lastWasVoice = false;
 let wakeMode = false, state = 'idle', proactiveWidget = null, turnProactive = false;
+try {                                                        // the ear button and the logic share ONE state
+  const saved = localStorage.getItem('eva.wake'), btn = document.getElementById('evaWake');
+  wakeMode = saved === null ? !!(btn && btn.getAttribute('aria-pressed') === 'true') : saved === '1';
+  if (btn) btn.setAttribute('aria-pressed', String(wakeMode));
+} catch (_) {}
 let sttMode = 'browser', sttReason = '';                       // 'server' = E.V.A. listens herself
 
 function setState(s) { state = s; E.setState(s); }
@@ -855,7 +860,17 @@ function levelLoop() {                                        // the speaking ri
 function isSpeaking() { return P.playing || ('speechSynthesis' in window && speechSynthesis.speaking); }
 let toldSpeaking = false;                                      // server-side barge-in needs to know when her voice plays
 function tellSpeaking(on) { if (on === toldSpeaking) return; toldSpeaking = on;
-  if (sttMode === 'server' && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'speaking', on })); }
+  if (sttMode === 'server' && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'speaking', on }));
+  if (phoneMedia()) { if (on) micPause(); else micResume(); } }
+// In the Android app, an open mic with echo cancellation puts the phone in CALL mode (call audio, call volume).
+// Media mode (the app's default) pauses the mic while she speaks, so her voice plays as normal media.
+// Echo cancellation is what makes Android treat the mic like a CALL: Bluetooth headphones drop from music (A2DP)
+// to headset (HFP) quality, or sound jumps to the phone. In media mode the mic is paused while she speaks, so
+// there's no echo to cancel: ask for the "voice recognition" profile (noise suppression + auto gain, no AEC).
+function micConstraints() {
+  return { echoCancellation: !phoneMedia(), noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+}
+function phoneMedia() { return /EVA-Android/.test(navigator.userAgent) && !/audio=call/.test(navigator.userAgent); }
 function duck(on) { if (P.gain) P.gain.gain.value = on ? 0.25 : 1; }
 function playBuffer(buf, onend) {
   const c = actx(); if (!c || !buf) { onend && onend(); return; }
@@ -925,6 +940,10 @@ function handle(ev) {
     case 'hello': ttsMode = ev.tts || 'browser'; break;
     case 'phrase': if (ev.key === 'wake') decode(ev.audio).then(b => { P.wake = b; }); break;
     case 'turn_start': beginTurn(ev.turn); streamBuf = ''; turnText = ''; turnProactive = false; proactiveWidget = null; skipFollow = false; break;
+    case 'device_action':                                    // alarms, timers: the Android app does it
+      if (window.EvaNative) window.EvaNative.postMessage(JSON.stringify(ev));
+      else sendCtl({ type: 'device_result', id: ev.id, ok: false, error: 'this window is not the phone app' });
+      break;
     case 'turn_meta': if (ev.follow_up === false) skipFollow = true;           // music just started: lyrics aren't commands
       followMs = ev.listen_ms || 7000; break;                                    // she asked a question: more time
     case 'heard':
@@ -1014,19 +1033,18 @@ async function micStart() {
   MIC.starting = (async () => {
     try {
       if (!navigator.mediaDevices || !window.AudioWorkletNode) throw new Error('no AudioWorklet');
-      MIC.stream = await navigator.mediaDevices.getUserMedia({ audio: {
-        echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+      MIC.stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
       const C = window.AudioContext || window.webkitAudioContext; MIC.ctx = new C();
       const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
       await MIC.ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
-      const src = MIC.ctx.createMediaStreamSource(MIC.stream);
+      MIC.src = MIC.ctx.createMediaStreamSource(MIC.stream);
       MIC.node = new AudioWorkletNode(MIC.ctx, 'eva-pcm16');
       MIC.node.port.onmessage = e => {
         if (sttMode !== 'server' || !ws || ws.readyState !== 1) return;
         if (ws.bufferedAmount < 1 << 20) ws.send(e.data.pcm);          // never pile up audio on a slow link
         if (state === 'listening' && !isSpeaking()) E.setLevel(Math.min(1, e.data.level * 6));
       };
-      src.connect(MIC.node); MIC.node.connect(MIC.ctx.destination);   // outputs silence; keeps the node running
+      MIC.src.connect(MIC.node); MIC.node.connect(MIC.ctx.destination);   // outputs silence; keeps the node running
       if (MIC.ctx.state === 'suspended') await MIC.ctx.resume();
       return true;
     } catch (err) {
@@ -1037,11 +1055,27 @@ async function micStart() {
   })();
   return MIC.starting;
 }
+function micPause() {                                          // media mode: free the mic while she speaks
+  if (!MIC.stream) return;
+  MIC.stream.getTracks().forEach(t => t.stop()); MIC.stream = null;
+  if (MIC.src) { try { MIC.src.disconnect(); } catch (_) {} MIC.src = null; }
+  MIC.paused = true;
+}
+async function micResume() {
+  if (!MIC.paused) return;
+  MIC.paused = false;
+  if (!MIC.ctx || !MIC.node) { micStart(); return; }
+  try {
+    MIC.stream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
+    MIC.src = MIC.ctx.createMediaStreamSource(MIC.stream); MIC.src.connect(MIC.node);
+    if (MIC.ctx.state === 'suspended') await MIC.ctx.resume();
+  } catch (err) { console.warn('E.V.A.: mic did not come back after speaking', err); micRelease(); micStart(); }
+}
 function micRelease() {
   clearTimeout(MIC.idle);
   if (MIC.stream) MIC.stream.getTracks().forEach(t => t.stop());
   if (MIC.ctx) MIC.ctx.close().catch(() => {});
-  MIC.stream = MIC.ctx = MIC.node = null;
+  MIC.stream = MIC.ctx = MIC.node = MIC.src = null; MIC.paused = false;
 }
 const IN_APP = /EVA-Android/.test(navigator.userAgent);        // the E.V.A. Android app (v0.3)
 if (IN_APP) document.addEventListener('visibilitychange', () => {
@@ -1060,6 +1094,7 @@ async function tapServer() {
   else { idleHint(); listen(0); }
 }
 function onStt(ev) {
+  if (window.EvaNative) sendCtl({ type: 'device', kind: 'android', caps: ['alarm', 'timer'] });   // v0.3 9c
   sttMode = ev.engine === 'server' ? 'server' : 'browser'; sttReason = ev.reason || '';
   if (sttMode === 'server') {
     if (wakeMode) { stopListening(); micStart().then(ok => { if (ok) sendCtl({ type: 'listen', wake: true }); else startWake(); }); }
@@ -1134,6 +1169,7 @@ addEventListener('eva:mic', () => {
 });
 addEventListener('eva:text', e => send((e.detail && e.detail.text || '').trim(), false));
 addEventListener('eva:wake', e => { wakeMode = !!(e.detail && e.detail.on);
+  try { localStorage.setItem('eva.wake', wakeMode ? '1' : '0'); } catch (_) {}
   if (sttMode === 'server') {
     if (wakeMode) micStart().then(ok => { if (ok) sendCtl({ type: 'listen', wake: true }); else startWake(); });
     else { sendCtl({ type: 'listen', wake: false, arm: 0 }); micTouch(); setState('idle'); }
@@ -1153,6 +1189,7 @@ async function setBrain(body) {                                // v0.2.5: a swit
 }
 addEventListener('eva:brain-mode', e => setBrain({ mode: e.detail.mode }));
 addEventListener('eva:brain-feature', e => setBrain({ feature: e.detail.feature, mode: e.detail.mode }));
+addEventListener('eva:device-result', e => sendCtl({ type: 'device_result', ...(e.detail || {}) }));
 addEventListener('eva:conversation', async e => {
   try { await fetch('/api/conversation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !!e.detail.on }) }); }
   catch (_) {}

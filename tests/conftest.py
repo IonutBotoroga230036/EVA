@@ -151,3 +151,12 @@ def no_real_tailscale(monkeypatch):
     monkeypatch.setattr(tn, "_run", lambda args: None)
     tn._cache.update(t=0.0, v=None)
     yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_later(tmp_path, monkeypatch):
+    """Never your real data/later.json; a fresh scheduler per test."""
+    import core.later as later
+    monkeypatch.setattr(later, "STORE", tmp_path / "later.json")
+    monkeypatch.setattr(later, "_later", None)
+    yield

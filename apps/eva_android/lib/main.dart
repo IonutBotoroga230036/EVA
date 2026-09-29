@@ -4,6 +4,8 @@
 // Its microphone and her voice run inside the page, on the path that already works on the PC. The shell
 // adds what a web page can't: Android's mic permission, audio without a tap, the token kept in encrypted
 // storage, trust for your own certificate, and (optionally) the assistant gesture.
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -44,7 +46,7 @@ class Launcher extends StatefulWidget {
 }
 
 class _LauncherState extends State<Launcher> {
-  String? url, token;
+  String? url, token, audio;
 
   @override
   void initState() {
@@ -55,9 +57,11 @@ class _LauncherState extends State<Launcher> {
   Future<void> _load() async {
     final u = await _store.read(key: 'url') ?? '';
     final t = await _store.read(key: 'token') ?? '';
+    final a = await _store.read(key: 'audio') ?? 'media';
     setState(() {
       url = u;
       token = t;
+      audio = a;
     });
   }
 
@@ -66,16 +70,17 @@ class _LauncherState extends State<Launcher> {
     if (url == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     final address = evaAddress(url!);
     if (address == null || (token ?? '').isEmpty) {
-      return SetupScreen(url: url!, token: token ?? '', onSaved: _load);
+      return SetupScreen(url: url!, token: token ?? '', audio: audio ?? 'media', onSaved: _load);
     }
-    return EvaScreen(address: address, token: token!, onSettings: () => setState(() => url = ''));
+    return EvaScreen(address: address, token: token!, audio: audio ?? 'media', onSettings: () => setState(() => url = ''));
   }
 }
 
 class EvaScreen extends StatefulWidget {
-  const EvaScreen({super.key, required this.address, required this.token, required this.onSettings});
+  const EvaScreen({super.key, required this.address, required this.token, required this.audio, required this.onSettings});
   final Uri address;
   final String token;
+  final String audio;                                      // 'media' (best sound) or 'call' (talk over her)
   final VoidCallback onSettings;
 
   @override
@@ -116,7 +121,25 @@ class _EvaScreenState extends State<EvaScreen> {
     await c.setJavaScriptMode(JavaScriptMode.unrestricted);
     await c.setBackgroundColor(_bg);
     final ua = await c.getUserAgent() ?? '';
-    await c.setUserAgent('$ua EVA-Android/0.3');              // the page releases the mic when the app is hidden
+    await c.setUserAgent('$ua EVA-Android/0.3${widget.audio == 'call' ? ' audio=call' : ''}');
+    // The page's hands on this phone (v0.3 9c): alarms and timers through Android's own clock app.
+    await c.addJavaScriptChannel('EvaNative', onMessageReceived: (JavaScriptMessage m) async {
+      Map<String, dynamic> req;
+      try {
+        req = jsonDecode(m.message) as Map<String, dynamic>;
+      } catch (_) {
+        return;
+      }
+      Map<String, dynamic> res;
+      try {
+        final r = await _native.invokeMethod<Map>('deviceAction', {'action': req['action'], 'args': req['args'] ?? {}});
+        res = Map<String, dynamic>.from(r ?? {'ok': false, 'error': 'no answer'});
+      } catch (e) {
+        res = {'ok': false, 'error': '$e'};
+      }
+      res['id'] = req['id'];
+      await c.runJavaScript("window.dispatchEvent(new CustomEvent('eva:device-result', {detail: ${jsonEncode(res)}}))");
+    });
     await c.setNavigationDelegate(NavigationDelegate(
       onNavigationRequest: (r) {
         final host = Uri.tryParse(r.url)?.host ?? '';
@@ -212,8 +235,8 @@ class _EvaScreenState extends State<EvaScreen> {
 }
 
 class SetupScreen extends StatefulWidget {
-  const SetupScreen({super.key, required this.url, required this.token, required this.onSaved});
-  final String url, token;
+  const SetupScreen({super.key, required this.url, required this.token, required this.audio, required this.onSaved});
+  final String url, token, audio;
   final VoidCallback onSaved;
 
   @override
@@ -223,6 +246,7 @@ class SetupScreen extends StatefulWidget {
 class _SetupScreenState extends State<SetupScreen> {
   late final url = TextEditingController(text: widget.url);
   late final token = TextEditingController(text: widget.token);
+  late String audio = widget.audio;
   String note = '';
 
   Future<void> _save() async {
@@ -236,6 +260,7 @@ class _SetupScreenState extends State<SetupScreen> {
     }
     await _store.write(key: 'url', value: url.text.trim());
     await _store.write(key: 'token', value: token.text.trim());
+    await _store.write(key: 'audio', value: audio);
     widget.onSaved();
   }
 
@@ -261,6 +286,20 @@ class _SetupScreenState extends State<SetupScreen> {
           const SizedBox(height: 12),
           TextField(controller: token, obscureText: true,
               decoration: const InputDecoration(labelText: 'Remote token', border: OutlineInputBorder())),
+          const SizedBox(height: 20),
+          const Text('Her voice on this phone'),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'media', label: Text('Media (best sound)')),
+              ButtonSegment(value: 'call', label: Text('Call (talk over her)')),
+            ],
+            selected: {audio},
+            onSelectionChanged: (s) => setState(() => audio = s.first),
+          ),
+          const SizedBox(height: 4),
+          const Text('Call mode lets you interrupt her by talking, but Android plays her like a phone call.',
+              style: TextStyle(fontSize: 12)),
           const SizedBox(height: 20),
           FilledButton(onPressed: _save, child: const Text('Save and connect')),
           const SizedBox(height: 32),

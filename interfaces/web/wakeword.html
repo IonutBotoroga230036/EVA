@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>E.V.A. wake word recorder</title>
+<style>
+:root{--bg:#0b0814;--line:rgba(196,164,255,.18);--ice:#efeaff;--lilac:#c4a4ff;--violet:#8b5cf6;--dim:#9b90b8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ice);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+padding:max(20px,env(safe-area-inset-top)) 20px max(20px,env(safe-area-inset-bottom))}
+main{max-width:520px;margin:0 auto}h1{font-size:20px;letter-spacing:.08em;margin:8px 0 4px}p{color:var(--dim);margin:6px 0 14px}
+.card{border:1px solid var(--line);border-radius:16px;padding:18px;margin:14px 0;background:rgba(139,92,246,.06)}
+.say{font-size:30px;font-weight:600;text-align:center;margin:10px 0 4px}.hint{text-align:center;color:var(--dim);font-size:14px}
+button{width:100%;height:64px;border-radius:14px;border:1px solid var(--line);background:var(--violet);color:#fff;font-size:18px;margin-top:14px}
+button[disabled]{opacity:.5}.bar{height:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--lilac);width:0}.row{display:flex;justify-content:space-between;font-size:14px;color:var(--dim)}
+</style></head><body><main>
+<h1>E.V.A. · wake word</h1>
+<p>Help her learn your voice saying her name. Say the words in normal and softer voices, near and a bit further
+from the phone, in a couple of rooms. Each clip is 2 seconds. Nothing leaves your PC.</p>
+<div class="card">
+  <div class="say" id="say">…</div><div class="hint" id="hint"></div>
+  <button id="rec">Hold the phone, tap, then speak</button>
+  <div class="bar"><i id="level"></i></div>
+</div>
+<div class="card">
+  <div class="row"><span>"Eva"</span><span id="c_eva">0 / 15</span></div>
+  <div class="row"><span>"Hey Eva"</span><span id="c_hey_eva">0 / 15</span></div>
+  <div class="row"><span>Other phrases</span><span id="c_other">0 / 10</span></div>
+</div>
+<p id="done" hidden>That's enough, sir. Thank you. The next E.V.A. update trains the model from these.</p>
+</main>
+<script>
+const GOAL = { eva: 15, hey_eva: 15, other: 10 };
+const OTHER = ['ever', 'Ava is here', 'every day', 'eleven', 'a vase', 'hey, what time is it', 'Emma', 'evening news',
+               'never mind', 'play music'];
+let counts = { eva: 0, hey_eva: 0, other: 0 }, busy = false;
+const $ = id => document.getElementById(id);
+
+function next() {
+  const label = counts.eva < GOAL.eva ? (counts.hey_eva < counts.eva ? 'hey_eva' : 'eva')
+    : counts.hey_eva < GOAL.hey_eva ? 'hey_eva' : counts.other < GOAL.other ? 'other' : null;
+  for (const k in GOAL) $('c_' + k).textContent = `${counts[k]} / ${GOAL[k]}`;
+  if (!label) { $('rec').disabled = true; $('say').textContent = 'Done'; $('hint').textContent = ''; $('done').hidden = false; return null; }
+  const n = counts[label];
+  $('say').textContent = label === 'eva' ? 'Eva' : label === 'hey_eva' ? 'Hey Eva' : OTHER[n % OTHER.length];
+  $('hint').textContent = ['normal voice', 'softer', 'from a bit further away', 'as a question: "Eva?"', 'quickly'][n % 5];
+  return label;
+}
+
+function downsample(input, inRate) {                        // box filter to 16 kHz, like E.V.A.'s own mic path
+  const ratio = inRate / 16000, out = new Int16Array(Math.floor(input.length / ratio));
+  for (let i = 0; i < out.length; i++) {
+    let s = 0, n = 0;
+    for (let j = Math.floor(i * ratio); j < Math.floor((i + 1) * ratio); j++) { s += input[j]; n++; }
+    const v = Math.max(-1, Math.min(1, n ? s / n : 0)); out[i] = v < 0 ? v * 32768 : v * 32767;
+  }
+  return out;
+}
+
+function wav(pcm) {
+  const b = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(b), w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, pcm.length * 2, true);
+  pcm.forEach((s, i) => v.setInt16(44 + i * 2, s, true));
+  return b;
+}
+
+async function record(label) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false,
+                                                                     autoGainControl: true, channelCount: 1 } });
+  const ctx = new AudioContext(), src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser();
+  const node = ctx.createScriptProcessor(4096, 1, 1), chunks = [];
+  node.onaudioprocess = e => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  src.connect(an); src.connect(node); node.connect(ctx.destination);
+  const buf = new Float32Array(an.fftSize), t0 = performance.now();
+  await new Promise(done => (function tick() {
+    an.getFloatTimeDomainData(buf); $('level').style.width = Math.min(100, Math.sqrt(buf.reduce((a, x) => a + x * x, 0) / buf.length) * 600) + '%';
+    performance.now() - t0 < 2000 ? requestAnimationFrame(tick) : done();
+  })());
+  node.disconnect(); src.disconnect(); stream.getTracks().forEach(t => t.stop()); const rate = ctx.sampleRate; await ctx.close();
+  const all = new Float32Array(chunks.reduce((n, c) => n + c.length, 0)); let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+  const r = await fetch('/api/wakeword/sample?label=' + label, { method: 'POST', headers: { 'Content-Type': 'audio/wav' },
+                                                                 body: wav(downsample(all, rate)) });
+  if (!r.ok) throw new Error((await r.json()).detail || r.status);
+  counts = (await r.json()).counts;
+}
+
+$('rec').onclick = async () => {
+  const label = next(); if (!label || busy) return;
+  busy = true; $('rec').disabled = true; $('rec').textContent = 'Listening… say it now';
+  try { await record(label); } catch (e) { alert('Recording failed: ' + e.message); }
+  busy = false; $('rec').disabled = false; $('rec').textContent = 'Tap, then speak'; $('level').style.width = '0'; next();
+};
+fetch('/api/wakeword/status').then(r => r.json()).then(j => { counts = j.counts; next(); }).catch(() => next());
+</script></body></html>

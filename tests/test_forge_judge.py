@@ -78,3 +78,16 @@ def test_exact_sentence_checks_are_rewritten():
 def test_drop_tests_removes_whole_functions():
     out = fc.drop_tests(WRONG_FACT_TESTS, ["test_full_moon_on_2023_10_15"])
     assert "test_full_moon_on_2023_10_15" not in out and "def test_new_moon_at_the_epoch" in out
+
+
+def test_a_skill_whose_tests_were_dropped_is_announced_as_not_fully_verified():
+    """Sep 29 19:32: 'ready, passed 2 tests' for a moon-phase skill that called 15 Oct 2023 (a new moon) full."""
+    from types import SimpleNamespace
+    import core.forge_jobs as fj
+    p = SimpleNamespace(status="ready", name="calculate_moon_phase", summary="", network_hosts=[], tools=["x"],
+                        tests_passed=2, cost_eur=0.0, provider="qwen2.5-coder:14b",
+                        review=[{"level": "warn", "msg": "judge dropped tests with wrong expectations: test_a, test_b"}])
+    say = fj.result_message(p)["say"]
+    assert "I dropped 2 of its tests that looked wrong, so its answers aren't fully verified" in say
+    clean = SimpleNamespace(**{**p.__dict__, "review": []})
+    assert "not fully verified" not in fj.result_message(clean)["say"]

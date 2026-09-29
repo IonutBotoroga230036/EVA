@@ -55,7 +55,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Request, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from loguru import logger
@@ -185,6 +185,20 @@ async def lifespan(_app: FastAPI):
             return
         asyncio.run_coroutine_threadsafe(announce_forge(data.get("message") or {}), loop)
     get_bus().subscribe("forge.done", _on_forge_done)
+
+    # v0.3: the phone as E.V.A.'s hands, and actions later
+    from core import device, later as later_mod
+    from core.orchestrator_hybrid import ToolBelt
+    device.LOOP = loop
+
+    async def _run_later(tool: str, args: dict) -> dict:
+        return await ToolBelt(get_registry(), None).aexecute(tool, args)
+
+    async def _tell(text: str) -> None:
+        if not await broadcast(text):
+            from core import telegram_bridge
+            await asyncio.to_thread(telegram_bridge.send_from_thread, text)
+    later_mod.get_later().start(loop, _run_later, _tell)
     yield
     get_bus().unsubscribe("forge.done", _on_forge_done)
     oracle.stop()
@@ -262,6 +276,39 @@ def _forge_jobs_status() -> dict:
     run = jobs.running()
     return {"running": run.request if run else "", "minutes": round((time.time() - run.started) / 60) if run else 0,
             "waiting": len(jobs.waiting())}
+
+
+WAKE_DIR = Path("data/wakeword/samples")         # v0.3 9b: your "Eva" clips for training the phone's wake word
+WAKE_LABELS = ("eva", "hey_eva", "other")
+
+
+def _wake_counts() -> dict:
+    return {lbl: len(list((WAKE_DIR / lbl).glob("*.wav"))) if (WAKE_DIR / lbl).exists() else 0 for lbl in WAKE_LABELS}
+
+
+@app.get("/wakeword")
+async def wakeword_page():
+    return FileResponse(Path(__file__).parent / "wakeword.html")
+
+
+@app.get("/api/wakeword/status")
+async def wakeword_status():
+    return {"counts": _wake_counts()}
+
+
+@app.post("/api/wakeword/sample")
+async def wakeword_sample(request: Request, label: str = ""):
+    """A 2-second 16 kHz WAV clip from the recorder page. Only WAV, only these labels, only small files."""
+    if label not in WAKE_LABELS:
+        return JSONResponse({"detail": "label must be eva, hey_eva or other"}, status_code=400)
+    body = await request.body()
+    if len(body) > 600_000 or len(body) < 1000 or body[:4] != b"RIFF" or body[8:12] != b"WAVE":
+        return JSONResponse({"detail": "send a short WAV clip"}, status_code=400)
+    folder = WAKE_DIR / label
+    folder.mkdir(parents=True, exist_ok=True)
+    n = len(list(folder.glob("*.wav"))) + 1
+    (folder / f"{label}_{n:03d}.wav").write_bytes(body)
+    return {"saved": f"{label}_{n:03d}.wav", "counts": _wake_counts()}
 
 
 @app.get("/api/conversation")
@@ -380,6 +427,8 @@ class Connection:
         self.stt: dict = {"engine": "browser"}
         self.listener = None                 # built on the first audio frame or listen message
         self.music_on = False                # E.V.A. started music and nobody stopped it: lyrics aren't commands
+        self.device_caps: tuple = ()         # v0.3: the Android app says what it can do (alarm, timer)
+        self._device_waits: dict = {}
         self._listener_lock = asyncio.Lock()
         self._resample = Resampler(16000)
         self._audio_errors = 0
@@ -530,6 +579,20 @@ class Connection:
         if problem:
             logger.warning(f"ECHO: {problem} (session {self.session_id})")
 
+    async def request_device(self, action: str, args: dict, timeout: float = 12.0) -> dict:
+        """Ask the phone to do something; its answer, not our hope, decides what she says."""
+        import uuid
+        rid = uuid.uuid4().hex[:8]
+        fut = asyncio.get_running_loop().create_future()
+        self._device_waits[rid] = fut
+        await self.send({"type": "device_action", "id": rid, "action": action, "args": args})
+        try:
+            return await asyncio.wait_for(fut, timeout)
+        except asyncio.TimeoutError:
+            return {"ok": False, "error": "the phone didn't answer in time"}
+        finally:
+            self._device_waits.pop(rid, None)
+
     async def voice_command(self, text: str) -> None:
         await self.submit(text, voice=True, stt=True)
 
@@ -601,6 +664,13 @@ class Connection:
                     await self.interrupt()
                 elif kind == "message":
                     await self.submit(data.get("text") or "", voice=bool(data.get("voice")))
+                elif kind == "device":
+                    self.device_caps = tuple(str(c) for c in (data.get("caps") or [])[:20])
+                    logger.info(f"DEVICE: {data.get('kind', 'device')} connected with {', '.join(self.device_caps)}")
+                elif kind == "device_result":
+                    fut = self._device_waits.get(str(data.get("id")))
+                    if fut and not fut.done():
+                        fut.set_result({"ok": bool(data.get("ok")), "error": str(data.get("error") or "")[:200]})
                 elif kind in ("listen", "speaking", "audio_format"):
                     await self.on_control(data)
         finally:

@@ -2,7 +2,9 @@ package nl.ionut.eva_android
 
 import android.Manifest
 import android.app.role.RoleManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.provider.AlarmClock
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
@@ -31,6 +33,8 @@ class MainActivity : FlutterActivity() {
                         launchedByAssist = false
                     }
                     "requestMic" -> requestMic(result)
+                    "deviceAction" -> result.success(deviceAction(
+                        call.argument<String>("action") ?: "", call.argument<Map<String, Any>>("args") ?: emptyMap()))
                     "requestAssistantRole" -> result.success(requestRole())
                     "isAssistant" -> result.success(isAssistant())
                     else -> result.notImplemented()
@@ -42,6 +46,34 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (isAssist(intent)) channel?.invokeMethod("assist", null)
+    }
+
+    // v0.3 9c: alarms and timers through Android's own clock app (no special permission beyond SET_ALARM).
+    private fun deviceAction(action: String, args: Map<String, Any>): Map<String, Any> = try {
+        when (action) {
+            "set_alarm" -> {
+                startActivity(Intent(AlarmClock.ACTION_SET_ALARM).apply {
+                    putExtra(AlarmClock.EXTRA_HOUR, (args["hour"] as Number).toInt())
+                    putExtra(AlarmClock.EXTRA_MINUTES, (args["minute"] as Number).toInt())
+                    putExtra(AlarmClock.EXTRA_MESSAGE, args["label"]?.toString() ?: "E.V.A.")
+                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                })
+                mapOf("ok" to true)
+            }
+            "set_timer" -> {
+                startActivity(Intent(AlarmClock.ACTION_SET_TIMER).apply {
+                    putExtra(AlarmClock.EXTRA_LENGTH, (args["seconds"] as Number).toInt())
+                    putExtra(AlarmClock.EXTRA_MESSAGE, args["label"]?.toString() ?: "E.V.A.")
+                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                })
+                mapOf("ok" to true)
+            }
+            else -> mapOf("ok" to false, "error" to "unknown action $action")
+        }
+    } catch (e: ActivityNotFoundException) {
+        mapOf("ok" to false, "error" to "no clock app on this phone handles it")
+    } catch (e: Exception) {
+        mapOf("ok" to false, "error" to (e.message ?: "it failed"))
     }
 
     private fun requestMic(result: MethodChannel.Result) {

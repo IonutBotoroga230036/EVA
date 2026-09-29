@@ -200,6 +200,7 @@ def load_persona(name: str = "eva") -> str:
 # ============================================================ tool belt
 from core import multistep  # noqa: E402  (v0.2.5 multi-step commands)
 from core import conversation  # noqa: E402  (v0.2.5 conversation lane)
+from core import later as later_mod  # noqa: E402  (v0.3 actions later)
 import random  # noqa: E402
 
 # Acks (v0.2.5): spoken only when a tool is still busy after this long, so quick things stay silent.
@@ -657,6 +658,16 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
         if re.search(r"\b(skill|build|forge)\w*", t, re.I) or (last and time.time() - (last.finished or last.created) < 1800):
             return "forge_status", {}
 
+    # phone alarms and timers (v0.3 9c)
+    m = re.search(r"\b(?:set (?:an? |my )?alarm|wake me(?: up)?)\b.*?\b(?:at|for)\s+(.+?)[?.!]*$", t, re.I)
+    if m and belt.has("phone_alarm"):
+        return "phone_alarm", {"time": m.group(1)}
+    m = re.search(r"\b(?:set (?:an? )?timer|start (?:an? )?timer|timer)\s+(?:for\s+|of\s+)?(.+?)[?.!]*$", t, re.I)
+    if m and belt.has("phone_timer"):
+        from core.device import parse_duration
+        if parse_duration(m.group(1)):
+            return "phone_timer", {"duration": m.group(1)}
+
     # weather words always mean the weather tool, never a web search (Sep 27: invented 12 and 3 degrees)
     if belt.has("get_weather") and WEATHER_RX.search(t) and not re.search(
             r"\b(remind|calendar|note|email|skill|app|website)\b", t, re.I):
@@ -990,6 +1001,16 @@ class HybridOrchestrator:
         text = f"{prefix} {lead} {nxt['desc']}. Shall I go ahead?".strip()
         return text, {"type": "widget", "data": {"kind": "confirm", "title": "Confirm", "text": nxt["desc"]}}
 
+    def _schedule(self, picked: tuple, clean: str, delay: float) -> str:
+        """Actions later: planned now, run by core/later.py at the time, reported with the tool's own result."""
+        from datetime import datetime
+        tool, args = picked
+        if self.belt.needs_confirm(tool):
+            return ("That one needs your yes at the moment it happens, sir, so I won't do it unattended. "
+                    "I can set a reminder instead.")
+        item = later_mod.get_later().add(tool, args, delay, clean)
+        return f"Okay, sir: {clean} in {later_mod.human(delay)}, at {datetime.fromtimestamp(item['due']):%H:%M}."
+
     async def _pick(self, client, step: str, original: str, ctx: dict, gathered: list, dependent: bool):
         """Which tool, with which arguments, for one step. None when nothing fits or a guard says no."""
         fp = fast_path(step, self.belt)
@@ -1050,11 +1071,18 @@ class HybridOrchestrator:
         self._context(user_input, ctx)
         batch, confirms, skipped = [], [], []
         skipped_q = None
+        planned: list[str] = []
         for step in steps:
             if step["uses_previous"]:
                 async for ev in self._flush(batch, gathered):
                     yield ev
                 batch = []
+            clean, delay = later_mod.split_delay(step["command"])
+            if delay:                                      # "stop the music in 10 minutes": later, not now
+                later_pick = await self._pick(client, clean, user_input, ctx, gathered, step["uses_previous"])
+                if later_pick and self.belt.is_action(later_pick[0]):
+                    planned.append(self._schedule(later_pick, clean, delay))
+                    continue
             picked = await self._pick(client, step["command"], user_input, ctx, gathered, step["uses_previous"])
             if not picked:
                 skipped.append(step["command"])
@@ -1093,6 +1121,7 @@ class HybridOrchestrator:
                 text = ""
             if text:
                 parts.append(text)
+        parts.extend(planned)
         for cmd in skipped:
             parts.append(f"I didn't do \"{cmd}\", sir; I wasn't sure how.")
         if skipped_q:
@@ -1267,6 +1296,18 @@ class HybridOrchestrator:
                         yield ev
                     self._finish(user_input, answer, used)
                     return
+
+            # 0c. "... in 5 minutes": understood now, done then (v0.3 10b)
+            if not fp_override:
+                clean, delay = later_mod.split_delay(user_input)
+                if delay:
+                    self._context(clean, ctx)
+                    picked = await self._pick(client, clean, user_input, ctx, [], False)
+                    if picked and self.belt.is_action(picked[0]):
+                        text = self._schedule(picked, clean, delay)
+                        self._finish(user_input, text, used)
+                        yield {"type": "final", "text": text}
+                        return
 
             # 1. fast path: no LLM, no embeddings
             fp = fp_override or fast_path(user_input, self.belt)
