@@ -209,7 +209,8 @@ class Listener:
         if age > 2.0:
             return f"a listening window opened, but no mic audio has arrived for {age:.0f} s (the device's mic stopped)"
         recent = [p for t, p in self._peaks if now - t <= 5.0]
-        if recent and max(recent) < 0.002:
+        if recent and max(recent) == 0.0:             # exact digital zeros: muted or held by another app
+                                                      # (a quiet room with noise suppression is merely very soft)
             return "mic audio is arriving but it is silent (another app may hold the mic, or it is muted)"
         return None
 

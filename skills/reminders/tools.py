@@ -66,7 +66,8 @@ def set_reminder(text: str = "", when: str = "", **_):
         return {"result": json.dumps({"error": "nothing to remind"}), "say": "What should I remind you about, sir?"}
     due = parse_when(when or text)
     if not due:
-        return {"result": json.dumps({"error": "no time"}), "say": f"When should I remind you to {text}, sir?"}
+        return {"result": json.dumps({"need": "a time"}), "say": f"When should I remind you to {text}, sir?",
+                "ask_next": {"field": "when"}}              # the answer fills in the time; the text stays yours
     if due <= datetime.now():
         return {"result": json.dumps({"error": "in the past"}), "say": "That time has already passed, sir."}
     r = get_oracle().store.add(text, due)

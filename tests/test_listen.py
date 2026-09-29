@@ -424,6 +424,10 @@ def test_mic_diagnostics_say_what_is_wrong():
         loud[0], loud[2], loud[3] = 1, 0x00, 0x40                    # a sample at half scale
         await lst.feed(bytes(loud))
         assert lst.mic_problem() is None
+        soft = bytearray(FRAME_BYTES)
+        soft[2] = 3                                                 # a quiet room: tiny but not zero
+        await lst.feed(bytes(soft) * 5)
+        assert lst.mic_problem() is None
         clock.t += 5
         assert "no mic audio has arrived for 5 s" in lst.mic_problem()
     run(go)

@@ -650,11 +650,11 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
         return "calendar_move", {"title": re.sub(r"\s+(?:tomorrow|today)$", "", m.group(1).strip()),
                                  "time": m.group(2).strip()}
     if belt.has("forge_status") and re.search(
-            r"\bhow(?:'s| is) (?:the |my |that |this )?(?:skill|build|building|forge)\b|\bis (?:the skill|the build|it) "
+            r"\bhow(?:'s| is) (?:the |my |that |this )?(?:skill\w*|build\w*|forge)\b|\bis (?:the skill|the build|it) "
             r"(?:done|ready|finished)\b|\bhow(?:'s| is) (?:it|that|this) going\b", t, re.I):
         from core.forge_jobs import get_jobs
         last = get_jobs().latest()
-        if re.search(r"\b(skill|build|forge)\b", t, re.I) or (last and time.time() - (last.finished or last.created) < 1800):
+        if re.search(r"\b(skill|build|forge)\w*", t, re.I) or (last and time.time() - (last.finished or last.created) < 1800):
             return "forge_status", {}
 
     # weather words always mean the weather tool, never a web search (Sep 27: invented 12 and 3 degrees)

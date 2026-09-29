@@ -59,8 +59,18 @@ def result_message(p) -> dict:
     if p.status == "infeasible":
         return {"status": p.status, "say": f"I can't build that safely as a skill, sir. {p.reason} {cost}".strip()}
     if p.status != "ready":
+        failing = [x.split(":")[0].replace("test_", "").replace("_", " ") for x in (p.reason or "").split("; ")
+                   if x.startswith("test_")][:2]
+        why = f" The tests about {' and '.join(failing)} kept failing." if failing else ""
+        offer = ""
+        try:
+            from core.brain import get_brain
+            if p.provider and p.provider != "Claude" and get_brain().cloud_ready():
+                offer = " Say \"use Claude for FORGE\" and ask me again if you'd like a stronger model to try."
+        except Exception:
+            pass
         return {"status": p.status, "say": f"My draft of {pretty(p.name)} didn't pass its own checks, sir, so I've kept "
-                                           f"it out. {cost}".strip(),
+                                           f"it out.{why} {cost}{offer}".strip(),
                 "widget": {"kind": "note", "title": f"Draft rejected · {pretty(p.name)}", "text": p.reason[:240]}}
     net = (f" It needs internet access to {', '.join(p.network_hosts)}." if p.network_hosts else " It works fully offline.")
     say = (f"Your skill is ready, sir: {pretty(p.name)}. {p.summary}{net} It passed the security review and "

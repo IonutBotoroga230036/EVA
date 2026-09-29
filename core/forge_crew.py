@@ -66,7 +66,10 @@ Decide if it can be built as a small Python skill, and if so, write a short spec
 - 1 to 3 tools. snake_case names. params: {"param_name": "string" | "number" | "boolean"} (flat).
 - changes_something: true only if the tool changes something outside itself. confirm: what it will do, when
   it can't be undone. trigger_words: 2-6 words a user's request would contain.
-- 2-4 test_cases with concrete args and the expected result in words (e.g. "phase is 'full moon'").
+- 2-4 test_cases with concrete args and the expected result in words. Expected results must follow from the
+  method itself, never from memory: use the method's own anchor (the epoch new moon 2000-01-06 18:14 UTC is a
+  new moon; 14.77 days later is a full moon) or a property ("phase is one of the 8 names", "result is a number
+  between 0 and 29.53"). Include one bad-input case that expects an error.
 Reply with the JSON only."""
 
 EXAMPLE = '''import json
@@ -102,12 +105,24 @@ TESTER = """ROLE: tester. Write test_skill.py for a skill you have NOT seen, fro
 - Turn each planned test case into one test. Add one test with bad input that expects an "error" key and no crash.
 - Tests run OFFLINE. If the plan uses the network, first replace the helper:
   tools._fetch = lambda url, params=None: {<realistic fake JSON for that API>}
-- Check what the plan promises; avoid exact wording of "say"."""
+- Check what the plan promises; avoid exact wording of "say".
+- Give EVERY assert a message with the actual value, e.g.
+  assert data["phase"] == "new moon", f"got {data!r}"   (and the same for every assert)."""
 
 FIXER = """ROLE: fixer. A skill failed its checks. Return the corrected code in one ```python block with the complete
 functions (same rules as before: planned names, **_, return result/say, never raise, no TOOLS/GUARDS blocks).
-If, and only if, a test contradicts the plan, also return the complete corrected test_skill.py in a second
-```python block that contains the test_ functions."""
+Each problem shows the failing line and what the tool actually returned: use that. If the code follows the plan's
+method and a test expects a wrong fact or wrong format, the TEST is wrong: then also return the complete
+corrected test_skill.py in a second ```python block that contains the test_ functions."""
+
+JUDGE_SCHEMA = {"type": "object", "properties": {
+    "wrong_tests": {"type": "array", "items": {"type": "string"}}, "explain": {"type": "string"}},
+    "required": ["wrong_tests"]}
+
+JUDGE = """ROLE: judge. The same tests keep failing. For each failing test decide who is wrong: the code, or the
+test's expectation. Use the plan's method and simple arithmetic, never memory. A test is wrong when it expects a
+fact the method does not produce (e.g. a date "is a full moon" that the formula shows isn't) or checks exact
+wording. List only the tests that are wrong in wrong_tests (their exact names). Reply with the JSON only."""
 
 REVIEWER = """ROLE: reviewer. Read a skill's plan and code. Is it safe (no hidden network calls, no file or system
 changes beyond the plan, no data sent anywhere unexpected) and does it do what the user asked? Be strict but
@@ -137,6 +152,9 @@ _TYPES = {"string": "string", "str": "string", "number": "number", "float": "num
 def normalize_plan(plan: dict) -> dict:
     p = dict(plan or {})
     p["name"] = clean_name(p.get("name", ""))
+    if p["name"] == "new_skill":                     # no usable name: the first tool's name is a good one
+        first = next((clean_name(t.get("name", "")) for t in (plan or {}).get("tools") or []), "new_skill")
+        p["name"] = first
     tools = []
     for t in (p.get("tools") or [])[:3]:
         name = clean_name(t.get("name", ""))
@@ -192,6 +210,25 @@ def skill_md(plan: dict) -> str:
             f"  filesystem: [\"data/skills/{plan['name']}\"]\n"
             "---\n"
             f"{lines}\nConfirm results in a few words.\n")
+
+
+_SAY_EQ = re.compile(r"""^(\s*)assert\s+([\w.]+\[["']say["']\])\s*==.*$|^(\s*)assert\s+["'].*["']\s*==\s*([\w.]+\[["']say["']\]).*$""",
+                     re.M)
+
+
+def lint_tests(tests: str) -> str:
+    """Enforce what the tester was told: never compare the exact spoken sentence, only that there is one."""
+    def fix(m: re.Match) -> str:
+        indent, expr = (m.group(1), m.group(2)) if m.group(2) else (m.group(3), m.group(4))
+        return f"{indent}assert {expr}"
+    return _SAY_EQ.sub(fix, tests or "")
+
+
+def drop_tests(tests: str, names: list[str]) -> str:
+    """Remove whole test functions by name (the judge found their expectations wrong)."""
+    for n in names:
+        tests = re.sub(rf"(?ms)^def {re.escape(n)}\(.*?(?=^def |^\S|\Z)", "", tests)
+    return tests
 
 
 def missing_functions(plan: dict, impl: str) -> list[str]:
@@ -253,8 +290,9 @@ class Crew:
         else:                                                     # your GPU: one after the other
             code_reply, test_reply = self._text(CODER, coder_msg), self._text(TESTER, tester_msg)
         impl = (code_blocks(code_reply) or [""])[0]
-        tests = (code_blocks(test_reply) or [""])[0]
+        tests = lint_tests((code_blocks(test_reply) or [""])[0])
         findings, result, problems = [], {"passed": [], "failed": {}, "contract": []}, []
+        previous, judged, notes = None, False, []
         for rnd in range(self.max_fix + 1):
             tools_py = assemble(plan, impl)
             d = self.forge._write(name, {"skill_md": skill_md(plan), "tools_py": tools_py, "test_py": tests})
@@ -267,6 +305,26 @@ class Crew:
                 break
             if rnd == self.max_fix:
                 break
+            failing = sorted(result["failed"])
+            signature = (tuple(failing), tuple(blocks + missing + result["contract"]))
+            if signature == previous:                 # the fixer changed nothing that matters
+                if judged or not failing:
+                    logger.info("FORGE crew: no progress; stopping instead of repeating the same round")
+                    break
+                judged = True
+                self.progress("judging: code or test?")
+                verdict = self._json(JUDGE, f"The plan:\n{spec}\n\nThe functions:\n```python\n{impl}\n```\n\n"
+                                            f"The tests:\n```python\n{tests}\n```\n\nFailing:\n- "
+                                            + "\n- ".join(f"{k}: {v}" for k, v in result["failed"].items()), JUDGE_SCHEMA)
+                wrong = [t for t in (verdict.get("wrong_tests") or []) if t in result["failed"]]
+                keep = len(result["passed"]) + len(failing) - len(wrong)
+                if wrong and keep >= 1:
+                    logger.info(f"FORGE crew: the judge found these tests wrong, dropping them: {wrong}")
+                    notes.append({"level": "warn", "msg": f"judge dropped tests with wrong expectations: {', '.join(wrong)}"})
+                    tests = drop_tests(tests, wrong)
+                    previous = None
+                    continue                          # re-run the sandbox with the corrected tests
+            previous = signature
             logger.info(f"FORGE crew: round {rnd + 1} problems: {'; '.join(problems)[:300]}")
             self.progress(f"fixing, round {rnd + 1} of {self.max_fix}")
             reply = self._text(FIXER, f"The plan:\n{spec}\n\nThe functions:\n```python\n{impl}\n```\n\n"
@@ -275,7 +333,8 @@ class Crew:
             if blocks_out:
                 impl = blocks_out[0]
                 if len(blocks_out) > 1 and "def test_" in blocks_out[1]:
-                    tests = blocks_out[1]
+                    tests = lint_tests(blocks_out[1])
+        findings = findings + notes
         status, reason = ("ready", "") if not problems else ("rejected", "; ".join(problems)[:600])
         if status == "ready":
             self.progress("reviewing")

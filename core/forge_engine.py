@@ -224,16 +224,43 @@ try:
                 res["contract"].append(f"action {a} has no GUARDS entry")
 except Exception:
     res["contract"].append("tools.py failed to import: " + traceback.format_exc(limit=2)[-400:])
+_calls = []
+def _recording(n, f):
+    def w(*a, **k):
+        out = f(*a, **k)
+        _calls.append(n + "(" + ", ".join([repr(x) for x in a] + [f"{kk}={vv!r}" for kk, vv in k.items()]) + ") returned "
+                      + repr(out)[:260])
+        return out
+    return w
+try:
+    for _n, _f in list(getattr(tools, "FUNCTIONS", {}).items()):
+        if callable(_f):
+            _w = _recording(_n, _f)
+            tools.FUNCTIONS[_n] = _w
+            if getattr(tools, _n, None) is _f:
+                setattr(tools, _n, _w)
+except Exception:
+    pass
 try:
     import test_skill
     for name in sorted(n for n in dir(test_skill) if n.startswith("test_")):
         fn = getattr(test_skill, name)
         if not callable(fn):
             continue
+        _calls.clear()
         try:
             fn(); res["passed"].append(name)
         except Exception as e:
-            res["failed"][name] = (type(e).__name__ + ": " + str(e))[:300] or "assertion failed"
+            where = ""
+            for fr in traceback.extract_tb(e.__traceback__):
+                if fr.filename.endswith("test_skill.py"):
+                    where = fr.line or ""
+            msg = (type(e).__name__ + (": " + str(e) if str(e) else ""))
+            if where:
+                msg += " | failing line: " + where.strip()
+            if _calls:
+                msg += " | last call: " + _calls[-1]
+            res["failed"][name] = msg[:600]
     if not res["passed"] and not res["failed"]:
         res["contract"].append("test_skill.py has no test_ functions")
 except Exception:

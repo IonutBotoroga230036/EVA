@@ -102,6 +102,10 @@ def parse_plan(raw: dict, original: str) -> Optional[list[dict]]:
         steps.append({"command": cmd, "uses_previous": bool(s.get("uses_previous")) and bool(steps)})
     if len(steps) < 2:
         return None
+    heads = {" ".join(s["command"].lower().split()[:3]) for s in steps}
+    if len(heads) == 1 and len(steps) >= 3:
+        logger.info("MULTI: that's one command with a list, not several commands")
+        return None                                   # "remind me to buy bread, chicken, eggs...": one reminder
     seen, out = set(), []
     for s in steps:                                    # the same command twice runs once
         k = s["command"].lower()
