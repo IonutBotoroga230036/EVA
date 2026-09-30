@@ -80,7 +80,7 @@ _CLAIM = re.compile(r"\b(?:has|have|had) been (?:added|scheduled|created|booked|
                     r"saved|installed|moved|updated)\b|\bi(?:'ve| have| just)? (?:added|scheduled|created|booked|sent|"
                     r"deleted|removed|cancel+ed|set up|saved|installed|moved|updated)\b|^\s*yes,? (?:it|that|an event)"
                     r"[^.]*\b(?:added|scheduled|sent|done)\b|^\s*(?:now )?playing\b|^\s*(?:i'?m |i am )?opening\b"
-                    r"|\breminder (?:is )?(?:set|added|created)\b|^\s*(?:done|added|scheduled|created|set)\b[ ,:]"
+                    r"|\b(?:reminder|alarm|timer) (?:is |has been )?(?:set|added|created|started)\b|^\s*(?:done|added|scheduled|created|set)\b[ ,:]"
                     r"|\badded\b.{0,60}\bto your (?:calendar|list|notes|shopping list|reminders)\b"
                     r"|\blights? (?:are |is )?(?:now )?set to\b"
                     r"|\bi(?:'ve| have| just) (?:set|turned|changed|played|started|opened|put|drafted|sent|made)\b"
@@ -550,8 +550,8 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
                   r"\b(?:lights?|leds?|strips?)\s+(on|off)\b|\b(?:turn|switch)\s+(?:the\s+)?(?:(\w+)\s+)?"
                   r"(?:lights?|leds?|strips?)\s+(on|off)\b", t, re.I)
     if m and belt.has("lights_power"):
-        state = (m.group(1) or m.group(3) or m.group(6)).lower()
-        which = (m.group(2) or m.group(5) or "").lower()
+        state = (m.group(1) or m.group(3) or m.group(5)).lower()      # the three (on|off) groups
+        which = (m.group(2) or m.group(4) or "").lower()              # the two "which lights" groups
         which = "" if which in ("the", "all", "my") else which
         return "lights_power", {"on": state == "on", **({"which": which} if which else {})}
     if belt.has("lights_set") and re.search(r"\b(lights?|leds?|strips?)\b", t, re.I) and \
@@ -659,9 +659,12 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
             return "forge_status", {}
 
     # phone alarms and timers (v0.3 9c)
-    m = re.search(r"\b(?:set (?:an? |my )?alarm|wake me(?: up)?)\b.*?\b(?:at|for)\s+(.+?)[?.!]*$", t, re.I)
-    if m and belt.has("phone_alarm"):
-        return "phone_alarm", {"time": m.group(1)}
+    m = re.search(r"\balarm\b(.*)$|\bwake me(?: up)?\b(.*)$", t, re.I)
+    if m and belt.has("phone_alarm") and not re.search(r"\b(cancel|delete|remove|turn off|stop)\b", t, re.I):
+        from core.device import alarm_time
+        rest = (m.group(1) or m.group(2) or "").strip(" ?.!")
+        if alarm_time(rest):
+            return "phone_alarm", {"time": re.sub(r"^(?:for|at)\s+", "", rest, flags=re.I)}
     m = re.search(r"\b(?:set (?:an? )?timer|start (?:an? )?timer|timer)\s+(?:for\s+|of\s+)?(.+?)[?.!]*$", t, re.I)
     if m and belt.has("phone_timer"):
         from core.device import parse_duration
@@ -1008,7 +1011,7 @@ class HybridOrchestrator:
         if self.belt.needs_confirm(tool):
             return ("That one needs your yes at the moment it happens, sir, so I won't do it unattended. "
                     "I can set a reminder instead.")
-        item = later_mod.get_later().add(tool, args, delay, clean)
+        item = later_mod.get_later().add(tool, args, delay, clean, session=self.session_id)
         return f"Okay, sir: {clean} in {later_mod.human(delay)}, at {datetime.fromtimestamp(item['due']):%H:%M}."
 
     async def _pick(self, client, step: str, original: str, ctx: dict, gathered: list, dependent: bool):

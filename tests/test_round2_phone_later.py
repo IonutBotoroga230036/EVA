@@ -43,7 +43,7 @@ def test_the_scheduler_runs_the_tool_then_reports_its_own_result():
         done.append((tool, args))
         return {"result": json.dumps({"ok": True}), "say": "Lights off, sir."}
 
-    async def announce(text):
+    async def announce(text, session=""):
         told.append(text)
 
     async def go():

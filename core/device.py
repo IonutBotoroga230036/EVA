@@ -59,11 +59,33 @@ def parse_clock(text: str) -> Optional[tuple[int, int]]:
     return h, mi
 
 
+def alarm_time(text: str, now: Optional[datetime] = None) -> Optional[tuple[int, int]]:
+    """The clock time for an alarm: '7:30', '6 o'clock in the morning', 'in 6 hours', '6 hours from now'."""
+    t = (text or "").lower()
+    now = now or datetime.now()
+    if re.search(r"\bfrom now\b|^\s*(?:for\s+)?in\s+(?:\d|an?\b|half)", t):
+        secs = parse_duration(t)
+        if secs:
+            from datetime import timedelta
+            at = now + timedelta(seconds=secs)
+            return at.hour, at.minute
+    hm = parse_clock(re.sub(r"^\s*(?:for|at)\s+", "", t))
+    if not hm:
+        return None
+    h, mi = hm
+    if re.search(r"\b(evening|night|afternoon|pm)\b", t) and h < 12:
+        h += 12
+    if re.search(r"\b(morning|am)\b", t) and h == 12:
+        h = 0
+    return h, mi
+
+
 def parse_duration(text: str) -> Optional[int]:
     """'10 minutes', '1 hour 30 minutes', '90 seconds', 'half an hour' -> seconds."""
     t = (text or "").lower()
     if "half an hour" in t:
         return 1800
+    t = re.sub(r"\ban hour\b|\ba hour\b", "1 hour", t)
     total = 0
     for n, unit in re.findall(r"(\d+(?:[.,]\d+)?)\s*(hours?|hrs?|h\b|minutes?|mins?|m\b|seconds?|secs?|s\b)", t):
         v = float(n.replace(",", "."))
@@ -72,7 +94,7 @@ def parse_duration(text: str) -> Optional[int]:
 
 
 def tool_phone_alarm(time: str = "", label: str = "", **_):
-    hm = parse_clock(time)
+    hm = alarm_time(time)
     if not hm:
         return {"result": json.dumps({"error": "no time"}), "say": "What time should the alarm be, sir?"}
     out = _ask("alarm", "set_alarm", {"hour": hm[0], "minute": hm[1], "label": label or "E.V.A."})

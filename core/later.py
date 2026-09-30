@@ -102,9 +102,9 @@ class Later:
             self._tasks[item["id"]] = self._loop.call_later(delay, lambda: asyncio.ensure_future(self._fire(item["id"])))
         self._loop.call_soon_threadsafe(schedule)
 
-    def add(self, tool: str, args: dict, delay_s: float, text: str) -> dict:
+    def add(self, tool: str, args: dict, delay_s: float, text: str, session: str = "") -> dict:
         item = {"id": uuid.uuid4().hex[:8], "tool": tool, "args": args, "due": time.time() + delay_s,
-                "text": text, "status": "pending"}
+                "text": text, "status": "pending", "session": session}
         with self._lock:
             self.items.append(item)
         self._save()
@@ -143,8 +143,9 @@ class Later:
         except Exception as e:
             say, ok = f"I couldn't do it: {e}", False
         logger.info(f"LATER: {'done' if ok else 'failed'}: {item['text']} -> {say}")
-        if self.announce:
-            await self.announce(f"As planned: {say}" if ok else f"The planned \"{item['text']}\" didn't work, sir. {say}")
+        if self.announce:                         # in the window you asked from, if it's still open
+            await self.announce(f"As planned: {say}" if ok else f"The planned \"{item['text']}\" didn't work, sir. {say}",
+                                item.get("session", ""))
 
 
 _later: Optional[Later] = None

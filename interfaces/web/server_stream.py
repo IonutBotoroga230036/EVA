@@ -194,7 +194,11 @@ async def lifespan(_app: FastAPI):
     async def _run_later(tool: str, args: dict) -> dict:
         return await ToolBelt(get_registry(), None).aexecute(tool, args)
 
-    async def _tell(text: str) -> None:
+    async def _tell(text: str, session: str = "") -> None:
+        here = next((c for c in list(CONNECTIONS) if session and c.session_id == session), None)
+        if here:                                    # the window you asked from; otherwise every window
+            await here.proactive(text)
+            return
         if not await broadcast(text):
             from core import telegram_bridge
             await asyncio.to_thread(telegram_bridge.send_from_thread, text)
