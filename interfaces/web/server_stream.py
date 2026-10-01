@@ -45,6 +45,7 @@ Each reply runs as its own task, so a new message or a stop cancels it mid-sente
 from __future__ import annotations
 
 import asyncio
+import numpy as np
 import re
 import base64
 import json
@@ -283,7 +284,8 @@ def _forge_jobs_status() -> dict:
 
 
 WAKE_DIR = Path("data/wakeword/samples")         # v0.3 9b: your "Eva" clips for training the phone's wake word
-WAKE_LABELS = ("eva", "hey_eva", "other")
+WAKE_LABELS = ("eva", "hey_eva", "other", "speech")
+_detector: dict = {}                              # the trained model, reloaded when the file changes
 
 
 def _wake_counts() -> dict:
@@ -297,7 +299,28 @@ async def wakeword_page():
 
 @app.get("/api/wakeword/status")
 async def wakeword_status():
-    return {"counts": _wake_counts()}
+    from core.wakeword import features as wf
+    info = json.loads(wf.INFO.read_text(encoding="utf-8")) if wf.INFO.exists() else {}
+    return {"counts": _wake_counts(), "model": {"exists": wf.MODEL.exists(), **info}}
+
+
+@app.post("/api/wakeword/test")
+async def wakeword_test(request: Request):
+    """Score a clip with the trained model: say "Eva" (should fire) or anything else (shouldn't)."""
+    import io
+    import wave
+    from core.wakeword import features as wf
+    if not wf.MODEL.exists():
+        return JSONResponse({"detail": "train the model first: python -m core.wakeword.train"}, status_code=409)
+    body = await request.body()
+    if len(body) > 600_000 or body[:4] != b"RIFF":
+        return JSONResponse({"detail": "send a short WAV clip"}, status_code=400)
+    with wave.open(io.BytesIO(body), "rb") as w:
+        audio = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    mtime = wf.MODEL.stat().st_mtime
+    if _detector.get("mtime") != mtime:
+        _detector.update(mtime=mtime, d=await asyncio.to_thread(wf.Detector, wf.MODEL))
+    return await asyncio.to_thread(_detector["d"].check, audio)
 
 
 @app.post("/api/wakeword/sample")

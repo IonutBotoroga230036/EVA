@@ -52,3 +52,6 @@ pytest-asyncio>=0.24
 mcp>=1.2             # MCP client (servers are configured in settings.yaml)
 tinytuya            # local control of Tuya / LSC Smart Connect / Smart Life lights
 pipecat-ai==1.12.0  # v0.2.5 listening: bundled Silero VAD + Smart Turn v3 (onnxruntime, CPU, no torch)
+
+# v0.3 9b: wake-word training exports ONNX (the feature models ship in assets/wakeword)
+onnx

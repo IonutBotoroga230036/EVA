@@ -24,12 +24,25 @@ from the phone, in a couple of rooms. Each clip is 2 seconds. Nothing leaves you
 <div class="card">
   <div class="row"><span>"Eva"</span><span id="c_eva">0 / 15</span></div>
   <div class="row"><span>"Hey Eva"</span><span id="c_hey_eva">0 / 15</span></div>
-  <div class="row"><span>Other phrases</span><span id="c_other">0 / 10</span></div>
+  <div class="row"><span>Look-alike phrases</span><span id="c_other">0 / 10</span></div>
+  <div class="row"><span>Your everyday sentences (no "Eva")</span><span id="c_speech">0 / 20</span></div>
 </div>
-<p id="done" hidden>That's enough, sir. Thank you. The next E.V.A. update trains the model from these.</p>
+<p id="done" hidden>That's everything, sir. Thank you. On the PC run: <b>python -m core.wakeword.train</b>, then test it below.</p>
+<div class="card" id="testCard" hidden>
+  <div class="say">Test the model</div>
+  <div class="hint" id="modelInfo"></div>
+  <button id="test">Tap, then say "Eva" (or anything else)</button>
+  <div class="say" id="result" style="font-size:22px"></div>
+</div>
 </main>
 <script>
-const GOAL = { eva: 15, hey_eva: 15, other: 10 };
+const GOAL = { eva: 15, hey_eva: 15, other: 10, speech: 20 };
+const SPEECH = ["what's the weather like tomorrow", 'turn the lights red', 'play some music', 'what time is it',
+                'set a timer for ten minutes', 'remind me to call my mom', 'how are you doing today',
+                "I'm going to the store later", 'check my calendar', 'the meeting starts at three',
+                "let's get something to eat", 'turn the volume down', 'where are my keys', 'good morning',
+                'what do you think about that', 'send the email now', 'every evening I go for a walk',
+                "never mind, it's fine", 'call me back later', 'I need to study tonight'];
 const OTHER = ['ever', 'Ava is here', 'every day', 'eleven', 'a vase', 'hey, what time is it', 'Emma', 'evening news',
                'never mind', 'play music'];
 let counts = { eva: 0, hey_eva: 0, other: 0 }, busy = false;
@@ -37,12 +50,15 @@ const $ = id => document.getElementById(id);
 
 function next() {
   const label = counts.eva < GOAL.eva ? (counts.hey_eva < counts.eva ? 'hey_eva' : 'eva')
-    : counts.hey_eva < GOAL.hey_eva ? 'hey_eva' : counts.other < GOAL.other ? 'other' : null;
+    : counts.hey_eva < GOAL.hey_eva ? 'hey_eva' : counts.other < GOAL.other ? 'other'
+    : counts.speech < GOAL.speech ? 'speech' : null;
   for (const k in GOAL) $('c_' + k).textContent = `${counts[k]} / ${GOAL[k]}`;
   if (!label) { $('rec').disabled = true; $('say').textContent = 'Done'; $('hint').textContent = ''; $('done').hidden = false; return null; }
   const n = counts[label];
-  $('say').textContent = label === 'eva' ? 'Eva' : label === 'hey_eva' ? 'Hey Eva' : OTHER[n % OTHER.length];
-  $('hint').textContent = ['normal voice', 'softer', 'from a bit further away', 'as a question: "Eva?"', 'quickly'][n % 5];
+  $('say').textContent = label === 'eva' ? 'Eva' : label === 'hey_eva' ? 'Hey Eva'
+    : label === 'other' ? OTHER[n % OTHER.length] : SPEECH[n % SPEECH.length];
+  $('hint').textContent = label === 'speech' ? 'say it the way you normally talk to her, just without "Eva"'
+    : ['normal voice', 'softer', 'from a bit further away', 'as a question: "Eva?"', 'quickly'][n % 5];
   return label;
 }
 
@@ -65,7 +81,7 @@ function wav(pcm) {
   return b;
 }
 
-async function record(label) {
+async function capture() {                                  // 2 s of 16 kHz WAV from the mic
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false,
                                                                      autoGainControl: true, channelCount: 1 } });
   const ctx = new AudioContext(), src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser();
@@ -79,8 +95,12 @@ async function record(label) {
   })());
   node.disconnect(); src.disconnect(); stream.getTracks().forEach(t => t.stop()); const rate = ctx.sampleRate; await ctx.close();
   const all = new Float32Array(chunks.reduce((n, c) => n + c.length, 0)); let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+  return wav(downsample(all, rate));
+}
+
+async function record(label) {
   const r = await fetch('/api/wakeword/sample?label=' + label, { method: 'POST', headers: { 'Content-Type': 'audio/wav' },
-                                                                 body: wav(downsample(all, rate)) });
+                                                                 body: await capture() });
   if (!r.ok) throw new Error((await r.json()).detail || r.status);
   counts = (await r.json()).counts;
 }
@@ -91,5 +111,20 @@ $('rec').onclick = async () => {
   try { await record(label); } catch (e) { alert('Recording failed: ' + e.message); }
   busy = false; $('rec').disabled = false; $('rec').textContent = 'Tap, then speak'; $('level').style.width = '0'; next();
 };
-fetch('/api/wakeword/status').then(r => r.json()).then(j => { counts = j.counts; next(); }).catch(() => next());
+function showModel(m) {
+  if (!m || !m.exists) return;
+  $('testCard').hidden = false;
+  $('modelInfo').textContent = m.trained ? `Trained ${m.trained.replace('T', ' ')}: recognised ${m.recognised} of ` +
+    `${m.held_back_eva_clips} Eva clips it never saw, ${m.false_wakes} false wakes on ${m.held_back_other_clips} other clips.` : '';
+}
+$('test').onclick = async () => {
+  $('test').disabled = true; $('test').textContent = 'Listening… say it now'; $('result').textContent = '';
+  try {
+    const r = await fetch('/api/wakeword/test', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: await capture() });
+    const j = await r.json();
+    $('result').textContent = r.ok ? (j.detected ? `Heard "Eva" (${j.score})` : `Not Eva (${j.score})`) : (j.detail || r.status);
+  } catch (e) { $('result').textContent = 'Test failed: ' + e.message; }
+  $('test').disabled = false; $('test').textContent = 'Tap, then say "Eva" (or anything else)'; $('level').style.width = '0';
+};
+fetch('/api/wakeword/status').then(r => r.json()).then(j => { counts = j.counts; next(); showModel(j.model); }).catch(() => next());
 </script></body></html>

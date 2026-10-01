@@ -227,7 +227,7 @@ def test_recorder_saves_only_small_wav_clips(tmp_path, monkeypatch):
         assert r.status_code == 200 and r.json()["counts"]["eva"] == 1
         assert tc.post("/api/wakeword/sample?label=../../x", content=wav).status_code == 400
         assert tc.post("/api/wakeword/sample?label=eva", content=b"not a wav" * 200).status_code == 400
-        assert tc.get("/api/wakeword/status").json()["counts"] == {"eva": 1, "hey_eva": 0, "other": 0}
+        assert tc.get("/api/wakeword/status").json()["counts"] == {"eva": 1, "hey_eva": 0, "other": 0, "speech": 0}
     assert (tmp_path / "wake" / "eva" / "eva_001.wav").exists()
 
 
