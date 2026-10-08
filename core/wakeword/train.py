@@ -36,7 +36,9 @@ SAMPLES = Path("data/wakeword/samples")
 POSITIVE = ("eva", "hey_eva")
 NEGATIVE = ("other", "speech")
 
-SAY_POSITIVE = ["Eva", "Eva.", "Eva?", "Hey Eva", "Hey, Eva.", "Hey Eva?", "Okay Eva"]
+EH_VA = "[Eva](/ˈɛvə/)"                 # "EH-va", the Romanian way; plain "Eva" is Kokoro's "EE-vuh"
+SAY_POSITIVE = ["Eva", "Eva?", "Hey Eva", "Hey, Eva.", "Okay Eva",
+                f"{EH_VA}.", f"{EH_VA}?", f"Hey {EH_VA}", f"Hey, {EH_VA}.", f"Okay {EH_VA}"]
 SAY_LOOKALIKE = ["ever", "Ava", "every day", "eleven", "a vase", "Emma", "Eve", "evil", "Evan", "a bar",
                  "heavier", "hey there", "hey Ava", "hey Emma", "never", "ever since", "Elena", "Diva", "Neva"]
 SAY_SENTENCES = [
@@ -156,8 +158,10 @@ class MLP:
         h = np.maximum(z @ self.w1 + self.b1, 0)
         return (1 / (1 + np.exp(-np.clip(h @ self.w2 + self.b2, -30, 30)))).reshape(-1)
 
-    def fit(self, x: np.ndarray, y: np.ndarray, epochs: int = 60, lr: float = 1e-3, l2: float = 1e-4,
-            log: Callable = logger.info) -> "MLP":
+    def fit(self, x: np.ndarray, y: np.ndarray, epochs: int = 60, lr: float = 1e-3, l2: float = 1e-3,
+            log: Callable = logger.info, x_val: Optional[np.ndarray] = None, y_val: Optional[np.ndarray] = None,
+            patience: int = 8) -> "MLP":
+        """With x_val: stops when the loss on clips it never trains on stops improving, and keeps the best."""
         x = x.reshape(len(x), -1).astype(np.float32)
         self.mean, self.std = x.mean(axis=0), x.std(axis=0) + 1e-3
         z = (x - self.mean) / self.std
@@ -168,6 +172,7 @@ class MLP:
         m = [np.zeros_like(p) for p in params]
         v = [np.zeros_like(p) for p in params]
         t = 0
+        best, best_params, waited = float("inf"), None, 0
         for ep in range(epochs):
             order = self.rng.permutation(len(z))
             total = 0.0
@@ -187,8 +192,21 @@ class MLP:
                     m[k] = 0.9 * m[k] + 0.1 * grd
                     v[k] = 0.999 * v[k] + 0.001 * grd * grd
                     prm -= lr * (m[k] / (1 - 0.9 ** t)) / (np.sqrt(v[k] / (1 - 0.999 ** t)) + 1e-8)
+            if x_val is not None and len(x_val):
+                pv = self.predict(x_val)
+                vloss = float(-(y_val * np.log(pv + 1e-7) + (1 - y_val) * np.log(1 - pv + 1e-7)).mean())
+                if vloss < best - 1e-4:
+                    best, waited = vloss, 0
+                    best_params = [q.copy() for q in params]
+                else:
+                    waited += 1
+                    if waited >= patience:
+                        log(f"WAKEWORD: stopped at epoch {ep + 1}: no better on unseen clips (loss {best:.4f})")
+                        break
             if ep % 10 == 0 or ep == epochs - 1:
                 log(f"WAKEWORD: epoch {ep + 1}/{epochs}, loss {total / len(z):.4f}")
+        if best_params is not None:
+            self.w1, self.b1, self.w2, self.b2 = best_params
         return self
 
     def export(self, path: Path) -> None:
@@ -216,81 +234,108 @@ class MLP:
         onnx.save(model, str(path))
 
 
-def choose_threshold(pos: np.ndarray, neg: np.ndarray) -> float:
-    """The lowest threshold at which none of the held-back negatives fire, with a margin; never below 0.5."""
+def choose_threshold(pos: np.ndarray, neg: np.ndarray, floor: float = 0.5) -> float:
+    """The lowest threshold at which none of the held-back negatives fire, with a margin, never below floor."""
     top_neg = float(neg.max()) if len(neg) else 0.0
-    return round(min(0.95, max(0.5, top_neg + 0.05)), 3)
+    return round(min(0.95, max(floor, top_neg + 0.05)), 3)
 
 
 # ------------------------------------------------------------ the whole job
 def train(samples: Path = SAMPLES, out: Path = MODEL, info: Path = INFO, use_kokoro: bool = True,
-          synthetic: int = 400, epochs: int = 60, aug: int = 12, featurizer: Optional[Featurizer] = None,
-          log: Callable = logger.info) -> dict:
+          synthetic: int = 400, epochs: int = 60, aug: int = 12, folds: int = 5,
+          featurizer: Optional[Featurizer] = None, log: Callable = logger.info) -> dict:
+    """Every one of your clips is tested once by a model that never saw it (cross-validation), so the numbers
+    are about all of them, not a lucky 6. The model that's saved then learns from all of them."""
     t0 = time.time()
     rng = random.Random(42)
     feat = featurizer or Featurizer()
 
-    def load(labels) -> list[np.ndarray]:
+    def load(labels) -> list[tuple[str, np.ndarray]]:
         clips = []
         for lbl in labels:
             for p in sorted((samples / lbl).glob("*.wav")) if (samples / lbl).exists() else []:
                 s = trim(read_wav(p))
                 if len(s) > SR // 10:
-                    clips.append(s)
+                    clips.append((p.name, s))
         return clips
 
     real_pos, real_neg = load(POSITIVE), load(NEGATIVE)
     if len(real_pos) < 6:
         raise ValueError(f"only {len(real_pos)} usable Eva clips; record at least 6 at /wakeword")
-    rng.shuffle(real_pos)
-    rng.shuffle(real_neg)
-    k_pos, k_neg = max(2, len(real_pos) // 5), max(1, len(real_neg) // 5)          # 20% held back, never trained on
-    test_pos, train_pos = real_pos[:k_pos], real_pos[k_pos:]
-    test_neg, train_neg = real_neg[:k_neg], real_neg[k_neg:]
-    log(f"WAKEWORD: {len(real_pos)} of your Eva clips ({k_pos} held back), {len(real_neg)} of your other clips")
+    log(f"WAKEWORD: {len(real_pos)} of your Eva clips, {len(real_neg)} of your other clips")
 
     syn_pos = syn_neg = []
     if use_kokoro and synthetic > 0:
-        log("WAKEWORD: Kokoro is saying Eva in many voices...")
+        log("WAKEWORD: Kokoro is saying Eva (both EE-va and EH-va) in many voices...")
         syn_pos = [trim(c) for c in kokoro_clips(SAY_POSITIVE, KOKORO_VOICES, limit=synthetic, log=log)]
         log("WAKEWORD: ...and look-alike words and ordinary sentences")
         syn_neg = [trim(c) for c in kokoro_clips(SAY_LOOKALIKE + SAY_SENTENCES, KOKORO_VOICES,
                                                  speeds=(1.0,), limit=synthetic, log=log)]
     log(f"WAKEWORD: {len(syn_pos)} synthetic Eva clips, {len(syn_neg)} synthetic other clips")
 
-    def build(clips: list[np.ndarray], copies: int) -> np.ndarray:
-        feats = []
-        for c in clips:
-            for _ in range(copies):
-                feats.append(feat.clip_features(augment(place(c, rng), rng)))
-        return np.array(feats, dtype=np.float32).reshape(-1, 16, 96)
-
     log("WAKEWORD: computing features...")
-    xp = np.concatenate([build(train_pos, aug), build(syn_pos, 2)]) if syn_pos else build(train_pos, aug)
+    def augmented(clip: np.ndarray, copies: int) -> np.ndarray:
+        return np.array([feat.clip_features(augment(place(clip, rng), rng)) for _ in range(copies)],
+                        dtype=np.float32).reshape(-1, 16, 96)
+    pos_aug = [augmented(c, aug) for _, c in real_pos]               # per clip, so folds can leave clips out
+    neg_aug = [augmented(c, aug) for _, c in real_neg]
+    pos_clean = np.array([feat.clip_features(place(c, rng)) for _, c in real_pos], dtype=np.float32)
+    neg_clean = np.array([feat.clip_features(place(c, rng)) for _, c in real_neg], dtype=np.float32) \
+        if real_neg else np.zeros((0, 16, 96), np.float32)
+    empty = np.zeros((0, 16, 96), np.float32)
+    syn_p = np.concatenate([augmented(c, 2) for c in syn_pos]) if syn_pos else empty
+    syn_n = np.concatenate([augmented(c, 2) for c in syn_neg]) if syn_neg else empty
     noise_clips = [(noise(CLIP, rng) * rng.uniform(300, 6000)).astype(np.int16) for _ in range(150)]
-    xn_parts = [build(train_neg, aug), build(syn_neg, 2) if syn_neg else np.zeros((0, 16, 96), np.float32),
-                np.array([feat.clip_features(n) for n in noise_clips], dtype=np.float32).reshape(-1, 16, 96),
-                np.array([feat.clip_features(np.zeros(CLIP, np.int16))] * 20, dtype=np.float32)]
-    xn = np.concatenate([p for p in xn_parts if len(p)])
-    log(f"WAKEWORD: training on {len(xp)} positive and {len(xn)} negative examples")
-    model = MLP().fit(np.concatenate([xp, xn]), np.concatenate([np.ones(len(xp)), np.zeros(len(xn))]).astype(np.float32),
-                      epochs=epochs, log=log)
+    always_n = np.concatenate([np.array([feat.clip_features(n) for n in noise_clips], dtype=np.float32),
+                               np.array([feat.clip_features(np.zeros(CLIP, np.int16))] * 20, dtype=np.float32)])
 
-    tp = model.predict(np.array([feat.clip_features(place(c, rng)) for c in test_pos], dtype=np.float32))
-    tn = model.predict(np.array([feat.clip_features(place(c, rng)) for c in test_neg], dtype=np.float32)) \
-        if test_neg else np.zeros(0)
-    threshold = choose_threshold(tp, tn)
+    def fit_on(pi: list[int], ni: list[int], quiet: bool) -> "MLP":
+        """Train on your clips pi/ni (+ synthetic); 15% of them sit out as the early-stopping check."""
+        r = random.Random(len(pi) * 1000 + len(ni))
+        vp, vn = set(r.sample(pi, max(1, len(pi) * 15 // 100))), set(r.sample(ni, max(1, len(ni) * 15 // 100)) if ni else [])
+        xp = np.concatenate([pos_aug[i] for i in pi if i not in vp] + [syn_p])
+        xn = np.concatenate([neg_aug[i] for i in ni if i not in vn] + [syn_n, always_n])
+        xv = np.concatenate([pos_clean[sorted(vp)], neg_clean[sorted(vn)]]) if vn else pos_clean[sorted(vp)]
+        yv = np.r_[np.ones(len(vp)), np.zeros(len(vn))].astype(np.float32)
+        return MLP().fit(np.concatenate([xp, xn]), np.r_[np.ones(len(xp)), np.zeros(len(xn))].astype(np.float32),
+                         epochs=epochs, log=(lambda *_: None) if quiet else log, x_val=xv, y_val=yv)
+
+    k = max(2, min(folds, len(real_pos) // 3))
+    order_p, order_n = list(range(len(real_pos))), list(range(len(real_neg)))
+    rng.shuffle(order_p)
+    rng.shuffle(order_n)
+    cv_p, cv_n = np.zeros(len(real_pos)), np.zeros(len(real_neg))
+    for f in range(k):
+        tp_i, tn_i = order_p[f::k], order_n[f::k]
+        m = fit_on([i for i in order_p if i not in tp_i], [i for i in order_n if i not in tn_i], quiet=True)
+        cv_p[tp_i] = m.predict(pos_clean[tp_i])
+        if tn_i:
+            cv_n[tn_i] = m.predict(neg_clean[tn_i])
+        log(f"WAKEWORD: check {f + 1} of {k} done")
+    threshold = choose_threshold(cv_p, cv_n)
+    misses = sorted([(real_pos[i][0], round(float(cv_p[i]), 3)) for i in range(len(real_pos)) if cv_p[i] < threshold],
+                    key=lambda m: m[1])
+    wrong = sorted([(real_neg[i][0], round(float(cv_n[i]), 3)) for i in range(len(real_neg)) if cv_n[i] >= threshold],
+                   key=lambda m: -m[1])
+
+    log(f"WAKEWORD: training the final model on all {len(real_pos)} of your Eva clips")
+    model = fit_on(order_p, order_n, quiet=False)
     model.export(out)
     report = {"trained": datetime.now().isoformat(timespec="seconds"), "threshold": threshold,
-              "held_back_eva_clips": len(test_pos), "recognised": int((tp >= threshold).sum()),
-              "held_back_other_clips": len(test_neg), "false_wakes": int((tn >= threshold).sum()),
-              "synthetic_eva": len(syn_pos), "synthetic_other": len(syn_neg),
-              "train_positive": int(len(xp)), "train_negative": int(len(xn)),
+              "held_back_eva_clips": len(real_pos), "recognised": int((cv_p >= threshold).sum()),
+              "held_back_other_clips": len(real_neg), "false_wakes": int((cv_n >= threshold).sum()),
+              "missed": [f"{n} ({s})" for n, s in misses], "false_wake_clips": [f"{n} ({s})" for n, s in wrong],
+              "synthetic_eva": len(syn_pos), "synthetic_other": len(syn_neg), "checks": k,
               "minutes": round((time.time() - t0) / 60, 1)}
     info.write_text(json.dumps(report, indent=1), encoding="utf-8")
-    log(f"WAKEWORD: done. Recognised {report['recognised']} of {len(test_pos)} held-back Eva clips, "
-        f"{report['false_wakes']} false wakes on {len(test_neg)} held-back other clips, threshold {threshold}. "
-        f"Saved {out}")
+    log(f"WAKEWORD: done. Each clip tested by a model that never saw it: recognised {report['recognised']} of "
+        f"{len(real_pos)} Eva clips, {report['false_wakes']} false wakes on {len(real_neg)} other clips, "
+        f"threshold {threshold}. Saved {out}")
+    if misses:
+        log("WAKEWORD: missed (listen to these; a clipped or very quiet recording is worth re-recording): "
+            + ", ".join(f"{n} ({s})" for n, s in misses))
+    if wrong:
+        log("WAKEWORD: woke on: " + ", ".join(f"{n} ({s})" for n, s in wrong))
     return report
 
 

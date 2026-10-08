@@ -158,3 +158,26 @@ def test_no_model_yet_says_how_to_train(tmp_path, monkeypatch):
 def test_the_page_asks_for_everyday_sentences_and_can_test():
     html = (Path(__file__).resolve().parents[1] / "interfaces/web/wakeword.html").read_text(encoding="utf-8")
     assert "speech: 20" in html and "id=\"testCard\"" in html and "/api/wakeword/test" in html
+
+
+def test_synthetic_voices_say_both_ee_va_and_eh_va():
+    assert "Eva" in wt.SAY_POSITIVE and any("/ˈɛvə/" in s for s in wt.SAY_POSITIVE)
+
+
+def test_early_stopping_keeps_the_best_model():
+    rng = np.random.default_rng(3)
+    xp = rng.normal(0.3, 1.0, (300, 16, 96)).astype(np.float32)
+    xn = rng.normal(-0.3, 1.0, (300, 16, 96)).astype(np.float32)
+    xv = np.concatenate([rng.normal(0.3, 1.0, (40, 16, 96)), rng.normal(-0.3, 1.0, (40, 16, 96))]).astype(np.float32)
+    yv = np.r_[np.ones(40), np.zeros(40)].astype(np.float32)
+    said = []
+    m = wt.MLP().fit(np.concatenate([xp, xn]), np.r_[np.ones(300), np.zeros(300)].astype(np.float32), epochs=200,
+                     log=said.append, x_val=xv, y_val=yv, patience=4)
+    assert any("stopped at epoch" in s for s in said)                       # it didn't grind through 200
+    assert ((m.predict(xv) > 0.5) == (yv > 0.5)).mean() > 0.8
+
+
+def test_every_clip_is_tested_and_misses_are_named(trained):
+    report, _ = trained
+    assert report["held_back_eva_clips"] == 24 and report["held_back_other_clips"] == 16     # all of them, by rotation
+    assert report["checks"] >= 2 and isinstance(report["missed"], list) and isinstance(report["false_wake_clips"], list)

@@ -14,9 +14,12 @@ cd "D:\Project E.V.A\eva"
 pip install onnx
 python -m core.wakeword.train
 ```
-It uses your clips plus Kokoro saying "Eva" and ordinary sentences in many voices (many speakers are what make a
-model learn the word instead of the voice), with noise, volume and speed variations. 20% of your real clips are
-held back and never trained on; the numbers it prints are measured on those.
+It uses your clips plus Kokoro saying "Eva" (both "EE-va" and "EH-va") and ordinary sentences in many voices
+(many speakers are what make a model learn the word instead of the voice), with noise, volume and speed
+variations. Every one of your clips is tested once by a model that never saw it (5-fold cross-validation), so
+the numbers are about all your clips; then the saved model learns from all of them. Training stops by itself when
+it no longer improves on clips it doesn't train on. Missed clips are listed by name: listen to them, and
+re-record any that are clipped or very quiet.
 
 `--no-kokoro` trains on your clips only (quicker, less robust). `--synthetic 800` uses more synthetic clips.
 
