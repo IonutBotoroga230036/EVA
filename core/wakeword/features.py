@@ -87,6 +87,7 @@ class Detector:
         self.input = self.clf.get_inputs()[0].name
         info = json.loads(INFO.read_text(encoding="utf-8")) if INFO.exists() else {}
         self.threshold = float(info.get("threshold", 0.5))
+        self.phone_threshold = float(info.get("phone_threshold", self.threshold))
 
     def scores(self, audio: np.ndarray) -> np.ndarray:
         """One score per 80 ms step, for every full 16-embedding window in the audio."""
@@ -102,7 +103,8 @@ class Detector:
     def check(self, audio: np.ndarray) -> dict:
         s = self.scores(audio)
         best = float(s.max()) if len(s) else 0.0
-        return {"score": round(best, 3), "detected": best >= self.threshold, "threshold": self.threshold}
+        return {"score": round(best, 3), "detected": best >= self.threshold, "threshold": self.threshold,
+                "phone_detected": best >= self.phone_threshold, "phone_threshold": self.phone_threshold}
 
 
 def read_wav(path: Path) -> np.ndarray:

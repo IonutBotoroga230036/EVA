@@ -284,7 +284,7 @@ def _forge_jobs_status() -> dict:
 
 
 WAKE_DIR = Path("data/wakeword/samples")         # v0.3 9b: your "Eva" clips for training the phone's wake word
-WAKE_LABELS = ("eva", "hey_eva", "other", "speech")
+WAKE_LABELS = ("eva", "hey_eva", "end_eva", "other", "speech")
 _detector: dict = {}                              # the trained model, reloaded when the file changes
 
 

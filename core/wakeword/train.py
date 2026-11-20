@@ -33,7 +33,8 @@ from loguru import logger
 from core.wakeword.features import CLIP, INFO, MODEL, SR, Featurizer, read_wav
 
 SAMPLES = Path("data/wakeword/samples")
-POSITIVE = ("eva", "hey_eva")
+SYN_CACHE = Path("data/wakeword/synthetic")          # Kokoro's clips, made once (10 minutes), reused after
+POSITIVE = ("eva", "hey_eva", "end_eva")       # end_eva: "turn the lights red, Eva" (the name last)
 NEGATIVE = ("other", "speech")
 
 EH_VA = "[Eva](/ˈɛvə/)"                 # "EH-va", the Romanian way; plain "Eva" is Kokoro's "EE-vuh"
@@ -68,6 +69,23 @@ def trim(audio: np.ndarray, frame: int = 320, rel: float = 0.12) -> np.ndarray:
     loud = np.where(rms >= rms.max() * rel)[0]
     start, end = max(0, loud[0] - 3) * frame, min(n, loud[-1] + 4) * frame
     return a[start:end]
+
+
+def windows(clip: np.ndarray, hop: int = SR) -> list[np.ndarray]:
+    """A long sentence -> 2 s windows every second: several honest 'not Eva' examples from one recording."""
+    a = np.asarray(clip, dtype=np.int16)
+    if len(a) <= CLIP:
+        return [a]
+    return [a[s:s + CLIP] for s in range(0, len(a) - CLIP + 1, hop)] + ([a[-CLIP:]] if (len(a) - CLIP) % hop else [])
+
+
+def fold_of(sources: list[int], k: int, seed: int = 42) -> list[int]:
+    """The check-round of each item, by its source recording: windows of one sentence share a round, so no
+    sentence is both learned from and tested on."""
+    uniq = sorted(set(sources))
+    random.Random(seed).shuffle(uniq)
+    where = {s: i % k for i, s in enumerate(uniq)}
+    return [where[s] for s in sources]
 
 
 def place(speech: np.ndarray, rng: random.Random, length: int = CLIP) -> np.ndarray:
@@ -242,7 +260,7 @@ def choose_threshold(pos: np.ndarray, neg: np.ndarray, floor: float = 0.5) -> fl
 
 # ------------------------------------------------------------ the whole job
 def train(samples: Path = SAMPLES, out: Path = MODEL, info: Path = INFO, use_kokoro: bool = True,
-          synthetic: int = 400, epochs: int = 60, aug: int = 12, folds: int = 5,
+          synthetic: int = 400, epochs: int = 60, aug: int = 24, folds: int = 5,
           featurizer: Optional[Featurizer] = None, log: Callable = logger.info) -> dict:
     """Every one of your clips is tested once by a model that never saw it (cross-validation), so the numbers
     are about all of them, not a lucky 6. The model that's saved then learns from all of them."""
@@ -250,27 +268,45 @@ def train(samples: Path = SAMPLES, out: Path = MODEL, info: Path = INFO, use_kok
     rng = random.Random(42)
     feat = featurizer or Featurizer()
 
-    def load(labels) -> list[tuple[str, np.ndarray]]:
-        clips = []
+    def load(labels, split_long: bool = False) -> tuple[list[tuple[str, np.ndarray]], list[int]]:
+        clips, sources = [], []
         for lbl in labels:
             for p in sorted((samples / lbl).glob("*.wav")) if (samples / lbl).exists() else []:
                 s = trim(read_wav(p))
-                if len(s) > SR // 10:
-                    clips.append((p.name, s))
-        return clips
+                if len(s) <= SR // 10:
+                    continue
+                parts = windows(s) if split_long else [s]
+                for j, w in enumerate(parts):
+                    clips.append((p.name if len(parts) == 1 else f"{p.name}#{j + 1}", w))
+                    sources.append(len(set(sources)) if j == 0 else sources[-1])
+        return clips, sources
 
-    real_pos, real_neg = load(POSITIVE), load(NEGATIVE)
+    (real_pos, _), (real_neg, neg_src) = load(POSITIVE), load(NEGATIVE, split_long=True)
     if len(real_pos) < 6:
         raise ValueError(f"only {len(real_pos)} usable Eva clips; record at least 6 at /wakeword")
     log(f"WAKEWORD: {len(real_pos)} of your Eva clips, {len(real_neg)} of your other clips")
 
     syn_pos = syn_neg = []
     if use_kokoro and synthetic > 0:
-        log("WAKEWORD: Kokoro is saying Eva (both EE-va and EH-va) in many voices...")
-        syn_pos = [trim(c) for c in kokoro_clips(SAY_POSITIVE, KOKORO_VOICES, limit=synthetic, log=log)]
-        log("WAKEWORD: ...and look-alike words and ordinary sentences")
-        syn_neg = [trim(c) for c in kokoro_clips(SAY_LOOKALIKE + SAY_SENTENCES, KOKORO_VOICES,
-                                                 speeds=(1.0,), limit=synthetic, log=log)]
+        import hashlib
+        key = hashlib.sha256(json.dumps([SAY_POSITIVE, SAY_LOOKALIKE, SAY_SENTENCES, KOKORO_VOICES, synthetic])
+                             .encode("utf-8")).hexdigest()[:12]
+        cache = SYN_CACHE / f"kokoro_{key}.npz"
+        if cache.exists():
+            z = np.load(cache)
+            syn_pos = [z[k] for k in sorted(z.files) if k.startswith("p")]
+            syn_neg = [z[k] for k in sorted(z.files) if k.startswith("n")]
+            log(f"WAKEWORD: reusing Kokoro's {len(syn_pos)} + {len(syn_neg)} clips from last time")
+        else:
+            log("WAKEWORD: Kokoro is saying Eva (both EE-va and EH-va) in many voices...")
+            syn_pos = [trim(c) for c in kokoro_clips(SAY_POSITIVE, KOKORO_VOICES, limit=synthetic, log=log)]
+            log("WAKEWORD: ...and look-alike words and ordinary sentences")
+            syn_neg = [trim(c) for c in kokoro_clips(SAY_LOOKALIKE + SAY_SENTENCES, KOKORO_VOICES,
+                                                     speeds=(1.0,), limit=synthetic, log=log)]
+            if syn_pos:
+                SYN_CACHE.mkdir(parents=True, exist_ok=True)
+                np.savez_compressed(cache, **{f"p{i:04d}": c for i, c in enumerate(syn_pos)},
+                                    **{f"n{i:04d}": c for i, c in enumerate(syn_neg)})
     log(f"WAKEWORD: {len(syn_pos)} synthetic Eva clips, {len(syn_neg)} synthetic other clips")
 
     log("WAKEWORD: computing features...")
@@ -303,16 +339,21 @@ def train(samples: Path = SAMPLES, out: Path = MODEL, info: Path = INFO, use_kok
     k = max(2, min(folds, len(real_pos) // 3))
     order_p, order_n = list(range(len(real_pos))), list(range(len(real_neg)))
     rng.shuffle(order_p)
-    rng.shuffle(order_n)
+    fold_n = fold_of(neg_src, k) if real_neg else []
     cv_p, cv_n = np.zeros(len(real_pos)), np.zeros(len(real_neg))
     for f in range(k):
-        tp_i, tn_i = order_p[f::k], order_n[f::k]
+        tp_i, tn_i = order_p[f::k], [i for i in order_n if fold_n[i] == f]
         m = fit_on([i for i in order_p if i not in tp_i], [i for i in order_n if i not in tn_i], quiet=True)
         cv_p[tp_i] = m.predict(pos_clean[tp_i])
         if tn_i:
             cv_n[tn_i] = m.predict(neg_clean[tn_i])
         log(f"WAKEWORD: check {f + 1} of {k} done")
     threshold = choose_threshold(cv_p, cv_n)
+    # The phone asks the PC (Whisper) before it wakes up, so it can catch more of your "Eva"s and leave the
+    # rare false wake to that second check: the score that catches 90% of your clips (never above strict).
+    phone_t = round(float(max(0.3, min(threshold, np.quantile(cv_p, 0.10) - 1e-3))), 3)
+    closest = sorted([(real_neg[i][0], round(float(cv_n[i]), 3)) for i in range(len(real_neg))],
+                     key=lambda m: -m[1])[:5]
     misses = sorted([(real_pos[i][0], round(float(cv_p[i]), 3)) for i in range(len(real_pos)) if cv_p[i] < threshold],
                     key=lambda m: m[1])
     wrong = sorted([(real_neg[i][0], round(float(cv_n[i]), 3)) for i in range(len(real_neg)) if cv_n[i] >= threshold],
@@ -325,6 +366,9 @@ def train(samples: Path = SAMPLES, out: Path = MODEL, info: Path = INFO, use_kok
               "held_back_eva_clips": len(real_pos), "recognised": int((cv_p >= threshold).sum()),
               "held_back_other_clips": len(real_neg), "false_wakes": int((cv_n >= threshold).sum()),
               "missed": [f"{n} ({s})" for n, s in misses], "false_wake_clips": [f"{n} ({s})" for n, s in wrong],
+              "phone_threshold": phone_t, "phone_recognised": int((cv_p >= phone_t).sum()),
+              "phone_false_wakes": int((cv_n >= phone_t).sum()),
+              "closest_other_clips": [f"{n} ({s})" for n, s in closest],
               "synthetic_eva": len(syn_pos), "synthetic_other": len(syn_neg), "checks": k,
               "minutes": round((time.time() - t0) / 60, 1)}
     info.write_text(json.dumps(report, indent=1), encoding="utf-8")
@@ -336,6 +380,11 @@ def train(samples: Path = SAMPLES, out: Path = MODEL, info: Path = INFO, use_kok
             + ", ".join(f"{n} ({s})" for n, s in misses))
     if wrong:
         log("WAKEWORD: woke on: " + ", ".join(f"{n} ({s})" for n, s in wrong))
+    log(f"WAKEWORD: for the phone (the PC double-checks every wake): threshold {phone_t} recognises "
+        f"{report['phone_recognised']} of {len(real_pos)} Eva clips with {report['phone_false_wakes']} false wakes "
+        f"on {len(real_neg)} other clips")
+    if closest:
+        log("WAKEWORD: closest look-alikes: " + ", ".join(f"{n} ({s})" for n, s in closest))
     return report
 
 

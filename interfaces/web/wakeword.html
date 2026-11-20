@@ -15,7 +15,11 @@ button[disabled]{opacity:.5}.bar{height:8px;border-radius:4px;background:rgba(25
 </style></head><body><main>
 <h1>E.V.A. · wake word</h1>
 <p>Help her learn your voice saying her name. Say the words in normal and softer voices, near and a bit further
-from the phone, in a couple of rooms. Each clip is 2 seconds. Nothing leaves your PC.</p>
+from the phone, in a couple of rooms. Mix both ways of saying her name, "EE-va" and "EH-va". Short words get
+2 seconds, sentences 4. Nothing leaves your PC.</p>
+<label style="display:flex;gap:10px;align-items:center;margin:8px 0;color:var(--dim)">
+  <input type="checkbox" id="auto" style="width:22px;height:22px"> Hands-free: record the next one automatically
+</label>
 <div class="card">
   <div class="say" id="say">…</div><div class="hint" id="hint"></div>
   <button id="rec">Hold the phone, tap, then speak</button>
@@ -24,6 +28,7 @@ from the phone, in a couple of rooms. Each clip is 2 seconds. Nothing leaves you
 <div class="card">
   <div class="row"><span>"Eva"</span><span id="c_eva">0 / 15</span></div>
   <div class="row"><span>"Hey Eva"</span><span id="c_hey_eva">0 / 15</span></div>
+  <div class="row"><span>A sentence ending in "Eva"</span><span id="c_end_eva">0 / 20</span></div>
   <div class="row"><span>Look-alike phrases</span><span id="c_other">0 / 10</span></div>
   <div class="row"><span>Your everyday sentences (no "Eva")</span><span id="c_speech">0 / 20</span></div>
 </div>
@@ -36,7 +41,15 @@ from the phone, in a couple of rooms. Each clip is 2 seconds. Nothing leaves you
 </div>
 </main>
 <script>
-const GOAL = { eva: 15, hey_eva: 15, other: 10, speech: 20 };
+const GOAL = { eva: 35, hey_eva: 20, end_eva: 20, other: 15, speech: 50 };
+const SECS = { eva: 2, hey_eva: 2, end_eva: 4, other: 2, speech: 4 };
+const END_EVA = ['turn the lights red, Eva', "what's the weather tomorrow, Eva?", 'play some music, Eva',
+                 'what time is it, Eva?', 'set a timer for ten minutes, Eva', 'turn the volume down, Eva',
+                 "what's on my calendar, Eva?", 'remind me to call my mom, Eva', 'how are you doing, Eva?',
+                 'turn off the lights, Eva', 'skip this song, Eva', 'read my emails, Eva',
+                 "what's the time in London, Eva?", 'add milk to my shopping list, Eva', 'thank you, Eva',
+                 'good morning, Eva', 'stop the music, Eva', 'what do you think, Eva?', 'lights purple, Eva',
+                 'open Spotify, Eva'];
 const SPEECH = ["what's the weather like tomorrow", 'turn the lights red', 'play some music', 'what time is it',
                 'set a timer for ten minutes', 'remind me to call my mom', 'how are you doing today',
                 "I'm going to the store later", 'check my calendar', 'the meeting starts at three',
@@ -48,17 +61,19 @@ const OTHER = ['ever', 'Ava is here', 'every day', 'eleven', 'a vase', 'hey, wha
 let counts = { eva: 0, hey_eva: 0, other: 0 }, busy = false;
 const $ = id => document.getElementById(id);
 
-function next() {
-  const label = counts.eva < GOAL.eva ? (counts.hey_eva < counts.eva ? 'hey_eva' : 'eva')
-    : counts.hey_eva < GOAL.hey_eva ? 'hey_eva' : counts.other < GOAL.other ? 'other'
-    : counts.speech < GOAL.speech ? 'speech' : null;
+function next() {                                         // whatever is furthest behind, so it stays varied
+  const open = Object.keys(GOAL).filter(k => counts[k] < GOAL[k]);
+  const label = open.length ? open.sort((a, b) => counts[a] / GOAL[a] - counts[b] / GOAL[b])[0] : null;
   for (const k in GOAL) $('c_' + k).textContent = `${counts[k]} / ${GOAL[k]}`;
   if (!label) { $('rec').disabled = true; $('say').textContent = 'Done'; $('hint').textContent = ''; $('done').hidden = false; return null; }
   const n = counts[label];
   $('say').textContent = label === 'eva' ? 'Eva' : label === 'hey_eva' ? 'Hey Eva'
+    : label === 'end_eva' ? END_EVA[n % END_EVA.length]
     : label === 'other' ? OTHER[n % OTHER.length] : SPEECH[n % SPEECH.length];
   $('hint').textContent = label === 'speech' ? 'say it the way you normally talk to her, just without "Eva"'
-    : ['normal voice', 'softer', 'from a bit further away', 'as a question: "Eva?"', 'quickly'][n % 5];
+    : label === 'end_eva' ? (n % 2 ? 'say her name "EH-va"' : 'say her name "EE-va"') + ', the way you would ask her'
+    : [n % 2 ? '"EH-va", normal voice' : '"EE-va", normal voice', 'softer', 'from a bit further away',
+       'as a question: "Eva?"', 'quickly'][n % 5];
   return label;
 }
 
@@ -81,7 +96,7 @@ function wav(pcm) {
   return b;
 }
 
-async function capture() {                                  // 2 s of 16 kHz WAV from the mic
+async function capture(secs = 2) {                          // 16 kHz WAV from the mic
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false,
                                                                      autoGainControl: true, channelCount: 1 } });
   const ctx = new AudioContext(), src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser();
@@ -91,7 +106,7 @@ async function capture() {                                  // 2 s of 16 kHz WAV
   const buf = new Float32Array(an.fftSize), t0 = performance.now();
   await new Promise(done => (function tick() {
     an.getFloatTimeDomainData(buf); $('level').style.width = Math.min(100, Math.sqrt(buf.reduce((a, x) => a + x * x, 0) / buf.length) * 600) + '%';
-    performance.now() - t0 < 2000 ? requestAnimationFrame(tick) : done();
+    performance.now() - t0 < secs * 1000 ? requestAnimationFrame(tick) : done();
   })());
   node.disconnect(); src.disconnect(); stream.getTracks().forEach(t => t.stop()); const rate = ctx.sampleRate; await ctx.close();
   const all = new Float32Array(chunks.reduce((n, c) => n + c.length, 0)); let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
@@ -100,29 +115,40 @@ async function capture() {                                  // 2 s of 16 kHz WAV
 
 async function record(label) {
   const r = await fetch('/api/wakeword/sample?label=' + label, { method: 'POST', headers: { 'Content-Type': 'audio/wav' },
-                                                                 body: await capture() });
+                                                                 body: await capture(SECS[label] || 2) });
   if (!r.ok) throw new Error((await r.json()).detail || r.status);
   counts = (await r.json()).counts;
 }
 
+const pause = ms => new Promise(r => setTimeout(r, ms));
 $('rec').onclick = async () => {
-  const label = next(); if (!label || busy) return;
-  busy = true; $('rec').disabled = true; $('rec').textContent = 'Listening… say it now';
-  try { await record(label); } catch (e) { alert('Recording failed: ' + e.message); }
-  busy = false; $('rec').disabled = false; $('rec').textContent = 'Tap, then speak'; $('level').style.width = '0'; next();
+  if (busy) { $('auto').checked = false; return; }          // in hands-free mode the button pauses
+  do {
+    const label = next(); if (!label) break;
+    busy = true; $('rec').textContent = $('auto').checked ? 'Listening… say it now (tap to pause)' : 'Listening… say it now';
+    $('rec').disabled = !$('auto').checked;
+    try { await record(label); } catch (e) { alert('Recording failed: ' + e.message); $('auto').checked = false; }
+    $('level').style.width = '0';
+    if (next() && $('auto').checked) { $('rec').textContent = 'Next one in a moment… (tap to pause)'; await pause(1300); }
+  } while ($('auto').checked && next());
+  busy = false; $('rec').disabled = false; $('rec').textContent = 'Tap, then speak'; next();
 };
 function showModel(m) {
   if (!m || !m.exists) return;
   $('testCard').hidden = false;
-  $('modelInfo').textContent = m.trained ? `Trained ${m.trained.replace('T', ' ')}: recognised ${m.recognised} of ` +
-    `${m.held_back_eva_clips} Eva clips it never saw, ${m.false_wakes} false wakes on ${m.held_back_other_clips} other clips.` : '';
+  $('modelInfo').textContent = m.trained ? `Trained ${m.trained.replace('T', ' ')}. Strict (${m.threshold}): ` +
+    `${m.recognised} of ${m.held_back_eva_clips} Eva clips, ${m.false_wakes} false wakes. Phone (${m.phone_threshold ?? m.threshold}` +
+    `, the PC double-checks): ${m.phone_recognised ?? m.recognised} of ${m.held_back_eva_clips}, ` +
+    `${m.phone_false_wakes ?? m.false_wakes} false wakes on ${m.held_back_other_clips} other clips.` : '';
 }
 $('test').onclick = async () => {
   $('test').disabled = true; $('test').textContent = 'Listening… say it now'; $('result').textContent = '';
   try {
     const r = await fetch('/api/wakeword/test', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: await capture() });
     const j = await r.json();
-    $('result').textContent = r.ok ? (j.detected ? `Heard "Eva" (${j.score})` : `Not Eva (${j.score})`) : (j.detail || r.status);
+    $('result').textContent = !r.ok ? (j.detail || r.status) : j.detected ? `Heard "Eva" (${j.score})`
+      : j.phone_detected ? `Probably "Eva" (${j.score}): the phone would wake and the PC double-checks`
+      : `Not Eva (${j.score})`;
   } catch (e) { $('result').textContent = 'Test failed: ' + e.message; }
   $('test').disabled = false; $('test').textContent = 'Tap, then say "Eva" (or anything else)'; $('level').style.width = '0';
 };

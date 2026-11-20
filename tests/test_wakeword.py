@@ -102,6 +102,7 @@ def trained(tmp_path, monkeypatch):
               (np.random.default_rng(200 + i).normal(0, 3000, int(0.8 * SR))).astype(np.int16))
     monkeypatch.setattr(wf, "MODEL", tmp_path / "eva.onnx")
     monkeypatch.setattr(wf, "INFO", tmp_path / "eva.json")
+    monkeypatch.setattr(wt, "SYN_CACHE", tmp_path / "synthetic")
     report = wt.train(samples=samples, out=wf.MODEL, info=wf.INFO, use_kokoro=False, epochs=25, aug=4,
                       log=lambda *_: None)
     return report, tmp_path
@@ -140,7 +141,7 @@ def test_test_endpoint_and_status(trained, monkeypatch):
     with TestClient(srv.app) as tc:
         st = tc.get("/api/wakeword/status").json()
         assert st["model"]["exists"] and st["model"]["threshold"] == report["threshold"]
-        assert st["counts"] == {"eva": 12, "hey_eva": 12, "other": 8, "speech": 8}
+        assert st["counts"] == {"eva": 12, "hey_eva": 12, "end_eva": 0, "other": 8, "speech": 8}
         r = tc.post("/api/wakeword/test", content=buf.getvalue()).json()
         assert r["detected"] is True and r["score"] >= r["threshold"]
 
@@ -157,7 +158,7 @@ def test_no_model_yet_says_how_to_train(tmp_path, monkeypatch):
 
 def test_the_page_asks_for_everyday_sentences_and_can_test():
     html = (Path(__file__).resolve().parents[1] / "interfaces/web/wakeword.html").read_text(encoding="utf-8")
-    assert "speech: 20" in html and "id=\"testCard\"" in html and "/api/wakeword/test" in html
+    assert "speech: 50" in html and "id=\"testCard\"" in html and "/api/wakeword/test" in html
 
 
 def test_synthetic_voices_say_both_ee_va_and_eh_va():
@@ -181,3 +182,63 @@ def test_every_clip_is_tested_and_misses_are_named(trained):
     report, _ = trained
     assert report["held_back_eva_clips"] == 24 and report["held_back_other_clips"] == 16     # all of them, by rotation
     assert report["checks"] >= 2 and isinstance(report["missed"], list) and isinstance(report["false_wake_clips"], list)
+
+
+def test_two_thresholds_strict_and_for_the_phone(trained):
+    report, tmp = trained
+    assert 0.3 <= report["phone_threshold"] <= report["threshold"]
+    assert report["phone_recognised"] >= report["recognised"]
+    assert len(report["closest_other_clips"]) == 5                       # the look-alikes that came nearest
+    r = wf.Detector(tmp / "eva.onnx").check(np.zeros(32000, np.int16))
+    assert set(r) >= {"detected", "phone_detected", "threshold", "phone_threshold"}
+
+
+def test_kokoro_clips_are_made_once_and_reused(tmp_path, monkeypatch):
+    made = []
+
+    def fake_kokoro(texts, voices, speeds=(1.0,), limit=400, log=None):
+        made.append(len(texts))
+        return [chirp(500, 1500, seed=len(made) * 10 + i) for i in range(6)]
+    monkeypatch.setattr(wt, "kokoro_clips", fake_kokoro)
+    monkeypatch.setattr(wt, "SYN_CACHE", tmp_path / "synthetic")
+    samples = tmp_path / "samples"
+    for i in range(8):
+        write(samples / "eva" / f"eva_{i:03d}.wav", chirp(450 + 10 * i, 1600, seed=i))
+        write(samples / "other" / f"other_{i:03d}.wav", chirp(1600, 450 + 20 * i, seed=100 + i))
+    kw = dict(samples=samples, out=tmp_path / "m.onnx", info=tmp_path / "m.json", epochs=5, aug=2, log=lambda *_: None)
+    wt.train(**kw)
+    wt.train(**kw)
+    assert len(made) == 2                       # positives + negatives once; the second run reused the cache
+
+
+def test_a_long_sentence_becomes_several_windows():
+    w = wt.windows(np.ones(4 * SR, np.int16))
+    assert len(w) == 3 and all(len(x) == 2 * SR for x in w)          # 0-2 s, 1-3 s, 2-4 s
+    assert len(wt.windows(np.ones(SR, np.int16))) == 1
+
+
+def test_windows_of_one_sentence_are_checked_together():
+    sources = [0, 0, 0, 1, 1, 2, 3, 3, 3, 4]
+    folds = wt.fold_of(sources, 3)
+    for s in set(sources):
+        assert len({f for f, src in zip(folds, sources) if src == s}) == 1
+
+
+def test_training_with_sentences_ending_in_eva_and_long_sentences(tmp_path, monkeypatch):
+    monkeypatch.setattr(wt, "SYN_CACHE", tmp_path / "synthetic")
+    samples = tmp_path / "samples"
+    talk = lambda seed: (np.random.default_rng(seed).normal(0, 2500, int(1.6 * SR))).astype(np.int16)
+    for i in range(10):
+        write(samples / "eva" / f"eva_{i:03d}.wav", chirp(450 + 10 * i, 1600, seed=i))
+        write(samples / "end_eva" / f"end_eva_{i:03d}.wav", np.concatenate([talk(300 + i), chirp(470 + 10 * i, 1600, seed=40 + i)]))
+        write(samples / "speech" / f"speech_{i:03d}.wav", np.concatenate([talk(400 + i), talk(500 + i)]))   # 3.2 s
+    r = wt.train(samples=samples, out=tmp_path / "m.onnx", info=tmp_path / "m.json", use_kokoro=False, epochs=15,
+                 aug=3, log=lambda *_: None)
+    assert r["held_back_eva_clips"] == 20                                    # eva + end_eva are both positives
+    assert r["held_back_other_clips"] > 10                                   # long sentences gave several windows
+
+
+def test_recorder_v2_plan_and_hands_free():
+    html = (Path(__file__).resolve().parents[1] / "interfaces/web/wakeword.html").read_text(encoding="utf-8")
+    assert "end_eva: 20" in html and "speech: 50" in html and "eva: 35" in html
+    assert "SECS = { eva: 2, hey_eva: 2, end_eva: 4, other: 2, speech: 4 }" in html and 'id="auto"' in html

@@ -3,12 +3,22 @@
 "Eva" and "Hey Eva", trained on your voice, in openWakeWord's format, so the same small model runs on the PC and
 (next round) on your phone with the screen off. Everything stays on your PC.
 
-## 1. Record (done once, about 8 minutes)
-Open `/wakeword` on your phone (the mic the model will listen through) and fill all four counters:
-15 "Eva", 15 "Hey Eva", 10 look-alike phrases, and 20 everyday sentences without "Eva". The everyday sentences
-matter most: they teach the model that your voice alone isn't "Eva".
+## 1. Record (about 15 minutes in total; the second session about 8)
+Open `/wakeword` on your phone (the mic the model will listen through). The plan:
 
-## 2. Train (about 5-15 minutes)
+| What | How many | Clip |
+|---|---|---|
+| "Eva" on its own (mix "EE-va" and "EH-va") | 35 | 2 s |
+| "Hey Eva" | 20 | 2 s |
+| A sentence ending in "Eva" ("turn the lights red, Eva") | 20 | 4 s |
+| Look-alike phrases ("ever", "Ava is here"...) | 15 | 2 s |
+| Everyday sentences without "Eva" | 50 | 4 s |
+
+The page mixes the categories so it stays varied. Tick **Hands-free** and it records the next one by itself after
+each clip (tap the button to pause), so you only read. The everyday sentences matter most: they teach the model
+that your voice alone isn't "Eva". Sentences ending in "Eva" teach it the way you actually talk to her.
+
+## 2. Train (about 12 minutes the first time, about 2 minutes after that)
 ```powershell
 cd "D:\Project E.V.A\eva"
 pip install onnx
