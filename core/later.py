@@ -25,30 +25,95 @@ from loguru import logger
 STORE = Path("data/later.json")
 STALE_S = 30 * 60
 
-_UNIT = {"s": 1, "sec": 1, "second": 60 / 60, "m": 60, "min": 60, "minute": 60, "h": 3600, "hr": 3600, "hour": 3600}
-_AMOUNT = {"a": 1, "an": 1, "one": 1, "half an": 0.5, "half a": 0.5, "a couple of": 2, "a few": 3, "two": 2,
-           "three": 3, "five": 5, "ten": 10, "fifteen": 15, "twenty": 20, "thirty": 30}
-_DELAY = re.compile(r"[\s,]*\b(?:in|after)\s+(half an?|an?|one|a couple of|a few|two|three|five|ten|fifteen|twenty|"
-                    r"thirty|\d+(?:[.,]\d+)?)\s+(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b(?:\s+from now)?[\s,.!?]*",
-                    re.I)
+_UNIT = {"second": 1, "sec": 1, "s": 1, "minute": 60, "min": 60, "m": 60, "hour": 3600, "hr": 3600, "h": 3600}
+_ONES = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen "
+                                    "fourteen fifteen sixteen seventeen eighteen nineteen".split())}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+_FUZZY = {"a": 1, "an": 1, "a couple of": 2, "a couple": 2, "couple of": 2, "a few": 3, "few": 3}
+_WORD = "|".join(sorted([*_ONES, *_TENS], key=len, reverse=True))
+_NUM = (rf"\d+(?:[.,]\d+)?|(?:{'|'.join(_TENS)})(?:[\s-](?:one|two|three|four|five|six|seven|eight|nine))?|{_WORD}|"
+        r"a couple(?: of)?|couple of|a few|few|an?")
+_UNITS = r"seconds?|secs?|minutes?|mins?|hours?|hrs?"
+# 'about', 'like', 'roughly' and friends sit between 'in' and the number in how people actually talk
+# (Nov 20: "stop the music in about 20 minutes" stopped it right away because 'about' wasn't expected here)
+_HEDGE = r"(?:(?:about|around|roughly|approximately|approx\.?|like|maybe|say|just|some|another|exactly|precisely|only)\s+){0,2}"
+_DELAY = re.compile(
+    rf"[\s,]*\b(?:(?:in|after)\s+{_HEDGE}(?P<half>half an?\s+(?P<hunit>hour|minute))|"
+    rf"(?:(?:in|after)\s+{_HEDGE})?(?P<num>{_NUM})\s+(?P<unit>{_UNITS})"
+    rf"(?P<more>\s+and\s+a\s+half|\s+and\s+(?P<num2>{_NUM})\s+(?P<unit2>{_UNITS}))?)"
+    rf"(?:'?s?\s+time)?(?P<fromnow>\s+from\s+now)?\b[\s,.!?]*", re.I)
 _OWN_TIME = re.compile(r"\b(remind|reminder|timer|alarm|wake me|schedule|calendar|meeting|appointment)\b", re.I)
 
 
+def _number(word: str) -> Optional[float]:
+    w = word.lower().strip()
+    if w in _FUZZY:
+        return float(_FUZZY[w])
+    if w in _ONES:
+        return float(_ONES[w])
+    parts = re.split(r"[\s-]+", w)
+    if parts[0] in _TENS:
+        return float(_TENS[parts[0]] + (_ONES.get(parts[1], 0) if len(parts) > 1 else 0))
+    try:
+        return float(w.replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _unit(word: str) -> float:
+    u = word.lower().rstrip("s")
+    return _UNIT.get(u, _UNIT.get(u[:3], _UNIT.get(u[:1], 60)))
+
+
 def split_delay(text: str) -> tuple[str, Optional[float]]:
-    """'turn the lights off in 5 minutes' -> ('turn the lights off', 300). Reminders, timers and alarms keep
+    """'turn the lights off in 5 minutes' -> ('turn the lights off', 300). Also 'in about 20 minutes',
+    'in twenty-five minutes', 'in an hour and a half', '10 minutes from now'. Reminders, timers and alarms keep
     their own time words, so they are never split here."""
     if not text or _OWN_TIME.search(text):
         return text, None
-    m = _DELAY.search(text)
-    if not m:
-        return text, None
-    amount = _AMOUNT.get(m.group(1).lower())
-    if amount is None:
-        amount = float(m.group(1).replace(",", "."))
-    unit = m.group(2).lower().rstrip("s")
-    secs = amount * _UNIT.get(unit, _UNIT.get(unit[:3], 60))
-    clean = (text[:m.start()] + " " + text[m.end():]).strip(" ,.")
-    return (clean, secs) if clean and 0 < secs <= 24 * 3600 else (text, None)
+    for m in _DELAY.finditer(text):
+        lead = m.group(0).lower()
+        if not (re.search(r"\b(in|after)\b", lead) or m.group("fromnow") or re.search(r"\btime\b", lead)):
+            continue                      # a bare '20 minutes' ('play 20 minutes of jazz') is not a delay
+        if m.group("half"):
+            secs = 0.5 * _unit(m.group("hunit"))
+        else:
+            amount = _number(m.group("num"))
+            if amount is None:
+                continue
+            secs = amount * _unit(m.group("unit"))
+            if m.group("more"):
+                if m.group("num2"):
+                    secs += (_number(m.group("num2")) or 0) * _unit(m.group("unit2"))
+                else:
+                    secs += 0.5 * _unit(m.group("unit"))
+        clean = (text[:m.start()] + " " + text[m.end():]).strip(" ,.?!")
+        clean = re.sub(r"\s{2,}", " ", clean)
+        if clean and 0 < secs <= 24 * 3600:
+            return clean, secs
+    return text, None
+
+
+_POLITE = re.compile(r"^(?:(?:hey\s+)?eva[,.!]?\s+)?(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|please\s+)?", re.I)
+
+
+def tidy(command: str) -> str:
+    """'Can you stop the music' -> 'stop the music', for 'Okay, sir: stop the music in 20 minutes'."""
+    c = _POLITE.sub("", command.strip()).strip(" ,.?!")
+    c = re.sub(r"[\s,]+please$", "", c, flags=re.I)
+    return (c[:1].lower() + c[1:]) if c and not c[:2].isupper() else c
+
+
+# "No, not now, I said in 20 minutes": everything left once the delay is taken out is just the correction
+_CORRECTION = re.compile(r"^(?:(?:no|nope|wait|stop|sorry|hey|eva|not now|not yet|not right now|i said|i meant|"
+                         r"i told you|i asked|i asked for|i wanted|i want it|do it|that|it|you|like|only|later|"
+                         r"please|but|and)\W*)+$", re.I)
+
+
+def is_correction(rest: str) -> bool:
+    """True when the words around a delay are only 'no / not now / I said': it re-times the previous command."""
+    r = (rest or "").strip(" ,.?!")
+    return bool(r) and bool(_CORRECTION.match(r)) and bool(re.search(r"\b(no|not|said|meant|told|wait)\b", r, re.I))
 
 
 def human(secs: float) -> str:
@@ -128,6 +193,17 @@ class Later:
                 self._save()
                 return item
         return None
+
+    def cancel_id(self, item_id: str) -> Optional[dict]:
+        item = next((i for i in self.items if i["id"] == item_id and i["status"] == "pending"), None)
+        if item:
+            item["status"] = "cancelled"
+            h = self._tasks.pop(item_id, None)
+            if h:
+                h.cancel()
+            self.items = [i for i in self.items if i["status"] == "pending"]
+            self._save()
+        return item
 
     async def _fire(self, item_id: str) -> None:
         item = next((i for i in self.items if i["id"] == item_id and i["status"] == "pending"), None)

@@ -182,4 +182,7 @@ most voice bugs show up.
 | 15.7 | *(phone app closed)* "Set an alarm for 7." | "Your phone app isn't open, sir..." |
 | 15.8 | *(phone)* Tap the ear button once after opening the app. | It stays as you left it; one tap switches it. |
 | 15.9 | *(phone, media mode)* Ask something with a long answer. | Her voice sounds like media (not a call); volume keys change media volume. |
+| 15.10 | "Can you stop the music in about 20 minutes?" | Planned, not done now: "Okay, sir: stop the music in 20 minutes, at HH:MM." |
+| 15.11 | "Stop the music." then "No, not now, I said in 2 minutes." | The music comes back on; "...I've put it back, and I'll stop the music in 2 minutes." |
+| 15.12 | "Lights off in 5 minutes." then "No, I said in 10 minutes." | "Got it, sir, moved: ..." and only one plan in "What's planned for later?" |
 

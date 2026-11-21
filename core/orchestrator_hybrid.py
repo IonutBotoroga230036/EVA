@@ -725,6 +725,9 @@ class HybridOrchestrator:
         self._conv_turn = False                    # this turn was answered in the conversation lane
         self.last_lane = "task"
         self.last_missing: str | None = None       # what FORGE would build if the user says "build it"
+        self.last_action: dict | None = None       # the last action that ran: "no, I said in 20 minutes" re-times it
+        self.last_planned: dict | None = None      # the last thing planned for later, for the same correction
+        self._turn_input = ""
         self._stale = False
         self._bg: set[asyncio.Task] = set()
         self.bus.subscribe("skills.changed", lambda _e: setattr(self, "_stale", True))
@@ -874,6 +877,8 @@ class HybridOrchestrator:
             self.pending = {"tool": nxt["tool"], "args": nxt.get("args", {}), "desc": nxt.get("desc", ""), "ts": time.time()}
         if out.get("widget"):
             events.append({"type": "widget", "data": out["widget"]})
+        if ok and self.belt.is_action(tool):
+            self.last_action = {"tool": tool, "args": dict(args), "request": self._turn_input, "ts": time.time()}
         gathered.append((tool, out))
         return events
 
@@ -1011,8 +1016,50 @@ class HybridOrchestrator:
         if self.belt.needs_confirm(tool):
             return ("That one needs your yes at the moment it happens, sir, so I won't do it unattended. "
                     "I can set a reminder instead.")
+        clean = later_mod.tidy(clean)
         item = later_mod.get_later().add(tool, args, delay, clean, session=self.session_id)
+        self.last_planned = {**item, "ts": time.time()}
         return f"Okay, sir: {clean} in {later_mod.human(delay)}, at {datetime.fromtimestamp(item['due']):%H:%M}."
+
+    # what puts things back the way they were, for "no, not now, in 20 minutes" after she already did it
+    _UNDO = {"media_control": lambda a: {"action": "playpause"} if a.get("action") == "playpause" else None,
+             "spotify_play": lambda a: {"action": "playpause"},
+             "lights_power": lambda a: {**a, "on": not a.get("on")}}
+    _UNDO_TOOL = {"spotify_play": "media_control"}
+
+    async def _retime(self, delay: float) -> str | None:
+        """'No, not now, I said in 20 minutes': move the previous command to later instead of running the words
+        'no, not now, I said'. If it already ran and can be undone (music, lights), undo it first. None when there
+        is nothing recent to re-time."""
+        from datetime import datetime
+        lt, now = later_mod.get_later(), time.time()
+        planned = self.last_planned if self.last_planned and now - self.last_planned["ts"] < 600 else None
+        action = self.last_action if self.last_action and now - self.last_action["ts"] < 600 else None
+        if planned and (not action or planned["ts"] >= action["ts"]):
+            if lt.cancel_id(planned["id"]):          # it was planned already: just move it
+                text = self._schedule((planned["tool"], planned["args"]), planned["text"], delay)
+                return text.replace("Okay, sir:", "Got it, sir, moved:", 1)
+        if not action:
+            return None
+        tool, args = action["tool"], action["args"]
+        clean = later_mod.tidy(later_mod.split_delay(action["request"])[0] or action["request"])
+        undo = self._UNDO.get(tool, lambda a: None)(args)
+        if undo is None:
+            lead = f"Sorry, sir, I already did that and can't undo it. I'll do it again in {later_mod.human(delay)}"
+        else:
+            out = await self.belt.aexecute(self._UNDO_TOOL.get(tool, tool), undo)
+            ok = '"error"' not in (out.get("result") or "")
+            lead = ("Sorry, sir, I did that straight away. I've put it back" if ok
+                    else "Sorry, sir, I did that straight away and couldn't put it back")
+        self.last_action = None
+        if self.belt.needs_confirm(tool):
+            return f"{lead}. That one needs your yes at the moment it happens, so I won't redo it on my own."
+        item = lt.add(tool, args, delay, clean, session=self.session_id)
+        self.last_planned = {**item, "ts": time.time()}
+        when = f"{later_mod.human(delay)}, at {datetime.fromtimestamp(item['due']):%H:%M}"
+        if undo is None:
+            return f"{lead}, at {datetime.fromtimestamp(item['due']):%H:%M}."
+        return f"{lead}, and I'll {clean} in {when}."
 
     async def _pick(self, client, step: str, original: str, ctx: dict, gathered: list, dependent: bool):
         """Which tool, with which arguments, for one step. None when nothing fits or a guard says no."""
@@ -1196,6 +1243,7 @@ class HybridOrchestrator:
         if self._stale:
             self.refresh_tools()
         self.history.append({"role": "user", "content": user_input})
+        self._turn_input = user_input
         self.bus.publish("turn.user", {"session": self.session_id, "text": user_input})
         gathered: list = []
         used: set[str] = set()
@@ -1303,6 +1351,13 @@ class HybridOrchestrator:
             # 0c. "... in 5 minutes": understood now, done then (v0.3 10b)
             if not fp_override:
                 clean, delay = later_mod.split_delay(user_input)
+                if delay and later_mod.is_correction(clean):
+                    text = await self._retime(delay)
+                    if text is None:
+                        text = f"What should I do in {later_mod.human(delay)}, sir?"
+                    self._finish(user_input, text, used)
+                    yield {"type": "final", "text": text}
+                    return
                 if delay:
                     self._context(clean, ctx)
                     picked = await self._pick(client, clean, user_input, ctx, [], False)
