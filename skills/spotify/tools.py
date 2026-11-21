@@ -7,8 +7,8 @@ from core import spotify as sp
 TOOLS = [
     {"type": "function", "function": {"name": "spotify_now_playing", "description": "What song is playing on Spotify right now.",
                                       "parameters": {"type": "object", "properties": {}}}},
-    {"type": "function", "function": {"name": "spotify_queue", "description": "Add a song to the Spotify queue.",
-                                      "parameters": {"type": "object", "properties": {"what": {"type": "string"}},
+    {"type": "function", "function": {"name": "spotify_queue", "description": "Add music to the Spotify queue: a song by name, or 'my music' for ten of the user's liked songs.",
+                                      "parameters": {"type": "object", "properties": {"what": {"type": "string", "description": "A song name, or 'my music'."}},
                                                      "required": ["what"]}}},
     {"type": "function", "function": {"name": "spotify_volume", "description": "Set the volume of the Spotify device (0 to 100).",
                                       "parameters": {"type": "object", "properties": {"level": {"type": "integer"}},
@@ -55,5 +55,5 @@ def spotify_volume(level: int = 50, **_):
 FUNCTIONS = {"spotify_now_playing": spotify_now_playing, "spotify_queue": spotify_queue, "spotify_volume": spotify_volume}
 ACTIONS = ["spotify_queue", "spotify_volume"]
 GUARDS = {"spotify_now_playing": r"\b(playing|song|track|this music|who sings|what is this)\b",
-          "spotify_queue": r"\b(queue|next up|after this|play next)\b",
+          "spotify_queue": r"\b(queue|cue|next up|after this|play next)\b",
           "spotify_volume": r"\b(spotify|phone)\b.*\bvolume\b|\bvolume\b.*\b(spotify|phone)\b"}

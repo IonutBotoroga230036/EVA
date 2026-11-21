@@ -35,6 +35,7 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 | 10b | **Actions later** (built, awaiting hardware test) | "Turn the lights off in 5 minutes, stop the music in 10": ORACLE runs the tool at that time, with the same confirmation rules at the moment it runs. |
 | 13a | **FORGE Code: E.V.A. edits her own projects** | "Eva, make the orb bigger in the phone app": she reads apps/eva_android, proposes a diff, runs `flutter analyze` and the tests, shows you the change, and applies it on a git branch only after your yes. Never on main, never unattended. |
 | 13b | **FORGE crew** (built, awaiting hardware test) | Separate roles instead of one model grading its own homework: a planner, a coder, an independent test writer, and a reviewer. Sequential on the local GPU; parallel only with Claude. |
+| 9e | **Understanding what you mean** (built, measure first: docs/UNDERSTANDING.md) | Jev picks which skill a sentence wants (fast, with a real confidence), the local model fills in the details, Claude Haiku decides when Jev isn't sure, local when offline or private. Sure decisions skip the word guards; "nothing fits" leads to the offer to build the skill. Scored on your own sentences before switching. |
 | 13 | **FORGE v1.1** | Skills delivered as pull requests from her own GitHub account, a Docker sandbox, and a Hermes skill importer through the same safety review. You approve every merge. |
 
 ## v0.4 "Presence"

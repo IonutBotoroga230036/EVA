@@ -553,8 +553,10 @@ def tool_send_to_phone(text: str = "", **_):
 FEATURE_WORDS = {"forge": r"\b(forge|skill[- ]?build\w*|build(?:ing)? skills?|coding)\b",
                  "thinking": r"\b(think\w*|reasoning|deep thought)\b",
                  "planning": r"\b(plan\w*|multi-?step)\b",
-                 "conversation": r"\b(conversation\w*|chat\w*|talking)\b"}
-FEATURE_NAMES = {"forge": "FORGE", "thinking": "deep thinking", "planning": "planning", "conversation": "conversation"}
+                 "conversation": r"\b(conversation\w*|chat\w*|talking)\b",
+                 "understanding": r"\b(understand\w*|decisions?|deciding|intent)\b"}
+FEATURE_NAMES = {"forge": "FORGE", "thinking": "deep thinking", "planning": "planning", "conversation": "conversation",
+                 "understanding": "understanding what you mean"}
 
 
 def feature_from_words(text: str) -> str:

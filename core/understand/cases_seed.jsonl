@@ -1,0 +1,57 @@
+{"say": "play my music", "expect": ["spotify_play"], "why": "Nov 20"}
+{"say": "queue my music", "expect": ["spotify_queue", "spotify_play"], "why": "Nov 20"}
+{"say": "cue my music", "expect": ["spotify_queue", "spotify_play"], "why": "Whisper writes queue as cue"}
+{"say": "put some music on", "expect": ["spotify_play"]}
+{"say": "put my chill evenings playlist on", "expect": ["spotify_play"], "args": {"what": "chill evenings"}}
+{"say": "play the weekend on my phone", "expect": ["spotify_play"], "args": {"what": "weekend"}}
+{"say": "Can you stop the music", "expect": ["media_control"], "args": {"action": "playpause"}, "why": "Nov 20, after the delay is taken out"}
+{"say": "skip this song", "expect": ["media_control"], "args": {"action": "next"}}
+{"say": "what's this song", "expect": ["spotify_now_playing"]}
+{"say": "who sings this", "expect": ["spotify_now_playing"]}
+{"say": "turn it up a bit", "expect": ["media_control", "set_volume"]}
+{"say": "set the volume to 30", "expect": ["set_volume"], "args": {"level": "30"}}
+{"say": "check my calendar for any empty slots for tomorrow", "expect": ["calendar_free"], "args": {"day": "tomorrow"}, "why": "Nov 20"}
+{"say": "when am I free tomorrow afternoon", "expect": ["calendar_free"], "args": {"day": "tomorrow"}}
+{"say": "can I fit a gym session in on friday", "expect": ["calendar_free"]}
+{"say": "what's on my calendar tomorrow", "expect": ["calendar_agenda"], "args": {"day": "tomorrow"}}
+{"say": "do I have anything going on friday", "expect": ["calendar_agenda"], "args": {"day": "friday"}}
+{"say": "what's next on my schedule", "expect": ["calendar_next", "calendar_agenda"]}
+{"say": "add gym tomorrow at 6pm to my calendar", "expect": ["calendar_add"], "args": {"title": "gym"}}
+{"say": "move my meeting with Sena to 3pm", "expect": ["calendar_move"], "args": {"title": "sena"}}
+{"say": "push everything back an hour", "expect": ["calendar_shift"]}
+{"say": "turn off the lights", "expect": ["lights_power"], "args": {"on": "false"}}
+{"say": "close the lights", "expect": ["lights_power"], "args": {"on": "false"}, "why": "how Ionut says it"}
+{"say": "make the lights a bit warmer", "expect": ["lights_set"]}
+{"say": "it's way too bright in here", "expect": ["lights_set"]}
+{"say": "I'm home", "expect": ["set_mood"]}
+{"say": "what's the weather like tomorrow in Nijmegen", "expect": ["get_weather"], "args": {"city": "nijmegen"}}
+{"say": "do I need an umbrella today", "expect": ["get_weather"]}
+{"say": "what time is it", "expect": ["get_datetime"]}
+{"say": "remind me to call mom at 6", "expect": ["set_reminder"], "args": {"text": "call mom"}}
+{"say": "don't let me forget to take the laundry out in an hour", "expect": ["set_reminder"]}
+{"say": "add milk and eggs to my shopping list", "expect": ["shopping_add"]}
+{"say": "we're out of coffee", "expect": ["shopping_add", "none"]}
+{"say": "set an alarm for 7:30", "expect": ["phone_alarm"], "args": {"time": "7:30"}}
+{"say": "wake me up at 7 tomorrow", "expect": ["phone_alarm"]}
+{"say": "start a 10 minute timer", "expect": ["phone_timer"]}
+{"say": "any new emails", "expect": ["email_unread", "email_important"]}
+{"say": "did Tom reply to me", "expect": ["email_search", "email_unread", "email_important"]}
+{"say": "remember that I prefer jazz when I work", "expect": ["remember_fact"]}
+{"say": "what do you know about me", "expect": ["recall_memory"]}
+{"say": "jot down that the seminar moved to room 2.14", "expect": ["obsidian_quick_note"]}
+{"say": "how much is 50 dollars in lei", "expect": ["convert_currency"]}
+{"say": "convert 10 km to miles", "expect": ["km_to_miles"]}
+{"say": "who won the F1 race last weekend", "expect": ["web_search"]}
+{"say": "open youtube", "expect": ["open_website", "open_app"]}
+{"say": "what's planned for later", "expect": ["later_list"]}
+{"say": "how's the skill going", "expect": ["forge_status"]}
+{"say": "can you build yourself a skill that tracks how much water I drink", "expect": ["forge_build"]}
+{"say": "how are you today", "expect": ["none"]}
+{"say": "tell me a joke", "expect": ["none"]}
+{"say": "thanks, that's perfect", "expect": ["none"]}
+{"say": "what's the capital of Australia", "expect": ["none", "web_search"]}
+{"say": "book me a train ticket to Nijmegen for Monday", "expect": ["unavailable"]}
+{"say": "order me a pizza", "expect": ["unavailable"]}
+{"say": "and tomorrow?", "expect": ["get_weather"], "history": [["user", "what's the weather in Breda"], ["assistant", "It's 7 degrees and light rain in Breda, sir."]], "why": "follow-up"}
+{"say": "and on Friday?", "expect": ["calendar_agenda"], "args": {"day": "friday"}, "history": [["user", "what's on my calendar tomorrow"], ["assistant", "Tomorrow you have the seminar at 10:45, sir."]], "why": "follow-up"}
+{"say": "the music one", "expect": ["later_cancel"], "history": [["user", "cancel something you planned"], ["assistant", "Which one, sir: the lights at 21:40 or the music at 21:50?"]], "why": "answering her question"}

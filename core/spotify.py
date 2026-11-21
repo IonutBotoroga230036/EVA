@@ -15,6 +15,7 @@ import base64
 import hashlib
 import json
 import os
+import random
 import re
 import secrets
 import threading
@@ -288,6 +289,17 @@ class Spotify:
         self.req("PUT", "/me/player/volume", params={"volume_percent": max(0, min(100, int(level)))})
 
     def queue(self, what: str) -> str:
+        """A song by name, or 'my music' / 'my liked songs': ten of your liked songs, shuffled. Spotify only queues
+        songs, so a whole playlist or artist is said honestly instead of guessed at."""
+        if re.fullmatch(r"(?:some of )?(?:my )?(liked songs|likes|favou?rites|my music|music|songs|something)",
+                        (what or "music").strip().lower()):
+            uris = self.resolve("my music")["uris"]
+            if not uris:
+                raise LookupError("you have no liked songs on Spotify yet")
+            picks = random.sample(uris, min(10, len(uris)))
+            for uri in picks:
+                self.req("POST", "/me/player/queue", params={"uri": uri})
+            return f"{len(picks)} of your liked songs"
         res = self.req("GET", "/search", params={"q": what, "type": "track", "limit": 1})
         items = (res.get("tracks") or {}).get("items", [])
         if not items:

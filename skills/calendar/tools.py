@@ -16,7 +16,7 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
         "name": "calendar_free",
-        "description": "Find free time in the calendar. day may include 'morning', 'afternoon', or 'evening'.",
+        "description": "Find free time, empty slots or gaps in the calendar ('when am I free tomorrow', 'any empty slots on friday'). day may include 'morning', 'afternoon', or 'evening'.",
         "parameters": {"type": "object", "properties": {
             "day": {"type": "string"}, "duration_minutes": {"type": "integer"}}}}},
     {"type": "function", "function": {
@@ -98,7 +98,7 @@ ACKS = {"calendar_agenda": "One moment, sir. Pulling up your calendar.",
 ACTIONS = ["calendar_add", "calendar_delete", "calendar_shift", "calendar_move"]
 GUARDS = {
     "calendar_agenda": r"\b(calendar|schedule|agenda|plans?|meetings?|events?|appointments?|busy|doing|booked|on for)\b",
-    "calendar_free": r"\b(free|opening|gap|available|slot|time for|room for)\b",
+    "calendar_free": r"\b(free|openings?|gaps?|available|slots?|empty|time for|room for|fit (?:in|it))\b",
     "calendar_next": r"\b(next|now|coming up|upcoming|later)\b",
     "calendar_add": r"\b(add|schedule|book|put|create|set up|plan|block)\b",
     "calendar_delete": r"\b(delete|remove|cancel|clear|drop)\b",

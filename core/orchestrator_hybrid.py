@@ -201,6 +201,7 @@ def load_persona(name: str = "eva") -> str:
 from core import multistep  # noqa: E402  (v0.2.5 multi-step commands)
 from core import conversation  # noqa: E402  (v0.2.5 conversation lane)
 from core import later as later_mod  # noqa: E402  (v0.3 actions later)
+from core.understand import brains as understanding  # noqa: E402  (v0.3.1 understanding step)
 import random  # noqa: E402
 
 # Acks (v0.2.5): spoken only when a tool is still busy after this long, so quick things stay silent.
@@ -728,6 +729,7 @@ class HybridOrchestrator:
         self.last_action: dict | None = None       # the last action that ran: "no, I said in 20 minutes" re-times it
         self.last_planned: dict | None = None      # the last thing planned for later, for the same correction
         self._turn_input = ""
+        self.understand_mode: str | None = None     # None = settings; the eval sets each mode in turn
         self._stale = False
         self._bg: set[asyncio.Task] = set()
         self.bus.subscribe("skills.changed", lambda _e: setattr(self, "_stale", True))
@@ -752,21 +754,46 @@ class HybridOrchestrator:
     def _recent(self) -> set[str]:
         return set().union(self.last_tools, *self.recent_tools)
 
+    def _mode(self) -> str:
+        return self.understand_mode or understanding.cfg()["mode"]
+
+    def _local_model(self) -> str:
+        return (understanding.cfg().get("local_model") if self._mode() != "legacy" else "") or self.cfg["decision_model"]
+
+    def _ollama_body(self, model: str, **body) -> dict:
+        body = {"model": model, "stream": False, "keep_alive": self.cfg["keep_alive"],
+                "options": {"temperature": 0}, **body}
+        if model.startswith("qwen3"):
+            body["think"] = False                  # qwen3.x thinks by default: seconds we don't have in a voice turn
+        return body
+
     async def _decide(self, client, skill_bodies, gathered, messages: list[dict] | None = None) -> dict:
+        """Which tool, and its arguments. understanding.mode picks who decides (core/understand/brains.py); after a
+        tool has already answered (gathered), the local model decides whether one more is needed, as before."""
+        msgs = messages or self.history[-MAX_HISTORY:]
+        if self._mode() == "legacy" or gathered:
+            return await self._decide_local(client, skill_bodies, gathered, msgs)
+
+        async def fill(tool: str) -> dict:
+            return args_for(self.belt.by_name[tool], await self._repair_args(client, tool, msgs), self.belt.names())
+
+        return await understanding.understand(msgs, self.belt.schemas,
+                                              lambda: self._decide_local(client, skill_bodies, gathered, msgs), fill,
+                                              mode=self._mode(), private=self.understand_mode is None)
+
+    async def _decide_local(self, client, skill_bodies, gathered, messages: list[dict]) -> dict:
         system = build_decision_system(self.belt.list_text(), skill_bodies,
                                        [out["result"] for _, out in gathered])
         try:
-            r = await client.post(f"{self.cfg['base_url']}/api/chat", json={
-                "model": self.cfg["decision_model"], "stream": False, "format": self.schema,
-                "keep_alive": self.cfg["keep_alive"], "options": {"temperature": 0},
-                "messages": [{"role": "system", "content": system}, *(messages or self.history[-MAX_HISTORY:])],
-            })
+            r = await client.post(f"{self.cfg['base_url']}/api/chat", json=self._ollama_body(
+                self._local_model(), format=self.schema,
+                messages=[{"role": "system", "content": system}, *messages]))
             return json.loads(r.json()["message"]["content"])
         except Exception as e:
             logger.warning(f"decision failed, answering directly: {e}")
             return {"tool": "none"}
 
-    async def _repair_args(self, client, tool: str) -> dict:
+    async def _repair_args(self, client, tool: str, messages: list[dict] | None = None) -> dict:
         """Second tiny call constrained to ONE tool's schema, so required fields get filled."""
         fn = self.belt.by_name[tool]["function"]
         params = fn.get("parameters", {}).get("properties", {})
@@ -775,12 +802,9 @@ class HybridOrchestrator:
                   f"latest message and the conversation. Copy the user's words; never invent content. "
                   f"Parameters:\n{spec}")
         try:
-            r = await client.post(f"{self.cfg['base_url']}/api/chat", json={
-                "model": self.cfg["decision_model"], "stream": False,
-                "format": tool_arg_schema(self.belt.by_name[tool]),
-                "keep_alive": self.cfg["keep_alive"], "options": {"temperature": 0},
-                "messages": [{"role": "system", "content": system}, *self.history[-MAX_HISTORY:]],
-            })
+            r = await client.post(f"{self.cfg['base_url']}/api/chat", json=self._ollama_body(
+                self._local_model(), format=tool_arg_schema(self.belt.by_name[tool]),
+                messages=[{"role": "system", "content": system}, *(messages or self.history[-MAX_HISTORY:])]))
             return json.loads(r.json()["message"]["content"])
         except Exception as e:
             logger.warning(f"argument repair failed for {tool}: {e}")
@@ -1071,18 +1095,15 @@ class HybridOrchestrator:
         tool = decision.get("tool", "none")
         if tool in ("none", "unavailable") or not self.belt.has(tool):
             return None
-        if not (self.belt.guard_ok(tool, step) or self.belt.guard_ok(tool, original) or tool in self._recent()):
+        if not (decision.get("_trusted") or self.belt.guard_ok(tool, step) or self.belt.guard_ok(tool, original)
+                or tool in self._recent()):
             logger.info(f"MULTI guard: {tool} blocked for {step!r}")
             return None
         schema = self.belt.by_name[tool]
         args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), step)
         if missing_required(schema, args):
-            saved, self.history = self.history, msgs            # the repair call sees only this step
-            try:
-                args = self.belt.fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool),
-                                                                self.belt.names())}, step)
-            finally:
-                self.history = saved
+            args = self.belt.fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool, msgs),
+                                                            self.belt.names())}, step)
             if missing_required(schema, args):
                 return None
         return tool, args
@@ -1386,7 +1407,8 @@ class HybridOrchestrator:
                 for _ in range(MAX_TOOL_ITERS):
                     decision = await self._decide(client, ctx["skills"], gathered)
                     tool = decision.get("tool", "none")
-                    if tool == "unavailable" and (gathered or not _ABILITY_HINT.search(user_input)):
+                    if tool == "unavailable" and (gathered or not (decision.get("_trusted")
+                                                                   or _ABILITY_HINT.search(user_input))):
                         tool = "none"                      # conversation, or we already have data: just answer
                     if tool == "unavailable":
                         logger.info(f"no tool covers: {user_input!r}")
@@ -1409,7 +1431,8 @@ class HybridOrchestrator:
                         rerouted = True
                     else:
                         rerouted = False
-                    if not (rerouted or self.belt.guard_ok(tool, user_input) or tool in self._recent()):
+                    if not (rerouted or decision.get("_trusted") or self.belt.guard_ok(tool, user_input)
+                            or tool in self._recent()):
                         logger.info(f"guard: {tool} blocked, the request doesn't ask for it")
                         if self.belt.is_action(tool) and not gathered and not self.belt.needs_confirm(tool):
                             # never let the model claim or deny it: ask about the exact action instead
