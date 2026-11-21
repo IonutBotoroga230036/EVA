@@ -30,20 +30,25 @@ from core.understand.jev import Jev, JevError
 
 NONE_LABEL, MISSING_LABEL = "none", "unavailable"
 NONE_TEXT = ("No tool: the person is chatting, asking something E.V.A. can answer from general knowledge or the "
-             "conversation itself, thanking her, or reacting to what she said.")
+             "conversation itself, thanking her, or reacting to what she said. Also when they ask for a tool but leave "
+             "out what it needs and there is no sensible default ('search the web' with no topic, 'set an alarm' "
+             "with no time): she asks first.")
 MISSING_TEXT = ("None of the other options can do it: the person wants an action done or specific live information "
                 "that no listed tool provides (for example booking, ordering, controlling a device she has no tool "
                 "for).")
 JEV_INSTRUCTIONS = ("E.V.A. is a voice assistant. Each option is one of her tools. Which ONE should she use for the "
                     "user's latest message? Use the recent conversation to understand follow-ups like 'and "
-                    "tomorrow?' or 'do it again'. Speech-to-text may mishear words; go by the meaning.")
+                    "tomorrow?' or 'do it again'. Speech-to-text may mishear words; go by the meaning. If the request lacks what "
+                    "the tool needs and has no sensible default, choose none so she can ask.")
 CLAUDE_SYSTEM = (
     "You are the decision step of E.V.A., a voice assistant on the user's PC and phone. Read the latest message (it "
     "comes from speech-to-text, so words may be misheard) and call exactly ONE tool that does what the user means, "
     "with its arguments taken from their words. Go by meaning, not keywords: 'queue my music' or 'put something "
     "on' means music; 'any empty slots tomorrow' means free time in the calendar. Use the conversation for "
-    "follow-ups. Leave out optional arguments the user didn't give; never invent names, times or text. Call "
-    "just_answer when no tool is needed. Call cannot_do_yet when the user wants something done that none of the "
+    "follow-ups. Leave out optional arguments the user didn't give; never invent names, times or text. Act when "
+    "there is a sensible default ('play some music' = their liked songs, weather = their city now); when the "
+    "request lacks what a tool needs and has no default ('search the web' with no topic, 'set an alarm' with no "
+    "time), call just_answer so she can ask. Call just_answer when no tool is needed. Call cannot_do_yet when the user wants something done that none of the "
     "tools can do.")
 DEFAULTS = {"mode": "legacy", "local_model": "", "claude_model": "claude-haiku-5-5", "timeout_s": 6.0,
             "jev": {"provider": "typesafe", "model": "", "sure": 0.8}}
@@ -200,7 +205,7 @@ async def understand(messages: list[dict], schemas: list[dict], legacy, fill, mo
                     return d
                 logger.info(f"UNDERSTAND jev unsure about {d['tool']} ({d['_conf']:.2f}): asking Claude")
             except (JevError, asyncio.TimeoutError) as e:
-                logger.warning(f"UNDERSTAND jev failed ({e}); falling back")
+                logger.warning(f"UNDERSTAND jev failed ({e.__class__.__name__}: {e}); falling back")
         elif mode == "jev":
             logger.warning(f"UNDERSTAND mode is jev but there is no {j.key_name}; using the local model")
 
@@ -210,6 +215,6 @@ async def understand(messages: list[dict], schemas: list[dict], legacy, fill, mo
             d["_trusted"] = True
             return d
         except Exception as e:                          # no key, budget, offline, timeout: never stay silent
-            logger.warning(f"UNDERSTAND claude failed ({str(e)[:120]}); using the local model")
+            logger.warning(f"UNDERSTAND claude failed ({e.__class__.__name__}: {str(e)[:120]}); using the local model")
 
     return {**await legacy(), "_by": "local-fallback"}
