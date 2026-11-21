@@ -186,3 +186,13 @@ most voice bugs show up.
 | 15.11 | "Stop the music." then "No, not now, I said in 2 minutes." | The music comes back on; "...I've put it back, and I'll stop the music in 2 minutes." |
 | 15.12 | "Lights off in 5 minutes." then "No, I said in 10 minutes." | "Got it, sir, moved: ..." and only one plan in "What's planned for later?" |
 
+## 16. Understanding (v0.3.1, after `understanding.mode: auto`)
+
+| # | Say | Expect |
+|---|---|---|
+| 16.1 | "Check my calendar for any empty slots for tomorrow." | Your free time tomorrow. |
+| 16.2 | "Queue my music." | "Queued 10 of your liked songs, sir." (Spotify Premium) |
+| 16.3 | "Is tomorrow looking open?" | Free time tomorrow, not small talk. |
+| 16.4 | "Order me a pizza." | She can't yet, and offers to build the skill. |
+| 16.5 | "Eva, understanding local only." then 16.3 again | Works offline; the log shows UNDERSTAND local. |
+

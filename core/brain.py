@@ -32,7 +32,7 @@ import httpx
 from loguru import logger
 
 MODES = ("auto", "cloud", "local")
-FEATURES = ("conversation", "planning", "thinking", "forge")
+FEATURES = ("conversation", "planning", "thinking", "forge", "understanding")
 STATE = Path("data/brain_mode.json")
 
 

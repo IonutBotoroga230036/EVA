@@ -18,6 +18,7 @@ from loguru import logger
 
 DEFAULT_PRICES = {                        # USD per 1K tokens: input, output
     "claude-haiku-4-5": {"input": 0.001, "output": 0.005},
+    "claude-haiku-5-5": {"input": 0.0001, "output": 0.0005},      # Oct 2026, prompts under 100K tokens
     "claude-sonnet-5": {"input": 0.003, "output": 0.015},
     "claude-opus-5-5": {"input": 0.004, "output": 0.020},
     "claude-opus-5": {"input": 0.005, "output": 0.025},

@@ -94,7 +94,7 @@ class ClaudeClient:
         audit.log("claude_call", "claude", {"model": model, "purpose": purpose, "cost_eur": round(cost, 5),
                                             "input_tokens": usage.get("input_tokens"),
                                             "output_tokens": usage.get("output_tokens")})
-        out = {"text": "", "thinking": "", "tool_input": None, "cost_eur": cost, "usage": usage,
+        out = {"text": "", "thinking": "", "tool_input": None, "tool_name": None, "cost_eur": cost, "usage": usage,
                "stop_reason": data.get("stop_reason")}
         for block in data.get("content", []):
             if block.get("type") == "text":
@@ -103,6 +103,7 @@ class ClaudeClient:
                 out["thinking"] += block.get("thinking", "")
             elif block.get("type") == "tool_use" and out["tool_input"] is None:
                 out["tool_input"] = block.get("input")
+                out["tool_name"] = block.get("name")
         logger.info(f"CLAUDE {model} [{purpose}] EUR {cost:.4f} "
                     f"({usage.get('input_tokens')} in / {usage.get('output_tokens')} out)")
         return out

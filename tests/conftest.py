@@ -58,6 +58,11 @@ def no_real_services(tmp_path, monkeypatch):
     monkeypatch.setattr(google, "_client", None)
     monkeypatch.setattr(claude, "_load_key", lambda: None)
     monkeypatch.setattr(claude, "_client", None)
+    import core.understand.brains as understanding
+    import core.understand.jev as jev
+    monkeypatch.setattr(jev, "_secret", lambda name: None)          # never your real Jev or OpenRouter key
+    monkeypatch.setattr(understanding, "_jev", None)
+    monkeypatch.setattr(understanding, "_claude", None)
     monkeypatch.setattr(budget, "_budget", budget.BudgetTracker(track_file=str(tmp_path / "budget.json")))
     monkeypatch.setattr(brain, "STATE", tmp_path / "brain_mode.json")
     monkeypatch.setenv("EVA_TESTING", "1")
