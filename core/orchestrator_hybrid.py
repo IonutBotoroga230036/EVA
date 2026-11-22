@@ -487,6 +487,11 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     m = re.search(r"\b(?:switch|go|change|set|use|stay|keep|put)(?: back)?(?: \w+)?(?: to| on)?(?: the)?\s+"
                   r"(local|offline|cloud|online|claude|auto|automatic)(?: mode| models?)?\b|\b(local|cloud|auto) mode\b"
                   r"|\b(?:use|with)\s+(claude)\s+for\b", t, re.I)
+    if not m and belt.has("set_brain_mode") and len(t.split()) <= 7:
+        # short commands naming a feature and a mode: "auto for understanding", "understanding local only"
+        from core.tools_native import feature_from_words
+        if feature_from_words(t):
+            m = re.search(r"\b(local|offline|cloud|online|claude|auto|automatic)\b()()", t, re.I)
     if m and belt.has("set_brain_mode"):
         word = (m.group(1) or m.group(2) or m.group(3)).lower()
         mode = {"offline": "local", "online": "cloud", "claude": "cloud", "automatic": "auto"}.get(word, word)

@@ -24,6 +24,7 @@ from typing import Optional
 from loguru import logger
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events",
+          "https://www.googleapis.com/auth/calendar.calendarlist.readonly",   # which calendars you show (Nov 22)
           "https://www.googleapis.com/auth/gmail.readonly",
           "https://www.googleapis.com/auth/gmail.compose"]
 TOKEN = Path("data/google/token.json")
@@ -49,7 +50,8 @@ def load_creds():
         return None
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
-    creds = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
+    # the scopes you actually granted, not SCOPES: refreshing an older sign-in with a scope it never had fails
+    creds = Credentials.from_authorized_user_file(str(TOKEN))
     if creds.valid:
         return creds
     if creds.expired and creds.refresh_token:
@@ -139,7 +141,9 @@ class GoogleClient:
         try:
             items = self.cal.calendarList().list(minAccessRole="freeBusyReader").execute().get("items", [])
         except Exception as e:                       # never lose the main calendar over the list call
-            logger.warning(f"calendar list failed ({e}); using the primary calendar only")
+            hint = (" Sign in again once (python -m core.google_api) so I can see your other calendars, like a "
+                    "university timetable." if "insufficient" in str(e).lower() else "")
+            logger.warning(f"calendar list failed ({str(e)[:160]}); using the primary calendar only.{hint}")
             items = []
         cals = [{"id": "primary" if c.get("primary") else c["id"], "name": c.get("summaryOverride") or c.get("summary", ""),
                  "primary": bool(c.get("primary"))} for c in items if c.get("primary") or c.get("selected")]

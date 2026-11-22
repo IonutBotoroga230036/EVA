@@ -434,3 +434,22 @@ def test_classes_from_a_read_only_calendar_are_never_moved_or_deleted():
     assert "only read" in tempo.delete_event(g, "linear algebra", "monday")["say"]
     assert tempo.shift_events(g, 60, "monday", now=datetime(2026, 11, 22, 9))["moved"] == 0
     assert g.moved == [] and g.deleted == []
+
+
+@pytest.mark.parametrize("text,mode", [("Auto for Understanding", "auto"), ("Understand Local Only", "local"),
+                                       ("use auto for understanding", "auto"), ("Claude for understanding", "cloud"),
+                                       ("understanding on auto please", "auto")])
+def test_short_feature_switches_always_reach_the_tool(text, mode):
+    belt = orch_mod.ToolBelt(SkillRegistry("skills").discover(), orch_mod.MCPManager())
+    assert orch_mod.fast_path(text, belt) == ("set_brain_mode", {"mode": mode, "feature": "understanding"})
+
+
+def test_an_older_google_sign_in_still_loads(tmp_path, monkeypatch):
+    import core.google_api as g
+    tok = tmp_path / "google_token.json"
+    tok.write_text(json.dumps({"token": "t", "refresh_token": "r", "client_id": "c", "client_secret": "s",
+                               "scopes": ["https://www.googleapis.com/auth/calendar.events"],
+                               "expiry": "2999-01-01T00:00:00Z"}), encoding="utf-8")
+    monkeypatch.setattr(g, "TOKEN", tok)
+    creds = g.load_creds()
+    assert creds is not None and "calendar.calendarlist.readonly" not in " ".join(creds.scopes or [])
