@@ -204,7 +204,8 @@ def offer_for(kind: str, user_text: str, answer: str) -> tuple[str, tuple[str, d
 LOCKED_OK = {"get_datetime", "get_weather", "calculate", "convert_currency", "crypto_price", "web_search",
              "media_control", "set_volume", "spotify_play", "spotify_queue", "spotify_now_playing",
              "lights_power", "lights_set", "set_mood", "list_moods", "phone_alarm", "phone_timer",
-             "later_list", "later_cancel", "keep_listening", "calendar_add", "set_reminder", "shopping_add"}
+             "later_list", "later_cancel", "keep_listening", "calendar_add", "set_reminder", "shopping_add",
+             "phone_stay_dark"}
 LOCKED_SAY = "Unlock your phone for that, sir, and I'll carry on."
 
 
@@ -553,6 +554,14 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
         from core.tools_native import feature_from_words
         feature = feature_from_words(t)
         return "set_brain_mode", ({"mode": mode, "feature": feature} if feature else {"mode": mode})
+    if belt.has("phone_stay_dark"):
+        if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:stay dark|keep (?:the screen|it) (?:off|dark)|don'?t (?:light|turn on) "
+                        r"the screen)(?: on| please| from now on)?[.!]*", t.strip(), re.I):
+            return "phone_stay_dark", {"on": True}
+        if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:stay dark off|turn (?:off )?stay dark(?: off)?|no more staying dark|"
+                        r"(?:light|wake|turn on) the screen(?: when i call you| again)?|stop staying dark)[.!]*",
+                        t.strip(), re.I):
+            return "phone_stay_dark", {"on": False}
     if belt.has("keep_listening"):
         if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:let'?s (?:talk|chat)(?: for a (?:bit|while))?|keep listening|"
                         r"(?:start |turn on )?conversation mode(?: on)?|just listen|talk to me)[.!]*", t.strip(), re.I):

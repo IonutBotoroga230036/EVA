@@ -60,11 +60,11 @@ inference:
       planning: "default"                 # splitting multi-step commands
       thinking: "default"                 # think_deeply
       forge: "default"                    # writing skills ("use Claude for FORGE" by voice)
-      understanding: "default"            # which skill a sentence wants (Jev / Claude). local = never leaves the PC
+      understanding: "auto"               # which skill a sentence wants (Claude, ~EUR 0.0001 a command). local = stays on the PC
 
 # v0.3.1: understanding what you mean (core/understand/brains.py). Measure first: python -m core.understand.eval
 understanding:
-  mode: "legacy"            # legacy | local | jev | claude | auto. Cloud modes only run when the "understanding"
+  mode: "auto"              # legacy | local | jev | claude | auto. Cloud modes only run when the "understanding"
                             # brain feature (above) resolves to cloud or auto; "local only" always wins.
   local_model: ""           # empty = decision_model; try "qwen3.5:4b" (ollama pull qwen3.5:4b)
   claude_model: "claude-haiku-5-5"

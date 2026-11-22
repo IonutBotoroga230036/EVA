@@ -52,10 +52,20 @@ def next_up(google, now: Optional[datetime] = None) -> dict:
                        "events": [{"time": _hm(e["start"]), "title": e["title"]} for e in widget_events]}}
 
 
-def agenda(google, day: str = "today", now: Optional[datetime] = None) -> dict:
+def agenda(google, day: str = "today", now: Optional[datetime] = None, everything: bool = False) -> dict:
     now = now or datetime.now()
     start, end, label = day_window(day, now.date())
     events = google.list_events(start, end)
+    routine = [e for e in events if e.get("routine")]
+    if routine and not everything:              # your daily routine only when you ask for everything
+        main = [e for e in events if not e.get("routine")]
+        if main:
+            out = agenda(_Fixed(main), day, now, everything=True)
+            r = len(routine)
+            out["say"] = out["say"].rstrip(".") + f". Plus your daily routine ({r} item{'s' if r != 1 else ''})."
+            out["routine"] = r
+            return out
+        events = routine
     if label == "today":                           # today: what's still coming matters, not what's done
         remaining = [e for e in events if e["all_day"] or not e["start"] or (e["end"] or e["start"]) > now]
         if len(remaining) < len(events):
@@ -82,6 +92,15 @@ def agenda(google, day: str = "today", now: Optional[datetime] = None) -> dict:
     n = len(rows)
     return {"events": rows, "widget": widget,
             "say": f"You have {n} thing{'s' if n != 1 else ''} {label}, sir: {_join(parts)}{more}."}
+
+
+class _Fixed:
+    """A calendar that only has these events (agenda without the routine)."""
+    def __init__(self, events):
+        self.events = events
+
+    def list_events(self, *_a, **_k):
+        return self.events
 
 
 def free_slots(google, day: str = "today", duration_minutes: int = 30, now: Optional[datetime] = None) -> dict:

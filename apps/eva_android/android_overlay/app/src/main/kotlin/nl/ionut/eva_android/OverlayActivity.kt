@@ -88,6 +88,7 @@ class OverlayActivity : Activity() {
             }
         }
         w.addJavascriptInterface(Bridge(), "EvaOverlay")
+        w.addJavascriptInterface(Native(), "EvaNative")          // alarms and timers from the overlay too (Nov 22)
         // an instant glow while the page loads, so you see she heard you straight away
         val glow = android.view.View(this).apply {
             background = android.graphics.drawable.GradientDrawable().apply {
@@ -136,6 +137,21 @@ class OverlayActivity : Activity() {
     }
 
     private fun js(code: String) = main.post { web?.evaluateJavascript(code, null) }
+
+    /** The same channel the app's page uses for device actions: {"type":"device_action","id","action","args"}. */
+    inner class Native {
+        @JavascriptInterface
+        fun postMessage(message: String) {
+            val req = try { JSONObject(message) } catch (_: Exception) { return }
+            if (req.optString("type") != "device_action") return
+            main.post {
+                val res = JSONObject(DeviceActions.run(this@OverlayActivity, req.optString("action"),
+                    DeviceActions.args(req.optJSONObject("args"))))
+                res.put("id", req.optString("id"))
+                js("window.dispatchEvent(new CustomEvent('eva:device-result', {detail: $res}))")
+            }
+        }
+    }
 
     /** What the page can ask of the phone. Called on a background thread by the WebView. */
     inner class Bridge {

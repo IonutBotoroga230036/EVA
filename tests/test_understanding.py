@@ -151,7 +151,9 @@ def test_local_only_never_leaves_the_pc(monkeypatch):
 
 def test_brain_mode_controls_cloud_understanding():
     from core.brain import get_brain
-    assert U.cloud_allowed() is False                       # shipped default: local
+    assert U.cloud_allowed() is True                        # shipped default: auto (Nov 22)
+    get_brain().set_feature("understanding", "local")
+    assert U.cloud_allowed() is False
     get_brain().set_feature("understanding", "auto")
     assert U.cloud_allowed() is True
     get_brain().set_feature("understanding", "default")

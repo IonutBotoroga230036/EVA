@@ -121,6 +121,15 @@ def tool_phone_timer(duration: str = "", label: str = "", **_):
     return {"result": json.dumps({"timer_seconds": secs}), "say": f"Timer set on your phone for {human(secs)}, sir."}
 
 
+def tool_phone_stay_dark(on: bool = True, **_):
+    """'Eva, stay dark': with the phone's screen off she answers by voice only. 'Stay dark off': she lights it."""
+    from core import phone_prefs
+    phone_prefs.set(stay_dark=bool(on))
+    say = ("Staying dark, sir. With the screen off I'll answer by voice only." if on
+           else "Alright, sir. I'll light the screen when you call me.")
+    return {"result": json.dumps({"stay_dark": bool(on)}), "say": say, "exact": True}
+
+
 SCHEMAS = [
     {"type": "function", "function": {"name": "phone_alarm", "description": "Set an alarm on the user's phone.",
      "parameters": {"type": "object", "properties": {"time": {"type": "string", "description": "e.g. 7:30 am"},
@@ -129,5 +138,11 @@ SCHEMAS = [
      "parameters": {"type": "object", "properties": {"duration": {"type": "string", "description": "e.g. 10 minutes"},
                                                      "label": {"type": "string"}}, "required": ["duration"]}}},
 ]
-FUNCTIONS = {"phone_alarm": tool_phone_alarm, "phone_timer": tool_phone_timer}
-GUARDS = {"phone_alarm": r"\b(alarm|wake me)\b", "phone_timer": r"\btimer\b"}
+SCHEMAS.append({"type": "function", "function": {
+    "name": "phone_stay_dark",
+    "description": "Whether the phone's screen stays off when the user calls E.V.A. with the screen off ('stay dark', "
+                   "'stay dark off', 'light the screen when I call you').",
+    "parameters": {"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]}}})
+FUNCTIONS = {"phone_alarm": tool_phone_alarm, "phone_timer": tool_phone_timer, "phone_stay_dark": tool_phone_stay_dark}
+GUARDS = {"phone_alarm": r"\b(alarm|wake me)\b", "phone_timer": r"\btimer\b",
+          "phone_stay_dark": r"\b(dark|screen)\b"}

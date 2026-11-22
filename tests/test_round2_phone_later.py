@@ -253,7 +253,9 @@ def test_media_mode_pauses_the_mic_while_she_speaks():
 def test_alarms_travel_page_to_app_to_clock():
     assert "case 'device_action':" in HTML and "window.EvaNative.postMessage" in HTML
     assert "addJavaScriptChannel('EvaNative'" in DART and "'deviceAction'" in DART and '"deviceAction"' in KT
-    assert "AlarmClock.ACTION_SET_ALARM" in KT and "AlarmClock.ACTION_SET_TIMER" in KT
+    actions = (ROOT / "apps/eva_android/android_overlay/app/src/main/kotlin/nl/ionut/eva_android/DeviceActions.kt").read_text(encoding="utf-8")
+    assert "DeviceActions.run(this, action, args)" in KT                     # Nov 22: shared with the overlay
+    assert "AlarmClock.ACTION_SET_ALARM" in actions and "AlarmClock.ACTION_SET_TIMER" in actions
     assert "com.android.alarm.permission.SET_ALARM" in MANIFEST
 
 

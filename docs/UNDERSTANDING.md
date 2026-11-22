@@ -1,5 +1,7 @@
 # Understanding what you mean (v0.3.1)
 
+Default since Nov 22: **auto** (Claude first, about EUR 0.0001 a command). Status panel > Brain mode > "Understanding you" switches it; Local keeps it on the PC.
+
 Until now one small local model (qwen2.5 3B) chose among all 76 tools at once, and every time it misunderstood,
 a word pattern was added in front of it. That pile of patterns is why she felt rigid. This step replaces the
 choice itself, and keeps the patterns only as fast shortcuts and as safety rails.

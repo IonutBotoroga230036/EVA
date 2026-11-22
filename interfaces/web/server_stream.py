@@ -77,7 +77,7 @@ from core.telegram_bridge import TelegramBridge, active as telegram_active, set_
 from core.orchestrator_hybrid import HybridOrchestrator
 from skills.registry import get_registry
 from voice.listen import Resampler, build_listener, pipeline_status
-from voice.speech import SentenceChunker, TurnSpeaker, get_tts
+from voice.speech import SentenceChunker, TurnSpeaker, get_tts, speakable
 
 UI_FILE = Path(__file__).parent / "eva.html"
 STATIC = Path(__file__).parent / "static"
@@ -366,7 +366,89 @@ async def wakeword_verify(request: Request):
     text = (await asyncio.to_thread(engine.transcribe, audio)) or ""
     cmd = heard_wake(text)
     logger.info(f"WAKE (phone): {'yes' if cmd is not None else 'no, ignored'}: {text!r}")
-    return {"wake": cmd is not None, "command": cmd or "", "heard": text}
+    from core import phone_prefs
+    return {"wake": cmd is not None, "command": cmd or "", "heard": text, **phone_prefs.get()}
+
+
+@app.get("/api/phone")
+async def phone_get():
+    from core import phone_prefs
+    return phone_prefs.get()
+
+
+@app.post("/api/phone")
+async def phone_set(body: dict):
+    """{stay_dark: true|false}: the status panel's Phone switch (same as saying "Eva, stay dark")."""
+    from core import phone_prefs
+    prefs = phone_prefs.set(**{k: bool(v) for k, v in body.items() if k in phone_prefs.DEFAULTS})
+    audit.log("phone_settings", "status_panel", prefs)
+    return prefs
+
+
+class _DarkPhone:
+    """Stands in for the phone app during a screen-off conversation, so alarms and timers still work: the actions
+    go back to the phone in the answer and it runs them (it says so if it can't, on the next wake)."""
+    device_caps = ("alarm", "timer")
+
+    def __init__(self):
+        self.actions: list[dict] = []
+
+    async def request_device(self, action: str, args: dict, timeout: float = 12.0) -> dict:
+        self.actions.append({"action": action, "args": args})
+        return {"ok": True, "error": ""}
+
+
+_dark_session: dict = {}
+_END_TALK = re.compile(r"^(?:ok(?:ay)?[,.]? |thanks[,.]? |thank you[,.]? )?(?:that'?s all|that'?s it|nothing|never ?mind|"
+                       r"stop|bye|goodbye|good night|no(?:,? thanks?)?)(?: for now)?[.!]*$", re.I)
+
+
+@app.post("/api/phone/turn")
+async def phone_turn(body: dict):
+    """v0.3.1 "stay dark": a conversation with the screen off, run by the phone's wake service. {text} (already
+    checked by /api/wakeword/verify) or {pcm} (a follow-up), plus {locked}. Answers {text, audio (WAV, base64),
+    actions, listen}; listen=false ends the conversation."""
+    import base64
+    text = str(body.get("text") or "").strip()
+    if not text and body.get("pcm"):
+        b64 = str(body["pcm"])
+        if len(b64) > MAX_PCM_COMMAND:
+            return JSONResponse({"detail": "at most 12 s"}, status_code=400)
+        engine = _stt_engine()
+        audio = np.frombuffer(base64.b64decode(b64), dtype="<i2").astype(np.float32) / 32768.0
+        text = ((await asyncio.to_thread(engine.transcribe, audio)) if engine and len(audio) > 4000 else "") or ""
+        text = text.strip()
+    tts = get_tts()
+
+    async def speak(line: str, listen: bool, actions=()):
+        wav = await asyncio.to_thread(tts.synth, line) if tts and line else None
+        return {"text": line, "audio": base64.b64encode(wav).decode() if wav else "", "actions": list(actions),
+                "listen": listen}
+
+    if not text or len(re.sub(r"[^a-z]", "", text.lower())) < 2:
+        return await speak("Yes, sir?", True) if body.get("text") is not None and not body.get("pcm") else \
+            {"text": "", "audio": "", "actions": [], "listen": False}
+    if _END_TALK.match(text):
+        return await speak("Alright, sir.", False)
+    orch = _dark_session.get("orch")
+    if orch is None:
+        orch = _dark_session["orch"] = HybridOrchestrator(session_id="phone-dark")
+    orch.locked = bool(body.get("locked"))
+    phone = _DarkPhone()
+    CONNECTIONS.add(phone)
+    try:
+        logger.info(f"USER (phone, screen off): {text}")
+        final = ""
+        async for ev in orch.process_stream(text):
+            if ev.get("type") == "final":
+                final = ev.get("text", "")
+    finally:
+        CONNECTIONS.discard(phone)
+    logger.info(f"EVA (phone, screen off): {final}")
+    return await speak(final, True, phone.actions)
+
+
+@app.get("/api/wakeword/info")
 
 
 @app.get("/api/wakeword/info")
@@ -566,6 +648,7 @@ async def status():
         "brain": await asyncio.to_thread(get_brain().overview),
         "forge_jobs": _forge_jobs_status(),
         "conversation": {"enabled": conversation.enabled()},
+        "phone": __import__("core.phone_prefs", fromlist=["get"]).get(),
         "remote": await asyncio.to_thread(_remote_status),
         "mcp": get_mcp().status(),
         "recent_events": get_bus().recent(20),

@@ -46,6 +46,8 @@ class WakeService : Service() {
     private var recorder: AudioRecord? = null
     private var engine: WakeEngine? = null
     private var threshold = 0.5f
+    private var stayDark = false                               // from your PC with every wake ("Eva, stay dark")
+    private var lastFloor = 300.0
     private var peak = 0f
     private var peakAt = 0L
 
@@ -127,6 +129,7 @@ class WakeService : Service() {
                 filled = minOf(ring.size, filled + n)
                 val loud = rms(chunk, n)
                 floor = if (loud < floor) floor * 0.9 + loud * 0.1 else floor * 0.995 + loud * 0.005
+                lastFloor = floor
                 chunks++
                 if (filled < ring.size / 2 || chunks % 2 != 0 || System.currentTimeMillis() < cooldownUntil) continue
                 if (rms(ring, ring.size, ring.size - WakeEngine.SAMPLE_RATE) < max(floor * 2.5, 250.0)) continue  // quiet: save battery
@@ -186,6 +189,11 @@ class WakeService : Service() {
             Log.i(TAG, "not for her (the PC heard no \"Eva\"), listening again")
             return                                                 // recorder still open: straight back to listening
         }
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (verdict == true && stayDark && !pm.isInteractive) {    // "Eva, stay dark": voice only, screen stays off
+            darkConversation(command ?: "")
+            return
+        }
         releaseRecorder()                                          // the overlay's page needs the mic now
         pcm = if (verdict == null && spoke) audio else ByteArray(0) // offline check: the overlay sends the audio
         overlayOpen = true
@@ -206,6 +214,7 @@ class WakeService : Service() {
             if (c.responseCode != 200) null else {
                 val j = JSONObject(c.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8))
                 if (j.optBoolean("wake")) command = j.optString("command", "")
+                stayDark = j.optBoolean("stay_dark", false)
                 j.optBoolean("wake")
             }
         } finally {
@@ -235,6 +244,117 @@ class WakeService : Service() {
         }
         startActivity(i)
         return true
+    }
+
+    // ------------------------------------------------------------------ "stay dark": voice only, screen off
+    /** The whole conversation from here: your words go to the PC, her answer comes back as audio and plays, then
+     *  she listens for a follow-up (no "Eva" needed) until you stop talking or say "that's all". */
+    private fun darkConversation(first: String) {
+        releaseRecorder()
+        var body = JSONObject().put("text", first).put("locked", locked())
+        for (turn in 0 until 8) {
+            val res = post("/api/phone/turn", body) ?: break
+            val actions = res.optJSONArray("actions")
+            if (actions != null) for (i in 0 until actions.length()) {
+                val a = actions.getJSONObject(i)
+                DeviceActions.run(this, a.optString("action"), DeviceActions.args(a.optJSONObject("args")))
+            }
+            play(res.optString("audio"))
+            if (!res.optBoolean("listen")) break
+            val next = recordFollowUp() ?: break                   // quiet: the conversation is over
+            body = JSONObject().put("pcm", android.util.Base64.encodeToString(next, android.util.Base64.NO_WRAP))
+                .put("locked", locked())
+        }
+        Log.i(TAG, "screen-off conversation ended, listening for \"Eva\" again")
+    }
+
+    private fun locked(): Boolean =
+        (getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager).isKeyguardLocked
+
+    private fun post(path: String, json: JSONObject): JSONObject? = try {
+        val c = URL(address + path).openConnection() as HttpURLConnection
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Authorization", "Bearer $token")
+        c.setRequestProperty("Content-Type", "application/json")
+        c.connectTimeout = 4000
+        c.readTimeout = 90_000                                     // a turn can take a while (tools, Claude)
+        try {
+            c.outputStream.use { it.write(json.toString().toByteArray(Charsets.UTF_8)) }
+            if (c.responseCode != 200) null
+            else JSONObject(c.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8))
+        } finally {
+            c.disconnect()
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "screen-off turn failed: ${e.message}")
+        null
+    }
+
+    /** Her answer (WAV, base64) through the speaker or your headphones, ducking any music meanwhile. */
+    private fun play(b64: String) {
+        if (b64.isEmpty()) return
+        val f = File(cacheDir, "eva_reply.wav")
+        f.writeBytes(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val attrs = android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build()
+        val focus = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(attrs).build()
+        am.requestAudioFocus(focus)
+        val done = java.util.concurrent.CountDownLatch(1)
+        val mp = android.media.MediaPlayer()
+        try {
+            mp.setAudioAttributes(attrs)
+            mp.setDataSource(f.absolutePath)
+            mp.setOnCompletionListener { done.countDown() }
+            mp.setOnErrorListener { _, _, _ -> done.countDown(); true }
+            mp.prepare()
+            mp.start()
+            done.await(mp.duration.toLong() + 3000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            Log.w(TAG, "couldn't play her answer: ${e.message}")
+        } finally {
+            mp.release()
+            am.abandonAudioFocusRequest(focus)
+        }
+    }
+
+    /** A follow-up after her answer: up to 6 s to start, then until you pause. null when you said nothing. */
+    private fun recordFollowUp(): ByteArray? {
+        val rec = openRecorder() ?: return null
+        val chunk = ShortArray(CHUNK)
+        val pre = java.util.ArrayDeque<ShortArray>()
+        val out = ByteArrayOutputStream()
+        val speech = max(lastFloor * 3.0, 500.0)
+        val start = System.currentTimeMillis()
+        var spoke = false
+        var lastLoud = start
+        try {
+            while (running) {
+                val n = rec.read(chunk, 0, CHUNK)
+                if (n <= 0) break
+                val now = System.currentTimeMillis()
+                val loud = rms(chunk, n) > speech
+                if (!spoke) {
+                    pre.addLast(chunk.copyOf(n))
+                    if (pre.size > 4) pre.removeFirst()                // keep ~0.3 s before you start
+                    if (loud) {
+                        spoke = true
+                        lastLoud = now
+                        for (c in pre) for (v in c) out.write2(v)
+                    } else if (now - start > 6000) return null
+                } else {
+                    for (i in 0 until n) out.write2(chunk[i])
+                    if (loud) lastLoud = now
+                    if (now - lastLoud > 800 || now - start > 12_000) break
+                }
+            }
+        } finally {
+            releaseRecorder()
+        }
+        return if (spoke) out.toByteArray() else null
     }
 
     // ------------------------------------------------------------------ the model, from your PC

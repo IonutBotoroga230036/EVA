@@ -37,6 +37,10 @@ Menu (back button) > **Hands-free: off** turns it on. Android asks for two thing
 - After a phone restart, open E.V.A. once: hands-free comes back on (the token is kept only in memory by the
   service, never written by it).
 - In media mode, "Eva" now interrupts her while she speaks (plain talking doesn't, since the mic hears her too).
+- Your PC double-checks every wake (Whisper must hear "Eva"), so talking near the phone doesn't open her.
+- **Stay dark** ("Eva, stay dark", or the Phone switch in the status panel): with the screen off she answers by
+  voice only and the screen stays off; follow-ups need no "Eva"; "that's all" ends it. "Stay dark off" lights
+  the screen again. Alarms and timers work in both, and from the overlay.
 
 ## Build (after unzipping, once)
 ```powershell

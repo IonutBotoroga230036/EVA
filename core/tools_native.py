@@ -683,8 +683,8 @@ REGISTRY.update({"later_list": tool_later_list, "later_cancel": tool_later_cance
 GUARDS.update(_device.GUARDS)
 GUARDS.update({"later_list": r"\b(later|planned|scheduled)\b",
                "later_cancel": r"\b(cancel|don'?t|never mind)\b.*\b(later|planned|scheduled)\b|\bcancel\b"})
-ACTION_TOOLS |= {"phone_alarm", "phone_timer", "later_cancel"}
-EXACT_TOOLS |= {"phone_alarm", "phone_timer", "later_list", "later_cancel"}
+ACTION_TOOLS |= {"phone_alarm", "phone_timer", "later_cancel", "phone_stay_dark"}
+EXACT_TOOLS |= {"phone_alarm", "phone_timer", "later_list", "later_cancel", "phone_stay_dark"}
 
 
 # ---------------------------------------------------------------- keep listening (v0.3.1, Nov 22)

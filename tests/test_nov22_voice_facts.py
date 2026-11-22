@@ -354,8 +354,120 @@ def test_verify_endpoint(monkeypatch):
     with TestClient(srv.app) as tc:
         monkeypatch.setattr(srv, "_stt_engine", lambda: STT("Eva, what time is it"))
         assert tc.post("/api/wakeword/verify", content=pcm).json() == {"wake": True, "command": "what time is it",
-                                                                     "heard": "Eva, what time is it"}
+                                                                     "heard": "Eva, what time is it",
+                                                                     "stay_dark": False}
         monkeypatch.setattr(srv, "_stt_engine", lambda: STT("so I was saying to the computer"))
         assert tc.post("/api/wakeword/verify", content=pcm).json()["wake"] is False
         assert tc.post("/api/wakeword/verify", content=b"").status_code == 400
         assert tc.post("/api/wakeword/verify", content=b"\0" * (13 * 32000)).status_code == 400
+
+
+# ---------------------------------------------------------------- Nov 22 evening: fix round
+def test_stay_dark_by_voice_and_by_button(eva):
+    from fastapi.testclient import TestClient
+    import interfaces.web.server_stream as srv
+    from core import phone_prefs
+    o, _ = eva
+    for said, on in [("Eva, stay dark", True), ("stay dark off", False), ("keep the screen off", True),
+                     ("light the screen when I call you", False)]:
+        assert orch_mod.fast_path(said, o.belt) == ("phone_stay_dark", {"on": on}), said
+    import core.device as dev
+    dev.tool_phone_stay_dark(True)
+    assert phone_prefs.get()["stay_dark"] is True
+    with TestClient(srv.app) as tc:
+        assert tc.post("/api/phone", json={"stay_dark": False}).json() == {"stay_dark": False}
+        assert tc.get("/api/status").json()["phone"] == {"stay_dark": False}
+    assert "phone_stay_dark" in orch_mod.LOCKED_OK
+
+
+def test_screen_off_conversation(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    import interfaces.web.server_stream as srv
+
+    class TTS:
+        def warm(self):
+            return True
+
+        def phrase(self, text):
+            return None
+
+        def synth(self, text):
+            return b"RIFF-" + text.encode()
+
+    class Orch:
+        locked = None
+
+        def __init__(self, *a, **k):
+            pass
+
+        async def process_stream(self, text):
+            import core.device as dev
+            Orch.locked = self.locked
+            if "alarm" in text:
+                out = await asyncio.to_thread(dev.tool_phone_alarm, time="7:00")
+                yield {"type": "final", "text": out["say"]}
+            else:
+                yield {"type": "final", "text": "It's 23:28, sir."}
+    monkeypatch.setattr(srv, "get_tts", lambda: TTS())
+    monkeypatch.setattr(srv, "HybridOrchestrator", Orch)
+    srv._dark_session.clear()
+    with TestClient(srv.app) as tc:
+        import core.device as dev
+        dev.LOOP = None
+        r = tc.post("/api/phone/turn", json={"text": "what time is it", "locked": True}).json()
+        assert r["text"] == "It's 23:28, sir." and r["listen"] and r["audio"] and Orch.locked is True
+        assert tc.post("/api/phone/turn", json={"text": ""}).json()["text"] == "Yes, sir?"        # just "Eva"
+        assert tc.post("/api/phone/turn", json={"text": "that's all"}).json()["listen"] is False
+    srv._dark_session.clear()
+
+
+def test_daily_routine_is_summed_up_unless_asked():
+    from core import tempo
+    from datetime import datetime as dt
+
+    class G:
+        def list_events(self, a, b, max_results=100):
+            d = a.replace(hour=0)
+            mk = lambda t, h, m, r: {"title": t, "start": d.replace(hour=h, minute=m), "end": d.replace(hour=h, minute=m + 10),
+                                     "all_day": False, "routine": r}
+            return [mk("Wake Up", 7, 0, True), mk("Take Vitamins", 7, 0, True), mk("Brush Teeth", 7, 15, True),
+                    mk("From Data to Model", 10, 30, False), mk("Linear Algebra", 13, 30, False)]
+    now = dt(2026, 11, 22, 23, 0)
+    out = tempo.agenda(G(), "tomorrow", now)
+    assert out["say"].startswith("You have 2 things tomorrow, sir: 10:30 From Data to Model")
+    assert out["say"].endswith("13:30 Linear Algebra. Plus your daily routine (3 items).")
+    assert "Wake Up" in tempo.agenda(G(), "tomorrow", now, everything=True)["say"]
+
+
+def test_daily_series_are_recognised():
+    from core.google_api import GoogleClient
+
+    class Svc:
+        calls = 0
+
+        def events(self):
+            svc = self
+
+            class E:
+                def get(self, calendarId, eventId):
+                    svc.calls += 1
+                    rule = {"wake": ["RRULE:FREQ=DAILY"], "week": ["RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"],
+                            "class": ["RRULE:FREQ=WEEKLY;BYDAY=MO"], "alt": ["RRULE:FREQ=DAILY;INTERVAL=2"]}[eventId]
+                    return type("X", (), {"execute": lambda _s: {"recurrence": rule}})()
+            return E()
+    g = GoogleClient.__new__(GoogleClient)
+    g.cal, g._daily = Svc(), {}
+    assert g._is_daily("primary", "wake") and g._is_daily("primary", "week")
+    assert not g._is_daily("primary", "class") and not g._is_daily("primary", "alt") and not g._is_daily("primary", None)
+    g._is_daily("primary", "wake")
+    assert g.cal.calls == 4                                              # each series looked up once
+
+
+def test_overlay_can_set_alarms():
+    from pathlib import Path
+    kt = Path("apps/eva_android/android_overlay/app/src/main/kotlin/nl/ionut/eva_android/OverlayActivity.kt").read_text(encoding="utf-8")
+    assert 'addJavascriptInterface(Native(), "EvaNative")' in kt and "eva:device-result" in kt
+    ws = Path("apps/eva_android/android_overlay/app/src/main/kotlin/nl/ionut/eva_android/WakeService.kt").read_text(encoding="utf-8")
+    assert "/api/phone/turn" in ws and "stay_dark" in ws and "DeviceActions.run" in ws
+    page = Path("interfaces/web/eva.html").read_text(encoding="utf-8")
+    assert "['understanding', 'Understanding you']" in page and "emit('phone-setting'" in page

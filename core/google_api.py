@@ -14,6 +14,8 @@ The token is stored in data/google/token.json (git-ignored) and refreshed automa
 
 from __future__ import annotations
 
+import re
+
 import base64
 import threading
 from datetime import datetime, timezone
@@ -129,6 +131,7 @@ class GoogleClient:
         self.gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
         self.tz = _cfg()["timezone"]
         self._calendars: tuple[float, list[dict]] = (0.0, [])
+        self._daily: dict[str, bool] = {}          # recurring series id -> repeats (almost) every day
 
     # ---------------- calendar
     def calendars(self) -> list[dict]:
@@ -153,7 +156,28 @@ class GoogleClient:
         self._calendars = (_t.time(), cals)
         return cals
 
-    def list_events(self, start: datetime, end: datetime, max_results: int = 25) -> list[dict]:
+    def _is_daily(self, calendar_id: str, series: Optional[str]) -> bool:
+        """Your daily routine (Wake Up, Vitamins, Brush Teeth): events that repeat every day, or on 5+ weekdays.
+        Nov 22: 'tomorrow' listed 25 things, most of them routine. One lookup per series, then remembered."""
+        if not series:
+            return False
+        if series not in self._daily:
+            try:
+                rules = self.cal.events().get(calendarId=calendar_id, eventId=series).execute().get("recurrence", [])
+            except Exception:
+                rules = []
+            daily = False
+            for r in rules:
+                r = r.upper()
+                if "FREQ=DAILY" in r and "INTERVAL=" not in r.replace("INTERVAL=1;", "").replace("INTERVAL=1", ""):
+                    daily = True
+                m = re.search(r"BYDAY=([A-Z,0-9+-]+)", r)
+                if "FREQ=WEEKLY" in r and m and len(m.group(1).split(",")) >= 5:
+                    daily = True
+            self._daily[series] = daily
+        return self._daily[series]
+
+    def list_events(self, start: datetime, end: datetime, max_results: int = 100) -> list[dict]:
         out = []
         for cal in self.calendars():
             try:
@@ -174,7 +198,8 @@ class GoogleClient:
                 out.append({"id": e["id"], "title": e.get("summary", "(no title)"), "start": s, "end": en,
                             "all_day": all_day, "location": e.get("location", ""),
                             "calendar": cal["name"] or ("primary" if cal["primary"] else cal["id"]),
-                            "readonly": not cal["primary"]})
+                            "readonly": not cal["primary"],
+                            "routine": self._is_daily(cal["id"], e.get("recurringEventId"))})
         out.sort(key=lambda e: (e["start"] is None, e["start"] or datetime.max))
         return out[:max_results]
 

@@ -210,4 +210,9 @@ most voice bugs show up.
 | 17.8 | Hands-free on, screen off, "Eva, what time is it" | Screen lights, Core overlay, she answers, overlay closes. |
 | 17.9 | Locked, "Eva, any new emails?" | "Unlock your phone for that"; unlock, and she reads them. |
 | 17.10 | Locked, "Eva, turn off the lights" | Works without unlocking. |
+| 17.11 | From the overlay: "Eva, set an alarm for 7 tomorrow" | The alarm appears in the clock app. |
+| 17.12 | "Eva, stay dark", lock the phone, screen off, "Eva, what time is it" | Answer by voice, screen stays off; then a follow-up without "Eva"; "that's all" ends it. |
+| 17.13 | "Stay dark off" (or the Phone switch in the status panel) | The overlay lights the screen again. |
+| 17.14 | "What's on my calendar tomorrow?" | Your real events, then "Plus your daily routine (N items)." "Everything on my calendar tomorrow" lists the routine too. |
+| 17.15 | Status panel > Brain mode > "Understanding you" | Auto by default; Local keeps it on the PC. |
 

@@ -88,33 +88,8 @@ class MainActivity : FlutterActivity() {
         if (isAssist(intent)) channel?.invokeMethod("assist", null)
     }
 
-    // v0.3 9c: alarms and timers through Android's own clock app (no special permission beyond SET_ALARM).
-    private fun deviceAction(action: String, args: Map<String, Any>): Map<String, Any> = try {
-        when (action) {
-            "set_alarm" -> {
-                startActivity(Intent(AlarmClock.ACTION_SET_ALARM).apply {
-                    putExtra(AlarmClock.EXTRA_HOUR, (args["hour"] as Number).toInt())
-                    putExtra(AlarmClock.EXTRA_MINUTES, (args["minute"] as Number).toInt())
-                    putExtra(AlarmClock.EXTRA_MESSAGE, args["label"]?.toString() ?: "E.V.A.")
-                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-                })
-                mapOf("ok" to true)
-            }
-            "set_timer" -> {
-                startActivity(Intent(AlarmClock.ACTION_SET_TIMER).apply {
-                    putExtra(AlarmClock.EXTRA_LENGTH, (args["seconds"] as Number).toInt())
-                    putExtra(AlarmClock.EXTRA_MESSAGE, args["label"]?.toString() ?: "E.V.A.")
-                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-                })
-                mapOf("ok" to true)
-            }
-            else -> mapOf("ok" to false, "error" to "unknown action $action")
-        }
-    } catch (e: ActivityNotFoundException) {
-        mapOf("ok" to false, "error" to "no clock app on this phone handles it")
-    } catch (e: Exception) {
-        mapOf("ok" to false, "error" to (e.message ?: "it failed"))
-    }
+    // v0.3 9c: alarms and timers through Android's own clock app (shared with the overlay: DeviceActions.kt)
+    private fun deviceAction(action: String, args: Map<String, Any>): Map<String, Any> = DeviceActions.run(this, action, args)
 
     private fun requestMic(result: MethodChannel.Result) {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {

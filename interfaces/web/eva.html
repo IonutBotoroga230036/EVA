@@ -667,7 +667,7 @@ function renderPanel() {
     h('div', { class: 'panel__row' }, h('span', { class: 'muted' }, label), h('span', null, h('span', { style: 'font:600 14px var(--font-display)' }, `EUR ${used.toFixed(2)}`), h('span', { class: 'muted' }, ` of ${cap}`))),
     h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': cap, 'aria-valuenow': used }, h('i', { style: `width:${Math.min(100, used / cap * 100)}%` })));
   const modes = ['local', 'auto', 'cloud'];
-  const feats = [['conversation', 'Conversation'], ['planning', 'Planning'], ['thinking', 'Deep thinking'], ['forge', 'FORGE']];
+  const feats = [['understanding', 'Understanding you'], ['conversation', 'Conversation'], ['planning', 'Planning'], ['thinking', 'Deep thinking'], ['forge', 'FORGE']];
   const fopts = [['default', 'Default'], ['local', 'Local'], ['auto', 'Auto'], ['cloud', 'Claude']];
   p.replaceChildren(
     h('div', { class: 'panel__head' }, h('span', { class: 'panel__title' }, 'Status'), h('button', { class: 'icon-btn', 'aria-label': 'Close status', onclick: closeAll }, icon('x'))),
@@ -685,6 +685,11 @@ function renderPanel() {
           h('div', { class: 'panel__row' }, h('span', null, label), h('span', { class: 'muted', style: 'font-size:12px' }, f.effective === 'cloud' ? 'uses Claude' : 'runs locally')),
           h('div', { class: 'seg seg--sm', role: 'group', 'aria-label': label + ' brain' }, fopts.map(([v, t]) => h('button', { 'aria-pressed': String(f.setting === v),
             onclick: () => { f.setting = v; emit('brain-feature', { feature: k, mode: v }); renderPanel(); } }, t)))); }) : null),
+    sec('Phone',                                              // v0.3.1: same as "Eva, stay dark" / "stay dark off"
+      h('div', { class: 'brain-feat' },
+        h('div', { class: 'panel__row' }, h('span', null, 'Screen off, "Eva"'), h('span', { class: 'muted', style: 'font-size:12px' }, s.phone && s.phone.stay_dark ? 'answers by voice, screen stays off' : 'lights the screen with the overlay')),
+        h('div', { class: 'seg seg--sm', style: 'grid-template-columns:repeat(2,1fr)', role: 'group', 'aria-label': 'Phone screen' }, [['wake', 'Light it'], ['dark', 'Stay dark']].map(([v, t]) =>
+          h('button', { 'aria-pressed': String(!!(s.phone && s.phone.stay_dark) === (v === 'dark')), onclick: () => { s.phone = Object.assign({}, s.phone, { stay_dark: v === 'dark' }); emit('phone-setting', { stay_dark: v === 'dark' }); renderPanel(); } }, t))))),
     s.budget ? sec('Budget', budget('Today', s.budget.today), budget('This month', s.budget.month)) : null,
     s.memory ? sec('Memory', h('div', { style: 'display:flex;gap:28px' },
       h('div', null, h('span', { class: 'num' }, s.memory.facts.toLocaleString('en-GB')), h('span', { class: 'muted', style: 'font-size:13px' }, ' facts')),
@@ -1217,6 +1222,9 @@ async function setBrain(body) {                                // v0.2.5: a swit
 }
 addEventListener('eva:brain-mode', e => setBrain({ mode: e.detail.mode }));
 addEventListener('eva:brain-feature', e => setBrain({ feature: e.detail.feature, mode: e.detail.mode }));
+addEventListener('eva:phone-setting', async e => {
+  try { await fetch('/api/phone', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e.detail || {}) }); } catch (_) {}
+  refreshStatus(); });
 addEventListener('eva:device-result', e => sendCtl({ type: 'device_result', ...(e.detail || {}) }));
 addEventListener('eva:conversation', async e => {
   try { await fetch('/api/conversation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !!e.detail.on }) }); }
@@ -1359,7 +1367,7 @@ async function refreshStatus() {
       voice: { name: s.voice === 'kokoro' ? 'Kokoro' : 'Browser voice',
         detail: (s.voice === 'kokoro' ? 'local' : 'fallback') + (sttMode === 'server' ? ' · hears you locally' : ' · browser listening') },
       brainMode: s.brain_mode || 'local',
-      brainFeatures: s.brain && s.brain.features, forgeJob: s.forge_jobs,
+      brainFeatures: s.brain && s.brain.features, forgeJob: s.forge_jobs, phone: s.phone,
       conversation: s.conversation ? s.conversation.enabled : true,
       budget: { today: [s.budget.spent, s.budget.limit], month: [s.budget.month_spent, s.budget.month_limit] },
       memory: { facts: s.memory.facts, turns: s.memory.episodes },
