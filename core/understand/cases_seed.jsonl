@@ -55,3 +55,5 @@
 {"say": "and tomorrow?", "expect": ["get_weather"], "history": [["user", "what's the weather in Breda"], ["assistant", "It's 7 degrees and light rain in Breda, sir."]], "why": "follow-up"}
 {"say": "and on Friday?", "expect": ["calendar_agenda"], "args": {"day": "friday"}, "history": [["user", "what's on my calendar tomorrow"], ["assistant", "Tomorrow you have the seminar at 10:45, sir."]], "why": "follow-up"}
 {"say": "the music one", "expect": ["later_cancel"], "history": [["user", "cancel something you planned"], ["assistant", "Which one, sir: the lights at 21:40 or the music at 21:50?"]], "why": "answering her question"}
+{"say": "can you search the web", "expect": ["none"], "why": "no topic, no default: she asks (Nov 22)"}
+{"say": "set an alarm", "expect": ["none"], "why": "no time, no default: she asks"}
