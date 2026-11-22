@@ -222,6 +222,9 @@ class Spotify:
         if not q or re.fullmatch(r"(my )?(liked songs|likes|favou?rites|my music|music|something)", low):
             items = self.req("GET", "/me/tracks", params={"limit": 50}).get("items", [])
             return {"uris": [i["track"]["uri"] for i in items if i.get("track")], "label": "your liked songs"}
+        radio = re.match(r"^(?:a |the )?(.+?)\s+radio$|^(?:a )?radio (?:of|from|based on|for) (.+)$", low)
+        if radio and not self.match_mine(low, threshold=0.9):        # a playlist you named "... radio" still wins
+            return self._radio((radio.group(1) or radio.group(2)).strip())
         m = re.match(r"^(?:my |the )?playlist (?:called |named )?(.+)$", low) or re.match(r"^(?:my |the )?(.+?) playlist$", low)
         said_playlist = bool(m) or low.startswith("my ")
         name = (m.group(1) if m else re.sub(r"^(?:my|the)\s+", "", low)).strip()
@@ -247,6 +250,22 @@ class Spotify:
         if artists:
             return {"context_uri": artists[0]["uri"], "label": artists[0]["name"]}
         raise LookupError(f"nothing on Spotify matches {what}")
+
+    def _radio(self, seed: str) -> dict:
+        """Nov 23: "play Two Faced radio" played a stranger's playlist called "two faced". A song's radio: that song,
+        then Spotify's autoplay carries on with similar songs (needs Autoplay on in Spotify's settings). An artist's
+        radio: the artist."""
+        res = self.req("GET", "/search", params={"q": seed, "type": "artist,track", "limit": 3})
+        artists = [a for a in (res.get("artists") or {}).get("items", []) if a]
+        tracks = [t for t in (res.get("tracks") or {}).get("items", []) if t]
+        if artists and SequenceMatcher(None, seed.lower(), artists[0]["name"].lower()).ratio() > 0.8:
+            return {"context_uri": artists[0]["uri"], "label": f"{artists[0]['name']} radio"}
+        if tracks:
+            t = tracks[0]
+            return {"uris": [t["uri"]], "label": f"a radio from {t['name']} by {t['artists'][0]['name']}"}
+        if artists:
+            return {"context_uri": artists[0]["uri"], "label": f"{artists[0]['name']} radio"}
+        raise LookupError(f"nothing on Spotify matches {seed}")
 
     # ---------------- playback
     def _device_params(self, hint: str) -> tuple[dict, str]:

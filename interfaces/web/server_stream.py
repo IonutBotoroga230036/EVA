@@ -44,6 +44,14 @@ Each reply runs as its own task, so a new message or a stop cancels it mid-sente
 
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__":
+    # `python -m interfaces.web.server_stream` runs this file as __main__; without this, the first
+    # `from interfaces.web.server_stream import ...` elsewhere loads a SECOND copy with its own empty state
+    # (Nov 23: every phone alarm said "your phone app isn't open" while it was).
+    sys.modules.setdefault("interfaces.web.server_stream", sys.modules[__name__])
+
 import asyncio
 import numpy as np
 import re
@@ -83,7 +91,7 @@ UI_FILE = Path(__file__).parent / "eva.html"
 STATIC = Path(__file__).parent / "static"
 PORT = 8001
 STARTED = time.time()
-CONNECTIONS: set["Connection"] = set()
+from core.device import CONNECTIONS  # noqa: E402  (one set of open windows, shared with core/device.py)
 MAX_AUDIO_FRAME = 256 * 1024          # bytes; a larger binary frame is dropped, never buffered
 MAX_PCM_COMMAND = 12 * 16000 * 2 * 4 // 3 + 16     # base64 of at most 12 s of 16 kHz PCM16
 
@@ -424,7 +432,7 @@ async def phone_message(body: dict):
 class _DarkPhone:
     """Stands in for the phone app during a screen-off conversation, so alarms and timers still work: the actions
     go back to the phone in the answer and it runs them (it says so if it can't, on the next wake)."""
-    device_caps = ("alarm", "timer", "reply")
+    device_caps = ("alarm", "timer", "reply", "volume")
 
     def __init__(self):
         self.actions: list[dict] = []
@@ -704,6 +712,7 @@ class Connection:
         self.listener = None                 # built on the first audio frame or listen message
         self.music_on = False                # E.V.A. started music and nobody stopped it: lyrics aren't commands
         self.device_caps: tuple = ()         # v0.3: the Android app says what it can do (alarm, timer)
+        self.connected_at = time.time()      # the newest phone window gets device actions
         self._device_waits: dict = {}
         self._listener_lock = asyncio.Lock()
         self._resample = Resampler(16000)
@@ -988,6 +997,7 @@ class Connection:
                     await self.submit(data.get("text") or "", voice=bool(data.get("voice")))
                 elif kind == "device":
                     self.device_caps = tuple(str(c) for c in (data.get("caps") or [])[:20])
+                    self.connected_at = time.time()
                     logger.info(f"DEVICE: {data.get('kind', 'device')} connected with {', '.join(self.device_caps)}")
                 elif kind == "device_result":
                     fut = self._device_waits.get(str(data.get("id")))

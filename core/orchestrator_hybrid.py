@@ -207,8 +207,18 @@ LOCKED_OK = {"get_datetime", "get_weather", "calculate", "convert_currency", "cr
              "media_control", "set_volume", "spotify_play", "spotify_queue", "spotify_now_playing",
              "lights_power", "lights_set", "set_mood", "list_moods", "phone_alarm", "phone_timer",
              "later_list", "later_cancel", "keep_listening", "calendar_add", "set_reminder", "shopping_add",
-             "phone_stay_dark"}
+             "phone_stay_dark", "phone_volume", "spotify_volume", "set_brain_mode", "set_conversation_mode"}
 LOCKED_SAY = "Unlock your phone for that, sir, and I'll carry on."
+
+
+def _fine_locked(tool: str, args: dict) -> bool:
+    """Nov 23 ("the point is not touching the phone"): with 'Eva, work while locked' everything works locked.
+    Switching that ON needs one unlock (a stranger saying it to your locked phone must not); 'ask me to unlock
+    again' works locked."""
+    if tool == "phone_ask_unlock":
+        return bool((args or {}).get("on", True))
+    from core import phone_prefs
+    return not phone_prefs.get().get("ask_unlock", True)
 
 
 def _messages_when_locked(tool: str) -> bool:
@@ -224,6 +234,10 @@ _YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|do it|go ahead|go on|confirm(?:
                   r"affirmative|correct|absolutely|of course|da|sigur|trimite|trimite-l|fă-o|fa-o)(?!\w)", re.I)
 _NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forget it|leave it|nu|anulează|anuleaza|"
                  r"lasă|lasa)(?!\w)", re.I)
+# Nov 23: "Hey Eva, can you..." and a pause: the phone sent only "can you", and she answered a guess. Half a
+# sentence gets "Yes, sir?" and she listens for the rest.
+_DANGLING = re.compile(r"(?:(?:hey\s+)?eva[,.!]?\s*)?(?:(?:can|could|would|will) you(?: please)?|please|so|and|um+|uh+|"
+                       r"hmm+|i (?:want|need|would like) (?:you )?to|can i|let'?s|okay,? so|could i)[\s.,?!…]*", re.I)
 _WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+)?(?:eva\b|e\.v\.a\.?)[\s,:!.-]*", re.I)
 
 
@@ -575,6 +589,15 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
                         r"(?:light|wake|turn on) the screen(?: when i call you| again)?|stop staying dark)[.!]*",
                         t.strip(), re.I):
             return "phone_stay_dark", {"on": False}
+    if belt.has("phone_ask_unlock"):
+        if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:(?:you can )?work (?:while|when) (?:the phone is |my phone is |it'?s )?"
+                        r"locked|(?:stop|don'?t|no more) ask(?:ing)? me to unlock(?: (?:it|my phone|the phone))?|"
+                        r"(?:i )?don'?t (?:want|need) to unlock(?: (?:it|my phone|the phone))?(?: anymore)?|"
+                        r"unlock (?:mode|setting) off)(?: please| anymore| from now on)?[.!]*", t.strip(), re.I):
+            return "phone_ask_unlock", {"on": False}
+        if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:ask me to unlock(?: (?:it|my phone|the phone))?(?: again)?"
+                        r"(?: for private things)?|unlock (?:mode|setting) on)(?: please)?[.!]*", t.strip(), re.I):
+            return "phone_ask_unlock", {"on": True}
     if belt.has("keep_listening"):
         if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:let'?s (?:talk|chat)(?: for a (?:bit|while))?|keep listening|"
                         r"(?:start |turn on )?conversation mode(?: on)?|just listen|talk to me)[.!]*", t.strip(), re.I):
@@ -971,7 +994,8 @@ class HybridOrchestrator:
             raise
 
     async def _run(self, tool: str, args: dict, gathered: list) -> AsyncIterator[dict]:
-        if getattr(self, "locked", False) and tool not in LOCKED_OK and not _messages_when_locked(tool):
+        if getattr(self, "locked", False) and tool not in LOCKED_OK and not _messages_when_locked(tool) \
+                and not _fine_locked(tool, args):
             logger.info(f"LOCKED: {tool} waits for an unlock")
             self.after_unlock = (self._turn_input, time.time())
             yield {"type": "unlock"}
@@ -1178,8 +1202,9 @@ class HybridOrchestrator:
         return text, None
 
     # what puts things back the way they were, for "no, not now, in 20 minutes" after she already did it
-    _UNDO = {"media_control": lambda a: {"action": "playpause"} if a.get("action") == "playpause" else None,
-             "spotify_play": lambda a: {"action": "playpause"},
+    _UNDO = {"media_control": lambda a: {"playpause": {"action": "playpause"}, "pause": {"action": "play"},
+                                         "play": {"action": "pause"}}.get(a.get("action")),
+             "spotify_play": lambda a: {"action": "pause"},
              "lights_power": lambda a: {**a, "on": not a.get("on")}}
     _UNDO_TOOL = {"spotify_play": "media_control"}
 
@@ -1275,12 +1300,20 @@ class HybridOrchestrator:
         batch, confirms, skipped = [], [], []
         skipped_q = None
         planned: list[str] = []
+        # Nov 23: "turn off the lights and stop the music in 10 minutes" ran both at once: the planner dropped the
+        # time words from both steps. When no step keeps its own time, the sentence's time is for every step.
+        # (relative times only: "the PC at 100" is a volume, not 1 o'clock)
+        whole_clean, whole = later_mod.split_delay(user_input)
+        own = any(later_mod.split_delay(s["command"])[1] for s in steps)
+        shared = whole if whole and not own and not later_mod.is_correction(whole_clean) else None
         for step in steps:
             if step["uses_previous"]:
                 async for ev in self._flush(batch, gathered):
                     yield ev
                 batch = []
             clean, delay = later_mod.split_delay(step["command"])
+            if not delay and shared and not step["uses_previous"]:
+                clean, delay = step["command"], shared
             if delay:                                      # "stop the music in 10 minutes": later, not now
                 later_pick = await self._pick(client, clean, user_input, ctx, gathered, step["uses_previous"])
                 if later_pick and self.belt.is_action(later_pick[0]):
@@ -1416,6 +1449,10 @@ class HybridOrchestrator:
 
     async def _process_stream(self, user_input: str) -> AsyncIterator[dict]:
         from core import activity
+        if _DANGLING.fullmatch((user_input or "").strip()):
+            logger.info(f"half a sentence ({user_input!r}): listening for the rest")
+            yield {"type": "final", "text": "Yes, sir?"}
+            return
         activity.mark()                                  # background GPU work steps aside
         if self._stale:
             self.refresh_tools()

@@ -386,4 +386,4 @@ def test_android_app_has_the_listener():
         b = Path("apps/eva_android/android/app/src/main/kotlin/nl/ionut/eva_android", name).read_text(encoding="utf-8")
         assert a == b, name
     page = Path("interfaces/web/eva.html").read_text(encoding="utf-8")
-    assert "caps: ['alarm', 'timer', 'reply']" in page
+    assert "caps: ['alarm', 'timer', 'reply'" in page

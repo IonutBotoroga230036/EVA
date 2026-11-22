@@ -235,4 +235,11 @@ phone, menu > Messages: on, then allow Notification access.
 | 18.10 | "Eva, what time is it" right after | English again. |
 | 18.11 | Phone locked, screen off, Mom writes | She says it on the phone; "Eva, reply ... yes" works without unlocking. |
 | 18.12 | Menu > Messages: off, then Mom writes | Nothing reaches the PC. |
+| 18.13 | Phone locked: "Eva, set an alarm for 7 in the morning" | The alarm is set (Nov 23 it said "your phone app isn't open"). |
+| 18.14 | Unlocked: "Eva, work while locked"; lock; "Eva, what's on my calendar tomorrow?" | Answered without unlocking. "Ask me to unlock again" switches back. |
+| 18.15 | "Turn off the lights and stop the music in 10 minutes" | Both planned for the same minute; nothing happens now. |
+| 18.16 | Music off, then "turn off the music in 1 minute"; wait | Stays off (it pauses, never toggles back on). |
+| 18.17 | "Hey Eva, can you..." (pause) "...set a timer for 5 minutes" | "Yes, sir?" after the pause, then the timer. |
+| 18.18 | "Play Two Faced radio" | Two Faced by Linkin Park, then similar songs (Spotify's Autoplay on). |
+| 18.19 | "Set my phone volume to 50%" | The phone's media volume changes, locked too. |
 

@@ -32,7 +32,10 @@ Menu (back button) > **Hands-free: off** turns it on. Android asks for two thing
   see-through, closing by itself a few seconds after you're done.
 - **Locked phone:** time, weather, music, lights, timers and alarms work; adding a meeting, reminder or shopping
   item works (she reads it back); anything private (email, your calendar, memories, notes) asks you to unlock,
-  then carries on by itself.
+  then carries on by itself. **"Eva, work while locked"** (or status panel > Phone > Just work) makes everything
+  work locked; it needs one unlock to switch on, and "ask me to unlock again" switches it back. Sending,
+  deleting and paying still wait for your spoken yes. Anyone who says "Eva" near your phone can then hear your
+  private things.
 - While the app is open, the page listens as before and the service pauses.
 - After a phone restart, open E.V.A. once: hands-free comes back on (the token is kept only in memory by the
   service, never written by it).

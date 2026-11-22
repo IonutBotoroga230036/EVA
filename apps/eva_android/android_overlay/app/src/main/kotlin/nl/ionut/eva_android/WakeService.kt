@@ -180,7 +180,7 @@ class WakeService : Service() {
                 lastLoud = now
             }
             if (!spoke && now - start > 1000) break                // just "Eva": the overlay will listen
-            if (spoke && now - lastLoud > 800) break               // you stopped talking
+            if (spoke && now - lastLoud > 1300) break              // you stopped talking (800 ms cut "can you...")
             if (now - start > 9000) break
         }
         val audio = out.toByteArray()
@@ -348,7 +348,7 @@ class WakeService : Service() {
                 } else {
                     for (i in 0 until n) out.write2(chunk[i])
                     if (loud) lastLoud = now
-                    if (now - lastLoud > 800 || now - start > 12_000) break
+                    if (now - lastLoud > 1200 || now - start > 12_000) break
                 }
             }
         } finally {

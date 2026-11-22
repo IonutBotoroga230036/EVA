@@ -355,7 +355,7 @@ def test_verify_endpoint(monkeypatch):
         monkeypatch.setattr(srv, "_stt_engine", lambda: STT("Eva, what time is it"))
         assert tc.post("/api/wakeword/verify", content=pcm).json() == {"wake": True, "command": "what time is it",
                                                                      "heard": "Eva, what time is it",
-                                                                     "stay_dark": False}
+                                                                     "stay_dark": False, "ask_unlock": True}
         monkeypatch.setattr(srv, "_stt_engine", lambda: STT("so I was saying to the computer"))
         assert tc.post("/api/wakeword/verify", content=pcm).json()["wake"] is False
         assert tc.post("/api/wakeword/verify", content=b"").status_code == 400
@@ -375,8 +375,8 @@ def test_stay_dark_by_voice_and_by_button(eva):
     dev.tool_phone_stay_dark(True)
     assert phone_prefs.get()["stay_dark"] is True
     with TestClient(srv.app) as tc:
-        assert tc.post("/api/phone", json={"stay_dark": False}).json() == {"stay_dark": False}
-        assert tc.get("/api/status").json()["phone"] == {"stay_dark": False}
+        assert tc.post("/api/phone", json={"stay_dark": False}).json() == {"stay_dark": False, "ask_unlock": True}
+        assert tc.get("/api/status").json()["phone"] == {"stay_dark": False, "ask_unlock": True}
     assert "phone_stay_dark" in orch_mod.LOCKED_OK
 
 

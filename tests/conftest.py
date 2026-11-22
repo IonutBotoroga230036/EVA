@@ -162,7 +162,12 @@ def no_real_romanian_or_messages(tmp_path, monkeypatch):
     monkeypatch.setattr(romanian, "_cfg", lambda: {"voice": "ro_RO-mihai-medium", "dir": str(tmp_path / "voices")})
     monkeypatch.setattr(romanian, "_voice", None)
     monkeypatch.setattr(messages, "_inbox", None)
+    import core.phone_prefs as phone_prefs            # never your real data/phone.json (stay dark, unlock)
+    monkeypatch.setattr(phone_prefs, "PATH", tmp_path / "phone.json")
+    import core.device as device                      # no windows left over from another test
+    device.CONNECTIONS.clear()
     yield
+    device.CONNECTIONS.clear()
 
 
 @pytest.fixture(autouse=True)
