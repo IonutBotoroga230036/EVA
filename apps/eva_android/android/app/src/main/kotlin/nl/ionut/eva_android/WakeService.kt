@@ -30,10 +30,11 @@ import kotlin.math.sqrt
  * v0.3 9b: "Eva" with the screen off, on the phone itself.
  *
  * A foreground service (the notification says it's listening, with a Stop button) reads the mic at 16 kHz and
- * runs your wake word model on-device (WakeEngine). Nothing leaves the phone until it hears "Eva". Then it:
- *   1. opens the overlay (OverlayActivity) over whatever is on screen, or the lock screen,
- *   2. keeps recording until you stop talking, so "Eva, what time is it" works in one breath,
- *   3. gives the mic back and hands that recording to the overlay, which sends it to your PC.
+ * runs your wake word model on-device (WakeEngine). Nothing leaves the phone until it thinks it heard "Eva".
+ * Then it:
+ *   1. keeps recording until you stop talking, so "Eva, what time is it" works in one breath,
+ *   2. asks your PC to double-check (Whisper must hear "Eva" in it: Nov 22, dictating near the phone woke her),
+ *   3. only then lights the screen and opens the overlay (OverlayActivity) with your words already transcribed.
  * While the E.V.A. app itself is open, the page listens as before and this service pauses.
  *
  * The address and token live only in memory (passed in by the app): after a reboot or if Android ends the
@@ -45,6 +46,12 @@ class WakeService : Service() {
     private var recorder: AudioRecord? = null
     private var engine: WakeEngine? = null
     private var threshold = 0.5f
+    private var peak = 0f
+    private var peakAt = 0L
+
+    // The PC double-checks every wake, so the phone can afford to be a bit more eager than the trained
+    // threshold: fewer missed "Eva"s, and false ones never reach the screen.
+    private fun trigger() = threshold * 0.85f
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -68,6 +75,9 @@ class WakeService : Service() {
             startForeground(NOTE_ID, note)
         }
         instance = this
+        try {
+            android.webkit.WebView(applicationContext).destroy()   // loads the web engine now, not after "Eva"
+        } catch (_: Exception) {}
         if (!running) {
             running = true
             worker = Thread({ loop() }, "eva-wake").also { it.start() }
@@ -121,7 +131,13 @@ class WakeService : Service() {
                 if (filled < ring.size / 2 || chunks % 2 != 0 || System.currentTimeMillis() < cooldownUntil) continue
                 if (rms(ring, ring.size, ring.size - WakeEngine.SAMPLE_RATE) < max(floor * 2.5, 250.0)) continue  // quiet: save battery
                 val s = engine!!.score(ring)
-                if (s >= threshold) {
+                if (s > peak) peak = s
+                if (System.currentTimeMillis() - peakAt > 5000) {      // adb logcat -s EVA-wake shows these
+                    if (peak > 0.05f) Log.d(TAG, "loudest moment, last 5 s: score %.2f (fires at %.2f)".format(peak, trigger()))
+                    peak = 0f
+                    peakAt = System.currentTimeMillis()
+                }
+                if (s >= trigger()) {
                     Log.i(TAG, "wake word, score %.2f".format(s))
                     onWake(ring, floor)
                     filled = 0
@@ -141,13 +157,9 @@ class WakeService : Service() {
     /** "Eva" heard: show the overlay at once, record what follows until you pause, then give the mic back. */
     private fun onWake(ring: ShortArray, floor: Double) {
         pcm = null
-        overlayOpen = true
-        if (!openOverlay()) {
-            overlayOpen = false                                    // asked with a notification instead
-            return
-        }
+        command = null
         val out = ByteArrayOutputStream()
-        val keep = (WakeEngine.SAMPLE_RATE * 0.4).toInt()   // the tail of "Eva": the PC strips it from the words
+        val keep = (WakeEngine.SAMPLE_RATE * 1.2).toInt()   // "Eva" itself, so the PC can check it was said
         for (i in ring.size - keep until ring.size) out.write2(ring[i])
         val rec = recorder
         val chunk = ShortArray(CHUNK)
@@ -164,13 +176,44 @@ class WakeService : Service() {
                 spoke = true
                 lastLoud = now
             }
-            if (!spoke && now - start > 1600) break                // just "Eva": the overlay will listen
+            if (!spoke && now - start > 1000) break                // just "Eva": the overlay will listen
             if (spoke && now - lastLoud > 800) break               // you stopped talking
             if (now - start > 9000) break
         }
+        val audio = out.toByteArray()
+        val verdict = verify(audio)                                // true / false / null (PC unreachable)
+        if (verdict == false) {
+            Log.i(TAG, "not for her (the PC heard no \"Eva\"), listening again")
+            return                                                 // recorder still open: straight back to listening
+        }
         releaseRecorder()                                          // the overlay's page needs the mic now
-        pcm = if (spoke) out.toByteArray() else ByteArray(0)
-        Log.i(TAG, "after the wake word: ${pcm!!.size / 32} ms of audio")
+        pcm = if (verdict == null && spoke) audio else ByteArray(0) // offline check: the overlay sends the audio
+        overlayOpen = true
+        if (!openOverlay()) overlayOpen = false                    // asked with a notification instead
+    }
+
+    /** The PC's double-check. true: it was "Eva" (command set), false: it wasn't, null: couldn't ask. */
+    private fun verify(audio: ByteArray): Boolean? = try {
+        val c = URL("$address/api/wakeword/verify").openConnection() as HttpURLConnection
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Authorization", "Bearer $token")
+        c.setRequestProperty("Content-Type", "application/octet-stream")
+        c.connectTimeout = 3000
+        c.readTimeout = 6000
+        try {
+            c.outputStream.use { it.write(audio) }
+            if (c.responseCode != 200) null else {
+                val j = JSONObject(c.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8))
+                if (j.optBoolean("wake")) command = j.optString("command", "")
+                j.optBoolean("wake")
+            }
+        } finally {
+            c.disconnect()
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "couldn't ask the PC to check (${e.message}); opening anyway")
+        null
     }
 
     private fun openOverlay(): Boolean {
@@ -317,7 +360,8 @@ class WakeService : Service() {
         @Volatile var appVisible = false                       // MainActivity in front: the page listens instead
         @Volatile var overlayOpen = false
         @Volatile var enabled = false
-        @Volatile var pcm: ByteArray? = null                   // what you said after "Eva" (null: still recording)
+        @Volatile var pcm: ByteArray? = null                   // what you said after "Eva", when the PC couldn't check
+        @Volatile var command: String? = null                  // ...or already transcribed by the PC ("" = just "Eva")
         @Volatile var address: String? = null                  // memory only
         @Volatile var token: String? = null                    // memory only, never written to disk here
         @Volatile var instance: WakeService? = null
@@ -336,6 +380,7 @@ class WakeService : Service() {
         fun overlayClosed() {
             overlayOpen = false
             pcm = null
+            command = null
         }
     }
 }

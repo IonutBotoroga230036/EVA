@@ -331,6 +331,44 @@ WAKE_FILES = {"melspectrogram.onnx": lambda wf: wf.MODELS / "melspectrogram.onnx
               "eva.onnx": lambda wf: wf.MODEL}
 
 
+def _stt_engine():
+    from voice.stt import get_stt
+    return get_stt()
+
+
+def heard_wake(text: str) -> str | None:
+    """The PC's double-check of a phone wake (Nov 22: dictating near the phone woke her). The command after "Eva"
+    ("" for "Eva" alone), or None when Whisper heard no "Eva" at all. The phone sends ~1.2 s from before the
+    trigger, so a word or two before her name is allowed."""
+    from voice.listen import ListenConfig
+    t = (text or "").replace("E.V.A.", "Eva").replace("E.V.A", "Eva")
+    words = list(re.finditer(r"[A-Za-z']+", t))
+    wake = set(ListenConfig.wake_words)
+    for i, m in enumerate(words[:4]):
+        if m.group(0).lower() in wake:
+            return t[m.end():].strip(" ,.!?")
+    if words and words[-1].group(0).lower() in wake:
+        return t[:words[-1].start()].strip(" ,.!?")
+    return None
+
+
+@app.post("/api/wakeword/verify")
+async def wakeword_verify(request: Request):
+    """The phone thinks it heard "Eva": raw PCM16 16 kHz mono from just before the trigger until you stopped.
+    {"wake": false} means it wasn't for her and nothing happens on the phone."""
+    body = await request.body()
+    if not body or len(body) > 12 * 16000 * 2:
+        return JSONResponse({"detail": "send at most 12 s of 16 kHz PCM16"}, status_code=400)
+    engine = _stt_engine()
+    if not engine:
+        return JSONResponse({"detail": "speech-to-text isn't loaded"}, status_code=503)
+    audio = np.frombuffer(body[:len(body) // 2 * 2], dtype="<i2").astype(np.float32) / 32768.0
+    text = (await asyncio.to_thread(engine.transcribe, audio)) or ""
+    cmd = heard_wake(text)
+    logger.info(f"WAKE (phone): {'yes' if cmd is not None else 'no, ignored'}: {text!r}")
+    return {"wake": cmd is not None, "command": cmd or "", "heard": text}
+
+
 @app.get("/api/wakeword/info")
 async def wakeword_info():
     from core.wakeword import features as wf
@@ -391,10 +429,18 @@ OVERLAY_SHIM = """<script>
 """
 
 
+_overlay_cache: dict = {}
+
+
 @app.get("/overlay")
 async def overlay_page():
     from fastapi.responses import HTMLResponse
-    return HTMLResponse(build_overlay())
+    page = Path(__file__).parent / "eva.html"
+    key = page.stat().st_mtime
+    if _overlay_cache.get("key") != key:
+        _overlay_cache.update(key=key, html=build_overlay())
+    # the phone's WebView may keep it for 5 minutes: the overlay shows faster after "Eva"
+    return HTMLResponse(_overlay_cache["html"], headers={"Cache-Control": "private, max-age=300"})
 
 
 def build_overlay() -> str:
@@ -834,7 +880,11 @@ class Connection:
                 elif kind == "device_state":               # v0.3 9b: the phone overlay, locked or not
                     await self.on_device_state(bool(data.get("locked")))
                 elif kind == "pcm_command":                # v0.3 9b: what you said right after "Eva", screen off
-                    await self.on_pcm_command(str(data.get("pcm") or ""))
+                    if "text" in data:                      # already checked and transcribed by /api/wakeword/verify
+                        cmd = str(data.get("text") or "").strip()
+                        await (self.voice_command(cmd) if cmd else self.on_wake())
+                    else:
+                        await self.on_pcm_command(str(data.get("pcm") or ""))
         finally:
             CONNECTIONS.discard(self)
             await self.interrupt()

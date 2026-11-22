@@ -327,3 +327,35 @@ def test_android_pieces_are_wired():
     assert "com.microsoft.onnxruntime:onnxruntime-android:" in gradle
     dart = (root / "lib/main.dart").read_text(encoding="utf-8")
     assert "'startHandsFree'" in dart and "'stopHandsFree'" in dart
+
+
+@pytest.mark.parametrize("heard,cmd", [
+    ("Eva, what time is it?", "what time is it"), ("Hey Eva.", ""), ("so, Eva turn off the lights", "turn off the lights"),
+    ("Ava, play some music", "play some music"), ("She started to turn worse.", None),
+    ("I'm talking to the computer because I'm doing voice to text", None),
+])
+def test_the_pc_double_checks_a_phone_wake(heard, cmd):
+    import interfaces.web.server_stream as srv
+    assert srv.heard_wake(heard) == cmd
+
+
+def test_verify_endpoint(monkeypatch):
+    import interfaces.web.server_stream as srv
+    from fastapi.testclient import TestClient
+
+    class STT:
+        def __init__(self, text):
+            self.text = text
+
+        def transcribe(self, audio):
+            return self.text
+    monkeypatch.setattr(srv, "get_tts", lambda: None)
+    pcm = (np.zeros(16000, dtype="<i2")).tobytes()
+    with TestClient(srv.app) as tc:
+        monkeypatch.setattr(srv, "_stt_engine", lambda: STT("Eva, what time is it"))
+        assert tc.post("/api/wakeword/verify", content=pcm).json() == {"wake": True, "command": "what time is it",
+                                                                     "heard": "Eva, what time is it"}
+        monkeypatch.setattr(srv, "_stt_engine", lambda: STT("so I was saying to the computer"))
+        assert tc.post("/api/wakeword/verify", content=pcm).json()["wake"] is False
+        assert tc.post("/api/wakeword/verify", content=b"").status_code == 400
+        assert tc.post("/api/wakeword/verify", content=b"\0" * (13 * 32000)).status_code == 400

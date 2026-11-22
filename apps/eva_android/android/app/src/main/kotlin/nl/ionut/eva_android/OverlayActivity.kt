@@ -47,6 +47,18 @@ class OverlayActivity : Activity() {
             window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // edge to edge, behind the gesture bar and the camera cutout too (Nov 22: the bottom bar stayed visible)
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
         val address = WakeService.address
         val token = WakeService.token
         if (address == null || token == null) {
@@ -68,10 +80,6 @@ class OverlayActivity : Activity() {
         w.settings.userAgentString = w.settings.userAgentString + " EVA-Android/0.3 overlay" +
             if (audio == "call") " audio=call" else ""
         val host = Uri.parse(address).host
-        w.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                request.url.host != host                                        // your PC only
-        }
         w.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
                 val micOk = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -80,7 +88,26 @@ class OverlayActivity : Activity() {
             }
         }
         w.addJavascriptInterface(Bridge(), "EvaOverlay")
-        setContentView(w)
+        // an instant glow while the page loads, so you see she heard you straight away
+        val glow = android.view.View(this).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                setStroke((6 * resources.displayMetrics.density).toInt(), Color.argb(170, 168, 85, 247))
+                cornerRadius = 48 * resources.displayMetrics.density
+            }
+        }
+        val frame = android.widget.FrameLayout(this)
+        frame.addView(glow)
+        frame.addView(w)
+        w.alpha = 0f
+        w.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                request.url.host != host                                        // your PC only
+            override fun onPageFinished(view: WebView, url: String) {
+                view.animate().alpha(1f).setDuration(250).withEndAction { glow.visibility = android.view.View.GONE }
+            }
+        }
+        setContentView(frame)
         w.loadUrl("$address/overlay", mapOf("Authorization" to "Bearer $token"))
     }
 
@@ -120,12 +147,14 @@ class OverlayActivity : Activity() {
         fun ready() {
             Thread {
                 val until = System.currentTimeMillis() + 10_000
-                while (WakeService.pcm == null && WakeService.overlayOpen && System.currentTimeMillis() < until) {
+                while (WakeService.pcm == null && WakeService.command == null && WakeService.overlayOpen &&
+                    System.currentTimeMillis() < until) {
                     Thread.sleep(50)
                 }
-                val bytes = WakeService.pcm ?: ByteArray(0)
-                val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                js("window.dispatchEvent(new CustomEvent('eva:pcm', {detail: ${JSONObject().put("pcm", b64)}}))")
+                val cmd = WakeService.command
+                val detail = if (cmd != null) JSONObject().put("text", cmd)          // the PC already transcribed it
+                    else JSONObject().put("pcm", Base64.encodeToString(WakeService.pcm ?: ByteArray(0), Base64.NO_WRAP))
+                js("window.dispatchEvent(new CustomEvent('eva:pcm', {detail: $detail}))")
             }.start()
         }
 

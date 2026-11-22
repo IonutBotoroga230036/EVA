@@ -1186,13 +1186,16 @@ function flushDevice() {
   if (!(ws && ws.readyState === 1)) return;
   if (deviceState) ws.send(JSON.stringify({ type: 'device_state', ...deviceState }));
   if (pendingPcm !== null) {
-    const pcm = pendingPcm; pendingPcm = null; lastWasVoice = true;
-    if (pcm) { setState('thinking'); ws.send(JSON.stringify({ type: 'pcm_command', pcm })); }
-    else dispatchEvent(new CustomEvent('eva:mic'));              // just "Eva": listen now
+    const p = pendingPcm; pendingPcm = null; lastWasVoice = true;
+    if (p.text !== undefined) {                                  // checked and transcribed by your PC already
+      if (p.text) { setState('thinking'); ws.send(JSON.stringify({ type: 'pcm_command', text: p.text })); }
+      else dispatchEvent(new CustomEvent('eva:mic'));            // just "Eva": listen now
+    } else if (p.pcm) { setState('thinking'); ws.send(JSON.stringify({ type: 'pcm_command', pcm: p.pcm })); }
+    else dispatchEvent(new CustomEvent('eva:mic'));
   }
 }
 addEventListener('eva:device-state', e => { deviceState = Object.assign({}, deviceState, e.detail || {}); flushDevice(); });
-addEventListener('eva:pcm', e => { pendingPcm = (e.detail && e.detail.pcm) || ''; flushDevice(); });
+addEventListener('eva:pcm', e => { pendingPcm = e.detail || {}; flushDevice(); });
 addEventListener('eva:wake', e => { wakeMode = !!(e.detail && e.detail.on);
   try { localStorage.setItem('eva.wake', wakeMode ? '1' : '0'); } catch (_) {}
   if (sttMode === 'server') {
