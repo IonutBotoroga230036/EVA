@@ -332,3 +332,105 @@ def test_args_ok_is_forgiving_about_form():
     assert eval_mod.args_ok({"day": "tomorrow"}, {"day": "tomorrow afternoon"})
     assert eval_mod.args_ok({"on": "false"}, {"on": False})
     assert not eval_mod.args_ok({"title": "gym"}, {})
+
+
+def test_local_only_by_voice_also_clears_an_understanding_override():
+    from core.brain import get_brain
+    get_brain().set_feature("understanding", "auto")
+    assert U.cloud_allowed() is True
+    get_brain().set_mode("local")                           # the latest thing you said wins
+    assert U.cloud_allowed() is False
+    get_brain().set_feature("understanding", "auto")
+    assert U.cloud_allowed() is True
+
+
+# ---------------------------------------------------------------- every calendar you can see (Nov 22)
+class FakeCalService:
+    def __init__(self, cals, events, broken=()):
+        self.cals, self.evs, self.broken, self.asked = cals, events, set(broken), []
+
+    def calendarList(self):
+        svc = self
+
+        class L:
+            def list(self, **kw):
+                return type("X", (), {"execute": lambda _s: {"items": svc.cals}})()
+        return L()
+
+    def events(self):
+        svc = self
+
+        class E:
+            def list(self, calendarId, **kw):
+                svc.asked.append(calendarId)
+                if calendarId in svc.broken:
+                    raise RuntimeError("403")
+                return type("X", (), {"execute": lambda _s: {"items": svc.evs.get(calendarId, [])}})()
+        return E()
+
+
+def gclient(svc):
+    from core.google_api import GoogleClient
+    g = GoogleClient.__new__(GoogleClient)
+    g.cal, g.tz, g._calendars = svc, "Europe/Amsterdam", (0.0, [])
+    return g
+
+
+def next_monday():
+    from datetime import date, timedelta
+    t = date.today()
+    return t + timedelta(days=(7 - t.weekday()) % 7 or 7)
+
+
+def ev(i, title, h1, h2):
+    d = next_monday().isoformat()
+    return {"id": i, "summary": title, "start": {"dateTime": f"{d}T{h1}:00"}, "end": {"dateTime": f"{d}T{h2}:00"}}
+
+
+def test_free_time_counts_the_university_timetable():
+    from core import tempo
+    svc = FakeCalService(
+        cals=[{"id": "me@gmail.com", "primary": True, "summary": "me"},
+              {"id": "rooster@ru.nl", "selected": True, "summary": "Radboud timetable"},
+              {"id": "hidden@x", "selected": False, "summary": "not ticked"}],
+        events={"primary": [ev("a", "Gym", "19:00", "20:00")],
+                "rooster@ru.nl": [ev("b", "From Data to Model", "10:30", "12:15"),
+                                  ev("c", "Linear Algebra", "13:30", "15:15")]})
+    g = gclient(svc)
+    m = datetime.combine(next_monday(), datetime.min.time())
+    evs = g.list_events(m, m.replace(hour=23))
+    assert [e["title"] for e in evs] == ["From Data to Model", "Linear Algebra", "Gym"]
+    assert svc.asked == ["primary", "rooster@ru.nl"]                       # the unticked one isn't read
+    assert evs[0]["readonly"] and evs[0]["calendar"] == "Radboud timetable" and not evs[2]["readonly"]
+    out = tempo.free_slots(g, "monday", now=m.replace(hour=1) - __import__("datetime").timedelta(days=1))
+    assert ("08:00", "20:00") not in out["gaps"] and ("12:15", "13:30") in out["gaps"]
+
+
+def test_a_broken_extra_calendar_never_hides_your_own():
+    svc = FakeCalService(cals=[{"id": "me", "primary": True}, {"id": "bad", "selected": True}],
+                         events={"primary": [ev("a", "Gym", "19:00", "20:00")]}, broken={"bad"})
+    m = datetime.combine(next_monday(), datetime.min.time())
+    assert [e["title"] for e in gclient(svc).list_events(m, m.replace(hour=23))] == ["Gym"]
+
+
+def test_classes_from_a_read_only_calendar_are_never_moved_or_deleted():
+    from core import tempo
+
+    class G:
+        moved, deleted = [], []
+
+        def list_events(self, a, b, max_results=50):
+            return [{"id": "c", "title": "Linear Algebra", "start": datetime(2026, 11, 23, 13, 30),
+                     "end": datetime(2026, 11, 23, 15, 15), "all_day": False, "calendar": "Radboud timetable",
+                     "readonly": True}]
+
+        def move_event(self, *a):
+            self.moved.append(a)
+
+        def delete_event(self, *a):
+            self.deleted.append(a)
+    g = G()
+    assert "only read" in tempo.move_event_to(g, "linear algebra", "4pm", "monday")["say"]
+    assert "only read" in tempo.delete_event(g, "linear algebra", "monday")["say"]
+    assert tempo.shift_events(g, 60, "monday", now=datetime(2026, 11, 22, 9))["moved"] == 0
+    assert g.moved == [] and g.deleted == []

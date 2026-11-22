@@ -88,6 +88,8 @@ class Brain:
         mode = mode if mode in MODES else "local"
         st = self._state()
         st["mode"] = mode
+        if mode == "local" and (st.get("features") or {}).get("understanding") not in (None, "default"):
+            st["features"]["understanding"] = "default"    # "local only" covers understanding too, until you say otherwise
         self._save(st)
         return mode
 

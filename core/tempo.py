@@ -114,7 +114,7 @@ def shift_events(google, minutes: int = 60, day: str = "today", now: Optional[da
     now = now or datetime.now()
     start, end, label = day_window(day, now.date())
     events = [e for e in google.list_events(start, end, max_results=50)
-              if not e["all_day"] and e["start"] and (label != "today" or e["start"] > now)]
+              if not e["all_day"] and e["start"] and not e.get("readonly") and (label != "today" or e["start"] > now)]
     if not events:
         return {"moved": 0, "say": f"There's nothing left to move {label}, sir."}
     delta = timedelta(minutes=int(minutes))
@@ -167,6 +167,9 @@ def move_event_to(google, title: str, time_text: str, day: str = "") -> dict:
     e = find_event(google, title, day or "today")
     if not e:
         return {"error": "not found", "say": f"I couldn't find {title} in your calendar, sir."}
+    if e.get("readonly"):
+        return {"error": "read only", "say": f"{e['title']} is in your {e.get('calendar') or 'other'} calendar, which I "
+                                             f"can only read, sir."}
     if e.get("all_day"):
         return {"error": "all day", "say": f"{e['title']} is an all-day event, sir; I can't give it a time."}
     base = resolve_start(day, time_text) if day else resolve_start("today", time_text)
@@ -183,6 +186,9 @@ def delete_event(google, title: str, day: str = "today") -> dict:
     e = find_event(google, title, day)
     if not e:
         return {"error": "not found", "say": f"I couldn't find {title} in your calendar, sir."}
+    if e.get("readonly"):
+        return {"error": "read only", "say": f"{e['title']} is in your {e.get('calendar') or 'other'} calendar, which I "
+                                             f"can only read, sir."}
     google.delete_event(e["id"])
     when = "" if e["all_day"] else f" at {_hm(e['start'])}"
     return {"deleted": e["title"], "say": f"Removed {e['title']} on {e['start']:%A}{when}, sir."}
