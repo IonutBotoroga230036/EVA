@@ -173,6 +173,10 @@ def cloud_allowed() -> bool:
     try:
         from core.brain import get_brain
         b = get_brain()
+        st = b._state()
+        said = (st.get("features") or {}).get("understanding")
+        if st.get("mode") == "local" and said in (None, "default"):
+            return False            # "Eva, local only" by voice beats a settings-file default for understanding
         return ((b.feature_mode("understanding") or b.mode()) in ("auto", "cloud"))
     except Exception:
         return False

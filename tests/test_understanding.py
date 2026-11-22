@@ -155,6 +155,18 @@ def test_brain_mode_controls_cloud_understanding():
     assert U.cloud_allowed() is True
 
 
+def test_saying_local_only_beats_the_settings_file(monkeypatch):
+    from core.brain import get_brain
+    import core.brain as brain_mod
+    real = brain_mod.Brain._cfg
+    monkeypatch.setattr(brain_mod.Brain, "_cfg", lambda self: {**real(self), "features": {"understanding": "auto"}})
+    assert U.cloud_allowed() is True                        # settings.local.yaml: understanding auto
+    get_brain().set_mode("local")                           # "Eva, local only"
+    assert U.cloud_allowed() is False
+    get_brain().set_feature("understanding", "auto")        # "Eva, use auto for understanding" wins again
+    assert U.cloud_allowed() is True
+
+
 def test_jev_mode_acts_even_when_unsure_but_keeps_the_guards(monkeypatch):
     d, _ = run_policy("jev", jev=fake_jev("calendar_free", 0.5), monkeypatch=monkeypatch)
     assert d["tool"] == "calendar_free" and d["_trusted"] is False
