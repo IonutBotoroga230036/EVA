@@ -189,7 +189,8 @@ async def understand(messages: list[dict], schemas: list[dict], legacy, fill, mo
     c = cfg()
     mode = mode or c["mode"]
     if private and mode in ("jev", "claude", "auto") and not cloud_allowed():
-        logger.info(f"UNDERSTAND {mode}: brain mode is local only, so nothing leaves this PC")
+        logger.info(f"UNDERSTAND {mode}: local only was said by voice, so nothing leaves this PC "
+                    f"(say 'Eva, use auto for understanding' to allow Jev and Claude again)")
         mode = "local"
     names = {t["function"]["name"]: t for t in schemas}
     if mode in ("legacy", "local"):

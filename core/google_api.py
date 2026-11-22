@@ -126,19 +126,53 @@ class GoogleClient:
         self.cal = build("calendar", "v3", credentials=creds, cache_discovery=False)
         self.gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
         self.tz = _cfg()["timezone"]
+        self._calendars: tuple[float, list[dict]] = (0.0, [])
 
     # ---------------- calendar
+    def calendars(self) -> list[dict]:
+        """The calendars shown in your Google Calendar (the ticked ones), primary first. Cached for 10 minutes.
+        Nov 22: a university timetable subscribed as its own calendar was invisible, so a day full of classes
+        came back as 'free from 08:00 to 20:00'."""
+        import time as _t
+        if _t.time() - self._calendars[0] < 600 and self._calendars[1]:
+            return self._calendars[1]
+        try:
+            items = self.cal.calendarList().list(minAccessRole="freeBusyReader").execute().get("items", [])
+        except Exception as e:                       # never lose the main calendar over the list call
+            logger.warning(f"calendar list failed ({e}); using the primary calendar only")
+            items = []
+        cals = [{"id": "primary" if c.get("primary") else c["id"], "name": c.get("summaryOverride") or c.get("summary", ""),
+                 "primary": bool(c.get("primary"))} for c in items if c.get("primary") or c.get("selected")]
+        if not any(c["primary"] for c in cals):
+            cals.insert(0, {"id": "primary", "name": "", "primary": True})
+        cals.sort(key=lambda c: not c["primary"])
+        self._calendars = (_t.time(), cals)
+        return cals
+
     def list_events(self, start: datetime, end: datetime, max_results: int = 25) -> list[dict]:
-        items = self.cal.events().list(calendarId="primary", timeMin=_iso(start), timeMax=_iso(end),
-                                       singleEvents=True, orderBy="startTime", maxResults=max_results
-                                       ).execute().get("items", [])
         out = []
-        for e in items:
-            s, all_day = _when(e, "start")
-            en, _ = _when(e, "end")
-            out.append({"id": e["id"], "title": e.get("summary", "(no title)"), "start": s, "end": en,
-                        "all_day": all_day, "location": e.get("location", "")})
-        return out
+        for cal in self.calendars():
+            try:
+                items = self.cal.events().list(calendarId=cal["id"], timeMin=_iso(start), timeMax=_iso(end),
+                                               singleEvents=True, orderBy="startTime", maxResults=max_results
+                                               ).execute().get("items", [])
+            except Exception as e:
+                if cal["primary"]:
+                    raise
+                logger.warning(f"calendar {cal['name'] or cal['id']} unreadable ({e}); skipped")
+                continue
+            for e in items:
+                if e.get("status") == "cancelled":
+                    continue
+                s, all_day = _when(e, "start")
+                en, _ = _when(e, "end")
+                # edits (move, delete, shift) stay on your own calendar; other calendars are read for answers only
+                out.append({"id": e["id"], "title": e.get("summary", "(no title)"), "start": s, "end": en,
+                            "all_day": all_day, "location": e.get("location", ""),
+                            "calendar": cal["name"] or ("primary" if cal["primary"] else cal["id"]),
+                            "readonly": not cal["primary"]})
+        out.sort(key=lambda e: (e["start"] is None, e["start"] or datetime.max))
+        return out[:max_results]
 
     def insert_event(self, title: str, start: datetime, end: datetime, description: str = "") -> dict:
         body = {"summary": title, "description": description,
