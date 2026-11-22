@@ -8,8 +8,10 @@ from core.google_api import NeedAuth, auth_message, get_google
 TOOLS = [
     {"type": "function", "function": {
         "name": "calendar_agenda",
-        "description": "What is on the user's calendar for a day or week: 'today', 'tomorrow', 'friday', 'this week'.",
-        "parameters": {"type": "object", "properties": {"day": {"type": "string"}}}}},
+        "description": "What is on the user's calendar for a day or week: 'today', 'tomorrow', 'friday', 'this week'. "
+                       "Daily routine items (wake up, vitamins) are summed up unless everything is true.",
+        "parameters": {"type": "object", "properties": {"day": {"type": "string"}, "everything": {
+            "type": "boolean", "description": "true only when the user asks for everything, including the routine"}}}}},
     {"type": "function", "function": {
         "name": "calendar_next",
         "description": "What's happening now and what's next on the calendar today.",
@@ -61,8 +63,8 @@ def _run(fn, *a, **k):
     return res
 
 
-def calendar_agenda(day: str = "today", **_):
-    return _run(tempo.agenda, day or "today")
+def calendar_agenda(day: str = "today", everything: bool = False, **_):
+    return _run(tempo.agenda, day or "today", everything=bool(everything))
 
 
 def calendar_next(**_):
