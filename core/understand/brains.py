@@ -142,6 +142,9 @@ _claude = None
 def get_claude_light():
     global _claude
     if _claude is None:
+        from core.claude import _load_key
+        if not _load_key():                    # no key: say so at once (an HTTPS client costs ~0.5 s on Windows)
+            raise RuntimeError("no Claude key")
         from core.claude import ClaudeClient
         _claude = ClaudeClient(model=cfg()["claude_model"], timeout=float(cfg()["timeout_s"]) + 4)
     return _claude

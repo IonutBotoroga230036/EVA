@@ -63,6 +63,9 @@ def no_real_services(tmp_path, monkeypatch):
     monkeypatch.setattr(jev, "_secret", lambda name: None)          # never your real Jev or OpenRouter key
     monkeypatch.setattr(understanding, "_jev", None)
     monkeypatch.setattr(understanding, "_claude", None)
+    # the shipped default is auto (Nov 22); tests that check understanding pick their mode explicitly
+    real_cfg = understanding.cfg
+    monkeypatch.setattr(understanding, "cfg", lambda: {**real_cfg(), "mode": "legacy"})
     monkeypatch.setattr(budget, "_budget", budget.BudgetTracker(track_file=str(tmp_path / "budget.json")))
     monkeypatch.setattr(brain, "STATE", tmp_path / "brain_mode.json")
     monkeypatch.setenv("EVA_TESTING", "1")

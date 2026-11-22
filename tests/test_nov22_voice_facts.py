@@ -471,3 +471,9 @@ def test_overlay_can_set_alarms():
     assert "/api/phone/turn" in ws and "stay_dark" in ws and "DeviceActions.run" in ws
     page = Path("interfaces/web/eva.html").read_text(encoding="utf-8")
     assert "['understanding', 'Understanding you']" in page and "emit('phone-setting'" in page
+
+
+def test_twelve_something_just_after_midnight_is_tonight():
+    c, secs = later.split_clock("stop the music at 12:16", datetime(2026, 11, 23, 0, 6))
+    assert c == "stop the music" and abs(secs / 60 - 10) < 0.1
+    assert abs(later.split_clock("stop the music at 12:16", datetime(2026, 11, 23, 11, 0))[1] / 60 - 76) < 0.1
