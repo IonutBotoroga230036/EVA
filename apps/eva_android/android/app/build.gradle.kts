@@ -19,7 +19,7 @@ android {
         applicationId = "nl.ionut.eva_android"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 26)        // v0.3 9b: Android 8+ (foreground service, overlay)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -42,4 +42,9 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // v0.3 9b: the wake word on the phone (same ONNX models as the PC)
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.26.0")
 }

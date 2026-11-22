@@ -196,3 +196,18 @@ most voice bugs show up.
 | 16.4 | "Order me a pizza." | She can't yet, and offers to build the skill. |
 | 16.5 | "Eva, understanding local only." then 16.3 again | Works offline; the log shows UNDERSTAND local. |
 
+## 17. Phone voice and hands-free (v0.3.1)
+
+| # | Do / say | Expect |
+|---|---|---|
+| 17.1 | Ask something long, then say "Eva" while she answers (media mode) | She stops at once and listens. |
+| 17.2 | Talk normally while she answers, without "Eva" | She keeps talking (her own voice isn't taken as you). |
+| 17.3 | After an answer, wait 8-10 s, then ask a follow-up | Still heard (12 s window). |
+| 17.4 | "Eva, let's talk" ... a few questions ... "that's all" | No wake word needed in between; "Alright, sir." at the end. |
+| 17.5 | "Turn off the lights in 10 minutes", then "also stop the music at that time" | Both planned for the same minute. |
+| 17.6 | "Stop the music", then "No, not right now, but 2:30" | Music back on, planned for 2:30. |
+| 17.7 | "What's it for tomorrow?" with no calendar check | "I haven't checked your calendar for that yet, sir. Should I?" "Yes" checks. |
+| 17.8 | Hands-free on, screen off, "Eva, what time is it" | Screen lights, Core overlay, she answers, overlay closes. |
+| 17.9 | Locked, "Eva, any new emails?" | "Unlock your phone for that"; unlock, and she reads them. |
+| 17.10 | Locked, "Eva, turn off the lights" | Works without unlocking. |
+

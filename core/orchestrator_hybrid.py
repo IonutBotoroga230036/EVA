@@ -199,6 +199,15 @@ def offer_for(kind: str, user_text: str, answer: str) -> tuple[str, tuple[str, d
             "minutes'."), None
 
 
+# v0.3 9b: while the phone is locked, anyone near it could talk to her. Harmless things work, adding a meeting,
+# reminder or shopping item works (she reads it back), everything private waits for an unlock (approved split).
+LOCKED_OK = {"get_datetime", "get_weather", "calculate", "convert_currency", "crypto_price", "web_search",
+             "media_control", "set_volume", "spotify_play", "spotify_queue", "spotify_now_playing",
+             "lights_power", "lights_set", "set_mood", "list_moods", "phone_alarm", "phone_timer",
+             "later_list", "later_cancel", "keep_listening", "calendar_add", "set_reminder", "shopping_add"}
+LOCKED_SAY = "Unlock your phone for that, sir, and I'll carry on."
+
+
 _YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|do it|go ahead|go on|confirm(?:ed)?|ok(?:ay)?|please do|"
                   r"affirmative|correct|absolutely|of course)\b", re.I)
 _NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forget it|leave it)\b", re.I)
@@ -790,6 +799,8 @@ class HybridOrchestrator:
         self.last_planned: dict | None = None      # the last thing planned for later, for the same correction
         self._turn_input = ""
         self.pending_offer: dict | None = None      # "Should I check?" -> "yes" runs it
+        self.locked = False                          # the phone overlay over the lock screen (v0.3 9b)
+        self.after_unlock: tuple[str, float] | None = None
         self.understand_mode: str | None = None     # None = settings; the eval sets each mode in turn
         self._stale = False
         self._bg: set[asyncio.Task] = set()
@@ -906,7 +917,8 @@ class HybridOrchestrator:
         """Embedding, recall, and skill matching, computed at most once and only when needed."""
         if "facts" not in ctx:
             qvec = self.cortex.embed_query(user_input)
-            ctx["facts"] = self.cortex.recall(user_input, k=int(self.mem_cfg.get("recall_k", 6)), query_vec=qvec)
+            ctx["facts"] = [] if getattr(self, "locked", False) else \
+                self.cortex.recall(user_input, k=int(self.mem_cfg.get("recall_k", 6)), query_vec=qvec)
             ctx["skills"] = self.registry.bodies(self.registry.match(user_input, qvec))
         return ctx
 
@@ -937,6 +949,14 @@ class HybridOrchestrator:
             raise
 
     async def _run(self, tool: str, args: dict, gathered: list) -> AsyncIterator[dict]:
+        if getattr(self, "locked", False) and tool not in LOCKED_OK:
+            logger.info(f"LOCKED: {tool} waits for an unlock")
+            self.after_unlock = (self._turn_input, time.time())
+            yield {"type": "unlock"}
+            out = {"result": json.dumps({"error": "phone locked"}), "say": LOCKED_SAY, "exact": True}
+            for ev in self._post(tool, args, out, gathered):
+                yield ev
+            return
         async for kind, value in self._with_ack(self.belt.ack(tool), self.belt.aexecute(tool, args)):
             if kind == "ack":
                 yield {"type": "ack", "text": value}      # only when the tool is taking a while

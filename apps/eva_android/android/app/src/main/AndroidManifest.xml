@@ -4,6 +4,13 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM"/>
+    <!-- v0.3 9b: "Eva" with the screen off. A foreground service (with its notification) may use the mic in the
+         background; "Display over other apps" lets it open the overlay over any app or the lock screen. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
     <application
         android:label="E.V.A."
@@ -37,6 +44,20 @@
                 <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".WakeService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"/>
+        <activity
+            android:name=".OverlayActivity"
+            android:exported="false"
+            android:theme="@style/EvaOverlayTheme"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="nl.ionut.eva_android.overlay"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode"/>
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

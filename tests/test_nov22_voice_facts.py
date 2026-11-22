@@ -263,3 +263,67 @@ def test_pc_mode_still_interrupts_on_any_speech():
 def test_durations_read_naturally():
     assert later.human(5400) == "1 and a half hours" and later.human(42900) == "11 hours and 55 minutes"
     assert later.human(7200) == "2 hours" and later.human(600) == "10 minutes"
+
+
+# ---------------------------------------------------------------- 9b: the phone's wake service and overlay
+def test_phone_downloads_the_models_it_runs(tmp_path, monkeypatch):
+    import interfaces.web.server_stream as srv
+    from core.wakeword import features as wf
+    from fastapi.testclient import TestClient
+    model, info = tmp_path / "eva.onnx", tmp_path / "eva.json"
+    monkeypatch.setattr(srv, "get_tts", lambda: None)
+    with TestClient(srv.app) as tc:
+        monkeypatch.setattr(wf, "MODEL", model)
+        monkeypatch.setattr(wf, "INFO", info)
+        assert tc.get("/api/wakeword/info").status_code == 409                 # not trained yet: says how
+        model.write_bytes(b"onnx-bytes")
+        info.write_text(json.dumps({"threshold": 0.7, "phone_threshold": 0.45}), encoding="utf-8")
+        i = tc.get("/api/wakeword/info").json()
+        assert i["phone_threshold"] == 0.45 and i["files"] == ["embedding_model.onnx", "eva.onnx", "melspectrogram.onnx"]
+        assert tc.get("/api/wakeword/files/eva.onnx").content == b"onnx-bytes"
+        mel = tc.get("/api/wakeword/files/melspectrogram.onnx").content
+        assert mel == (wf.MODELS / "melspectrogram.onnx").read_bytes()
+        assert tc.get("/api/wakeword/files/..%2Fsecrets.env").status_code == 404
+        assert tc.get("/api/wakeword/files/cortex.db").status_code == 404
+
+
+def test_overlay_page_is_the_core_visual_driven_by_the_real_bridge():
+    import interfaces.web.server_stream as srv
+    page = srv.build_overlay()
+    assert "window.EVA_EMBED = true" in page and "let vname='core'" in page
+    assert "drawCore" in page                                   # the Core personality from your design
+    assert "E.V.A. bridge" in page and "case 'unlock'" in page and "pcm_command" in page
+    assert page.index("const W = window.EVA") < page.index("E.V.A. bridge")     # shim before bridge
+    assert page.count("<html") == 1 and page.rstrip().endswith("</html>")
+
+
+def test_a_locked_phone_keeps_private_things_private(eva, monkeypatch):
+    o, ran = eva
+    monkeypatch.setattr(orch_mod.httpx, "AsyncClient", fake_ollama({}))
+    o.locked = True
+    text, evs = turn(o, "any new emails")
+    assert ran == [] and text == orch_mod.LOCKED_SAY and any(e["type"] == "unlock" for e in evs)
+    assert o.after_unlock[0] == "any new emails"
+    text, _ = turn(o, "turn off the lights")
+    assert ran == [("lights_power", {"on": False})]             # harmless things still work
+    o.locked = False
+    turn(o, "any new emails")
+    assert ran[-1][0] == "email_unread"
+
+
+def test_android_pieces_are_wired():
+    from pathlib import Path
+    root = Path("apps/eva_android")
+    for base in ("android_overlay/app/src/main", "android/app/src/main"):
+        man = (root / base / "AndroidManifest.xml").read_text(encoding="utf-8")
+        assert 'android:foregroundServiceType="microphone"' in man and "FOREGROUND_SERVICE_MICROPHONE" in man
+        assert ".OverlayActivity" in man and 'android:showWhenLocked="true"' in man and "SYSTEM_ALERT_WINDOW" in man
+        kt = root / base / "kotlin/nl/ionut/eva_android"
+        for f in ("WakeService.kt", "WakeEngine.kt", "OverlayActivity.kt", "MainActivity.kt"):
+            assert (kt / f).exists(), f
+    engine = (root / "android_overlay/app/src/main/kotlin/nl/ionut/eva_android/WakeEngine.kt").read_text(encoding="utf-8")
+    assert '"input"' in engine and '"input_1"' in engine and "/ 10f + 2f" in engine and "76" in engine
+    gradle = (root / "android/app/build.gradle.kts").read_text(encoding="utf-8")
+    assert "com.microsoft.onnxruntime:onnxruntime-android:" in gradle
+    dart = (root / "lib/main.dart").read_text(encoding="utf-8")
+    assert "'startHandsFree'" in dart and "'stopHandsFree'" in dart

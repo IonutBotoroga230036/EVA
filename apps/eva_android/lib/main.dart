@@ -87,14 +87,15 @@ class EvaScreen extends StatefulWidget {
   State<EvaScreen> createState() => _EvaScreenState();
 }
 
-class _EvaScreenState extends State<EvaScreen> {
+class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
   WebViewController? controller;
   String? error;
-  bool micAllowed = false, listenWhenLoaded = false;
+  bool micAllowed = false, listenWhenLoaded = false, handsFree = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _native.setMethodCallHandler((call) async {
       if (call.method == 'assist') _tapMic();                 // the assistant gesture while E.V.A. is open
     });
@@ -159,10 +160,56 @@ class _EvaScreenState extends State<EvaScreen> {
       await (c.platform as AndroidWebViewController).setMediaPlaybackRequiresUserGesture(false);  // her voice
     }
     await c.loadRequest(widget.address, headers: {'Authorization': 'Bearer ${widget.token}'});
+    handsFree = (await _store.read(key: 'handsfree')) == '1';
+    if (handsFree) _handsFree(ask: false);                     // back on after the app was closed
     setState(() {
       controller = c;
       error = null;
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Back from Android settings (notifications, "Display over other apps"): finish turning hands-free on.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && handsFree) _handsFree(ask: false);
+  }
+
+  /// v0.3 9b: "Eva" with the screen off. The phone runs the wake word itself; the overlay opens over any app.
+  Future<void> _handsFree({required bool ask}) async {
+    final r = await _native.invokeMethod<String>('startHandsFree', {
+      'address': widget.address.toString(),
+      'token': widget.token,
+      'audio': widget.audio,
+      'ask': ask,
+    });
+    if (!ask || !mounted) return;
+    final msg = {
+          'started': 'Listening for "Eva", even with the screen off. The notification has a Stop button.',
+          'notifications': 'Allow notifications for E.V.A. (Android shows that she is listening), then turn it on again.',
+          'overlay': 'Allow "Display over other apps" for E.V.A., then come back: she starts by herself.',
+          'mic': 'E.V.A. needs the microphone permission first.',
+        }[r] ??
+        'Hands-free couldn\'t start ($r).';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _setHandsFree(bool on) async {
+    handsFree = on;
+    await _store.write(key: 'handsfree', value: on ? '1' : '0');
+    if (on) {
+      await _handsFree(ask: true);
+    } else {
+      await _native.invokeMethod('stopHandsFree');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hands-free is off.')));
+      }
+    }
   }
 
   void _tapMic() => controller?.runJavaScript("window.dispatchEvent(new CustomEvent('eva:mic'))");
@@ -174,11 +221,18 @@ class _EvaScreenState extends State<EvaScreen> {
       builder: (_) => SafeArea(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(leading: const Icon(Icons.refresh), title: const Text('Reload'), onTap: () => Navigator.pop(context, 'reload')),
+        ListTile(
+            leading: Icon(handsFree ? Icons.hearing : Icons.hearing_disabled),
+            title: Text(handsFree ? 'Hands-free: on' : 'Hands-free: off'),
+            subtitle: const Text('Say "Eva" with the screen off or in another app'),
+            onTap: () => Navigator.pop(context, 'handsfree')),
         ListTile(leading: const Icon(Icons.settings_outlined), title: const Text('Connection settings'), onTap: () => Navigator.pop(context, 'settings')),
         ListTile(leading: const Icon(Icons.close), title: const Text('Leave E.V.A.'), onTap: () => Navigator.pop(context, 'leave')),
       ])),
     );
-    if (choice == 'reload') {
+    if (choice == 'handsfree') {
+      await _setHandsFree(!handsFree);
+    } else if (choice == 'reload') {
       setState(() => error = null);
       await controller?.reload();
     } else if (choice == 'settings') {

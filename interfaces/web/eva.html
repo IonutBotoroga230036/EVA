@@ -939,7 +939,7 @@ function speak(text, then) {                                   // fallback when 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   try { ws = new WebSocket(`${proto}://${location.host}/ws`); } catch (_) { return; }
-  ws.onopen = () => { connected = true; E.setConnection(true); idleHint(); refreshStatus(); };
+  ws.onopen = () => { connected = true; E.setConnection(true); idleHint(); refreshStatus(); flushDevice(); };
   ws.onclose = () => { connected = false; ttsMode = 'browser'; sttMode = 'browser'; toldSpeaking = false; micRelease();
     E.setConnection(false); setTimeout(connect, 2500); };
   ws.onmessage = e => handle(JSON.parse(e.data));
@@ -948,6 +948,7 @@ function handle(ev) {
   switch (ev.type) {
     case 'hello': ttsMode = ev.tts || 'browser'; break;
     case 'phrase': if (ev.key === 'wake') decode(ev.audio).then(b => { P.wake = b; }); break;
+    case 'unlock': dispatchEvent(new CustomEvent('eva:unlock-needed')); break;       // locked phone, private request
     case 'turn_start': beginTurn(ev.turn); streamBuf = ''; turnText = ''; turnProactive = false; proactiveWidget = null; skipFollow = false; break;
     case 'device_action':                                    // alarms, timers: the Android app does it
       if (window.EvaNative) window.EvaNative.postMessage(JSON.stringify(ev));
@@ -1178,6 +1179,20 @@ addEventListener('eva:mic', () => {
   else { bargeIn(); if (sttMode === 'server') tapServer(); else listen(0); }
 });
 addEventListener('eva:text', e => send((e.detail && e.detail.text || '').trim(), false));
+// v0.3 9b, the phone overlay: the lock state, and the words you said right after "Eva" (recorded by the wake
+// service before this page could open its own mic), sent once the socket is up.
+let deviceState = null, pendingPcm = null;
+function flushDevice() {
+  if (!(ws && ws.readyState === 1)) return;
+  if (deviceState) ws.send(JSON.stringify({ type: 'device_state', ...deviceState }));
+  if (pendingPcm !== null) {
+    const pcm = pendingPcm; pendingPcm = null; lastWasVoice = true;
+    if (pcm) { setState('thinking'); ws.send(JSON.stringify({ type: 'pcm_command', pcm })); }
+    else dispatchEvent(new CustomEvent('eva:mic'));              // just "Eva": listen now
+  }
+}
+addEventListener('eva:device-state', e => { deviceState = Object.assign({}, deviceState, e.detail || {}); flushDevice(); });
+addEventListener('eva:pcm', e => { pendingPcm = (e.detail && e.detail.pcm) || ''; flushDevice(); });
 addEventListener('eva:wake', e => { wakeMode = !!(e.detail && e.detail.on);
   try { localStorage.setItem('eva.wake', wakeMode ? '1' : '0'); } catch (_) {}
   if (sttMode === 'server') {

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.provider.AlarmClock
 import android.content.pm.PackageManager
 import android.os.Build
+import android.net.Uri
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -36,11 +37,50 @@ class MainActivity : FlutterActivity() {
                     "deviceAction" -> result.success(deviceAction(
                         call.argument<String>("action") ?: "", call.argument<Map<String, Any>>("args") ?: emptyMap()))
                     "requestAssistantRole" -> result.success(requestRole())
+                    // v0.3 9b: "Eva" with the screen off (WakeService) and the overlay (OverlayActivity)
+                    "startHandsFree" -> result.success(startHandsFree(
+                        call.argument<String>("address") ?: "", call.argument<String>("token") ?: "",
+                        call.argument<String>("audio") ?: "media", call.argument<Boolean>("ask") ?: true))
+                    "stopHandsFree" -> {
+                        WakeService.stop(this)
+                        result.success(true)
+                    }
+                    "handsFreeStatus" -> result.success(mapOf(
+                        "running" to (WakeService.instance != null),
+                        "overlayAllowed" to Settings.canDrawOverlays(this)))
                     "isAssistant" -> result.success(isAssistant())
                     else -> result.notImplemented()
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        WakeService.appVisible = true                      // the page listens while the app is in front
+    }
+
+    override fun onPause() {
+        WakeService.appVisible = false                     // back to the wake service (if it's on)
+        super.onPause()
+    }
+
+    /** "started", or what's still missing: "notifications" / "overlay" (the settings screen opens for it). */
+    private fun startHandsFree(address: String, token: String, audio: String, ask: Boolean): String {
+        if (!address.startsWith("https://") || token.isEmpty()) return "bad_address"
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return "mic"
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            if (ask) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFY_REQUEST)
+            return "notifications"
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            if (ask) startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            return "overlay"
+        }
+        getSharedPreferences("eva_wake", MODE_PRIVATE).edit().putString("audio", audio).apply()
+        WakeService.start(this, address, token)
+        return "started"
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -119,5 +159,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val MIC_REQUEST = 7001
+        private const val NOTIFY_REQUEST = 7002
     }
 }

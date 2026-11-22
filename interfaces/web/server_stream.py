@@ -85,6 +85,7 @@ PORT = 8001
 STARTED = time.time()
 CONNECTIONS: set["Connection"] = set()
 MAX_AUDIO_FRAME = 256 * 1024          # bytes; a larger binary frame is dropped, never buffered
+MAX_PCM_COMMAND = 12 * 16000 * 2 * 4 // 3 + 16     # base64 of at most 12 s of 16 kHz PCM16
 
 
 MUSIC_TOOLS = {"spotify_play", "set_mood"}       # no follow-up window after music starts: lyrics aren't commands
@@ -321,6 +322,91 @@ async def wakeword_test(request: Request):
     if _detector.get("mtime") != mtime:
         _detector.update(mtime=mtime, d=await asyncio.to_thread(wf.Detector, wf.MODEL))
     return await asyncio.to_thread(_detector["d"].check, audio)
+
+
+# v0.3 9b: the phone runs the same three models on-device. It downloads them from here (with your token), so a
+# retrained model reaches the phone by itself; the two feature models are pinned (core/wakeword/features.py).
+WAKE_FILES = {"melspectrogram.onnx": lambda wf: wf.MODELS / "melspectrogram.onnx",
+              "embedding_model.onnx": lambda wf: wf.MODELS / "embedding_model.onnx",
+              "eva.onnx": lambda wf: wf.MODEL}
+
+
+@app.get("/api/wakeword/info")
+async def wakeword_info():
+    from core.wakeword import features as wf
+    if not wf.MODEL.exists():
+        return JSONResponse({"detail": "train the model first: python -m core.wakeword.train"}, status_code=409)
+    info = json.loads(wf.INFO.read_text(encoding="utf-8")) if wf.INFO.exists() else {}
+    return {"version": int(wf.MODEL.stat().st_mtime), "threshold": float(info.get("threshold", 0.5)),
+            "phone_threshold": float(info.get("phone_threshold", info.get("threshold", 0.5))),
+            "files": sorted(WAKE_FILES), "sample_rate": wf.SR, "frames": wf.FRAMES}
+
+
+@app.get("/api/wakeword/files/{name}")
+async def wakeword_file(name: str):
+    from core.wakeword import features as wf
+    if name not in WAKE_FILES:
+        return JSONResponse({"detail": "unknown file"}, status_code=404)
+    path = WAKE_FILES[name](wf)
+    if name != "eva.onnx":
+        wf.feature_model_dir()                  # the pinned pair only: a different pair breaks every trained model
+    if not path.exists():
+        return JSONResponse({"detail": "train the model first: python -m core.wakeword.train"}, status_code=409)
+    return FileResponse(path, media_type="application/octet-stream")
+
+
+# v0.3 9b: the overlay the phone shows over other apps and the lock screen. It is E.V.A.'s own page logic (the
+# bridge script of eva.html, unchanged) driving the Claude Design wake visual (docs/design/eva_wake.html, Core).
+OVERLAY_SHIM = """<script>
+(() => {
+  const W = window.EVA;                                       // the wake visual (Core)
+  const MAP = { idle: 'wake', alert: 'wake', listening: 'listening', thinking: 'thinking', speaking: 'speaking',
+                error: 'error', needs_unlock: 'needs_unlock' };
+  const N = window.EvaOverlay || null;                        // the Android overlay activity
+  let state = 'idle', lastBusy = Date.now(), started = Date.now(), turns = 0;
+  window.EVA = {
+    setState(s) { state = s; if (s !== 'idle' && s !== 'alert') { lastBusy = Date.now(); if (s === 'thinking') turns++; }
+                  W.setState(MAP[s] || 'wake'); },
+    setLevel(v) { W.setLevel(v || 0); },
+    setCaption(t, spoken) { W.setCaption && W.setCaption(spoken ? '' : t, spoken ? t : ''); },
+    setHint() {}, setStatus() {}, addTranscript() {}, closeAll() {},
+    setConnection(live) { if (!live) W.setState('error'); },
+    showCard(type, data) { if (type === 'confirm' && W.showConfirm) W.showConfirm(data); return 0; },
+    showCards(list) { (list || []).forEach(c => window.EVA.showCard(c.type, c.data)); },
+    dismiss() {}, clearCards() {}, expand() {}, openPanel() {}, openHistory() {}, alert() { return 0; }, rules: {}
+  };
+  // Done talking: back to whatever you were doing (or the lock screen) after a short quiet moment.
+  setInterval(() => {
+    const quiet = state === 'idle' && Date.now() - lastBusy > (turns ? 3500 : 15000);
+    if (quiet && Date.now() - started > 4000) { W.setState('done'); setTimeout(() => N && N.close(), 600); }
+  }, 500);
+  addEventListener('eva:unlock-needed', () => { W.setState('needs_unlock'); N && N.unlock(); });
+  addEventListener('load', () => {
+    if (!N) return;
+    dispatchEvent(new CustomEvent('eva:device-state', { detail: { locked: !!N.isLocked() } }));
+    N.ready();                                                // the words you said right after "Eva" arrive as eva:pcm
+  });
+})();
+</script>
+"""
+
+
+@app.get("/overlay")
+async def overlay_page():
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(build_overlay())
+
+
+def build_overlay() -> str:
+    page = (Path(__file__).parent / "eva.html").read_text(encoding="utf-8")
+    start = page.index("E.V.A. bridge")
+    start = page.rindex("<script>", 0, start)
+    bridge = page[start:page.index("</script>", start) + len("</script>")]
+    design = (Path(__file__).resolve().parents[2] / "docs" / "design" / "eva_wake.html").read_text(encoding="utf-8")
+    head_end = design.index("</body>")
+    body = design.index(">", design.index("<body")) + 1
+    boot = "<script>window.EVA_EMBED = true; /* variant=core is the design's default */</script>"
+    return design[:body] + boot + design[body:head_end] + OVERLAY_SHIM + bridge + "\n</body></html>\n"
 
 
 @app.post("/api/wakeword/sample")
@@ -638,6 +724,39 @@ class Connection:
     async def on_barge_in(self) -> None:
         await self.interrupt()
 
+    async def on_device_state(self, locked: bool) -> None:
+        was = getattr(self.orch, "locked", False)
+        self.orch.locked = locked
+        logger.info(f"DEVICE: phone {'locked: private things wait for an unlock' if locked else 'unlocked'}")
+        waiting = getattr(self.orch, "after_unlock", None)
+        if was and not locked and waiting and time.time() - waiting[1] < 120:
+            self.orch.after_unlock = None
+            await self.submit(waiting[0], voice=True, stt=True)       # unlocked for it: do what you asked
+
+    async def on_pcm_command(self, b64: str) -> None:
+        """PCM16 16 kHz mono (base64), recorded by the phone's wake service from "Eva" until you stopped talking."""
+        import base64
+        if not b64 or len(b64) > MAX_PCM_COMMAND:
+            await self.on_wake()
+            return
+        listener = await self.ensure_listener()
+        try:
+            audio = np.frombuffer(base64.b64decode(b64), dtype="<i2").astype(np.float32) / 32768.0
+            text = await asyncio.to_thread(listener.stt.transcribe, audio) if listener and len(audio) > 4000 else ""
+        except Exception as e:
+            logger.warning(f"ECHO: the phone's recording couldn't be read ({e})")
+            text = ""
+        from voice.listen import strip_wake
+        cmd = strip_wake(text or "")
+        cmd = text.strip() if cmd is None else cmd.strip()
+        logger.info(f"ECHO: after the phone's wake word: {text!r}")
+        if len(re.sub(r"[^a-z]", "", cmd.lower())) < 2:
+            if listener:
+                listener.arm(listener.cfg.command_window_secs)
+            await self.on_wake()                                       # just "Eva": "Yes, sir?" and listen
+            return
+        await self.voice_command(cmd)
+
     async def on_audio(self, data: bytes) -> None:
         if len(data) > MAX_AUDIO_FRAME:
             logger.warning(f"ECHO: dropped an oversized audio frame ({len(data)} bytes)")
@@ -712,6 +831,10 @@ class Connection:
                         fut.set_result({"ok": bool(data.get("ok")), "error": str(data.get("error") or "")[:200]})
                 elif kind in ("listen", "speaking", "audio_format"):
                     await self.on_control(data)
+                elif kind == "device_state":               # v0.3 9b: the phone overlay, locked or not
+                    await self.on_device_state(bool(data.get("locked")))
+                elif kind == "pcm_command":                # v0.3 9b: what you said right after "Eva", screen off
+                    await self.on_pcm_command(str(data.get("pcm") or ""))
         finally:
             CONNECTIONS.discard(self)
             await self.interrupt()

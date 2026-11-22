@@ -1,10 +1,14 @@
-# Run once after `flutter create` (see README.md). Copies E.V.A.'s Android files over the generated ones.
+# Run after `flutter create` or after an update (see README.md). Copies E.V.A.'s Android files over the generated ones.
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-Copy-Item -Force "$here\android_overlay\app\src\main\AndroidManifest.xml" "$here\android\app\src\main\AndroidManifest.xml"
-$kt = "$here\android\app\src\main\kotlin\nl\ionut\eva_android"
+$src = "$here\android_overlay\app\src\main"
+$dst = "$here\android\app\src\main"
+Copy-Item -Force "$src\AndroidManifest.xml" "$dst\AndroidManifest.xml"
+$kt = "$dst\kotlin\nl\ionut\eva_android"
 New-Item -ItemType Directory -Force $kt | Out-Null
-Copy-Item -Force "$here\android_overlay\app\src\main\kotlin\nl\ionut\eva_android\MainActivity.kt" "$kt\MainActivity.kt"
-New-Item -ItemType Directory -Force "$here\android\app\src\main\res\xml" | Out-Null
-Copy-Item -Force "$here\android_overlay\app\src\main\res\xml\network_security_config.xml" "$here\android\app\src\main\res\xml\network_security_config.xml"
+Copy-Item -Force "$src\kotlin\nl\ionut\eva_android\*.kt" $kt          # MainActivity, WakeService, WakeEngine, OverlayActivity
+New-Item -ItemType Directory -Force "$dst\res\xml" | Out-Null
+Copy-Item -Force "$src\res\xml\network_security_config.xml" "$dst\res\xml\network_security_config.xml"
+New-Item -ItemType Directory -Force "$dst\res\values" | Out-Null
+Copy-Item -Force "$src\res\values\eva_overlay.xml" "$dst\res\values\eva_overlay.xml"
 Write-Host "E.V.A. Android files applied. Now: flutter pub get; flutter run"
