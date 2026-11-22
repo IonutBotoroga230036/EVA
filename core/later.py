@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from datetime import datetime, timedelta
 import threading
 import time
 import uuid
@@ -94,6 +95,67 @@ def split_delay(text: str) -> tuple[str, Optional[float]]:
     return text, None
 
 
+# "stop the music at 2:15", "lights off at 11 pm", and Whisper's "at 211" (Nov 22). Only for actions: reminders,
+# alarms and calendar events keep their own time words (_OWN_TIME).
+_CLOCK = re.compile(r"[\s,]*\b(?:at|by)\s+(?:about\s+|around\s+)?(?P<h>\d{1,2})(?:[:.](?P<m>\d{2})|(?P<m2>\d{2}))?"
+                    r"\s*(?P<ap>a\.?m\.?|p\.?m\.?)?(?:\s+o'?clock)?(?=$|[\s,.!?])[\s,.!?]*", re.I)
+_BARE_CLOCK = re.compile(r"[\s,]*\b(?P<h>\d{1,2})(?:[:.](?P<m>\d{2})|(?P<m2>\d{2}))\s*(?P<ap>a\.?m\.?|p\.?m\.?)?"
+                         r"(?=$|[\s,.!?])[\s,.!?]*", re.I)
+# "also stop the music at that time": the same moment as the last thing planned
+_SAME_TIME = re.compile(r"[\s,]*\b(?:at that time|at the same time|then too|at that point|by then|then as well)\b"
+                        r"[\s,.!?]*", re.I)
+
+
+def _due_from(m: "re.Match", now: datetime, text: str = "") -> Optional[float]:
+    h, mins = int(m.group("h")), int(m.group("m") or m.group("m2") or 0)
+    ap = (m.group("ap") or "").lower().replace(".", "")
+    if not ap and 1 <= h <= 12:                                   # "at 7 in the evening", "at 9 tonight"
+        if re.search(r"\b(evening|tonight|afternoon)\b", text, re.I):
+            ap = "pm"
+        elif re.search(r"\bmorning\b", text, re.I):
+            ap = "am"
+    if h > 23 or mins > 59 or (ap and not 1 <= h <= 12):
+        return None
+    if ap == "pm" and h != 12:
+        h += 12
+    elif ap == "am" and h == 12:
+        h = 0
+    options = [h] if ap or h > 12 or h == 0 else [h, h + 12]     # "at 7": the next 7, morning or evening
+    best = None
+    for hh in options:
+        if hh > 23:
+            continue
+        t = now.replace(hour=hh, minute=mins, second=0, microsecond=0)
+        if t <= now:
+            t += timedelta(days=1)
+        best = t if best is None or t < best else best
+    return (best - now).total_seconds() if best else None
+
+
+def split_clock(text: str, now: Optional[datetime] = None, bare: bool = False) -> tuple[str, Optional[float]]:
+    """'stop the music at 2:15' -> ('stop the music', seconds until 2:15). bare=True also reads '211' or '2:11'
+    without 'at' (only for corrections: 'No, not right now, but 211')."""
+    if not text or _OWN_TIME.search(text):
+        return text, None
+    now = now or datetime.now()
+    for rx in ((_CLOCK, _BARE_CLOCK) if bare else (_CLOCK,)):
+        for m in rx.finditer(text):
+            secs = _due_from(m, now, text)
+            if secs is None or secs <= 0:
+                continue
+            clean = re.sub(r"\s{2,}", " ", (text[:m.start()] + " " + text[m.end():])).strip(" ,.?!")
+            return clean, secs
+    return text, None
+
+
+def split_same_time(text: str) -> tuple[str, bool]:
+    """'can you also stop the music at that time' -> ('can you also stop the music', True)."""
+    m = _SAME_TIME.search(text or "")
+    if not m or _OWN_TIME.search(text):
+        return text, False
+    return re.sub(r"\s{2,}", " ", (text[:m.start()] + " " + text[m.end():])).strip(" ,.?!"), True
+
+
 _POLITE = re.compile(r"^(?:(?:hey\s+)?eva[,.!]?\s+)?(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|please\s+)?", re.I)
 
 
@@ -107,7 +169,7 @@ def tidy(command: str) -> str:
 # "No, not now, I said in 20 minutes": everything left once the delay is taken out is just the correction
 _CORRECTION = re.compile(r"^(?:(?:no|nope|wait|stop|sorry|hey|eva|not now|not yet|not right now|i said|i meant|"
                          r"i told you|i asked|i asked for|i wanted|i want it|do it|that|it|you|like|only|later|"
-                         r"please|but|and)\W*)+$", re.I)
+                         r"please|but|and|right now|then)\W*)+$", re.I)
 
 
 def is_correction(rest: str) -> bool:
@@ -122,8 +184,11 @@ def human(secs: float) -> str:
     if secs < 3600:
         m = round(secs / 60)
         return f"{m} minute{'s' if m != 1 else ''}"
-    h = secs / 3600
-    return f"{h:g} hour{'s' if h != 1 else ''}"
+    h, m = divmod(round(secs / 60), 60)                   # "11 hours and 55 minutes", never "11.9231 hours"
+    if m == 30 and h < 5:
+        return f"{h} and a half hours"
+    hours = f"{h} hour{'s' if h != 1 else ''}"
+    return hours if m == 0 else f"{hours} and {m} minute{'s' if m != 1 else ''}"
 
 
 class Later:

@@ -500,16 +500,25 @@ class Connection:
                     for sentence in chunker.feed(event["text"]):
                         await speaker.say(sentence)
                 elif kind == "final":
-                    rest = chunker.flush() if streamed else event["text"]
+                    if event.get("replaced"):              # a guard swapped the answer: say the honest one instead
+                        chunker.flush()
+                        rest = event["text"]
+                    else:
+                        rest = chunker.flush() if streamed else event["text"]
                     await speaker.say(rest)
             tools = set(getattr(self.orch, "last_tools", ()) or ())
             if tools & MUSIC_TOOLS or ("media_control" in tools and re.search(r"\b(play|resume)\b", text, re.I)):
                 self.music_on = True
             elif "media_control" in tools and re.search(r"\b(stop|pause|quiet)\b", text, re.I):
                 self.music_on = False
-            follow = not self.music_on             # while music plays, only "Eva, ..." (or a tap) starts a turn
+            from core.tools_native import TALK_WINDOW_MS, talk_mode, touch_talk
+            talking = talk_mode()
+            touch_talk()
+            follow = talking or not self.music_on  # while music plays, only "Eva, ..." (or a tap) starts a turn
             meta = {"type": "turn_meta", "turn": turn, "follow_up": follow}
-            if getattr(self.orch, "last_lane", "") == "conversation":
+            if talking:
+                meta["listen_ms"] = TALK_WINDOW_MS          # "let's talk": keep listening until "that's all"
+            elif getattr(self.orch, "last_lane", "") == "conversation":
                 ms = conversation.follow_window_ms(last_final)
                 if ms:
                     meta["listen_ms"] = ms                 # she asked you something: more time to think
@@ -658,6 +667,9 @@ class Connection:
         if kind == "speaking":
             await listener.set_speaking(bool(data.get("on")))
         elif kind == "listen":
+            if "barge" in data:                    # the phone in media mode: only "Eva" interrupts her
+                listener.barge_mode = "wake" if data.get("barge") == "wake" else "voice"
+                logger.info(f"ECHO: interrupting her: {'say Eva' if listener.barge_mode == 'wake' else 'just talk'}")
             if "wake" in data:
                 listener.set_wake(bool(data.get("wake")))
             if "arm" in data:

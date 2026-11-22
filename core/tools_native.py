@@ -685,3 +685,41 @@ GUARDS.update({"later_list": r"\b(later|planned|scheduled)\b",
                "later_cancel": r"\b(cancel|don'?t|never mind)\b.*\b(later|planned|scheduled)\b|\bcancel\b"})
 ACTION_TOOLS |= {"phone_alarm", "phone_timer", "later_cancel"}
 EXACT_TOOLS |= {"phone_alarm", "phone_timer", "later_list", "later_cancel"}
+
+
+# ---------------------------------------------------------------- keep listening (v0.3.1, Nov 22)
+# "Eva, let's talk": after every answer she keeps listening for 30 s (instead of 12), even with music playing,
+# until "that's all". Off by itself after 10 minutes without a turn.
+TALK = {"on": False, "ts": 0.0}
+TALK_WINDOW_MS = 30000
+
+
+def talk_mode() -> bool:
+    import time as _t
+    if TALK["on"] and _t.time() - TALK["ts"] > 600:
+        TALK["on"] = False
+    return TALK["on"]
+
+
+def touch_talk() -> None:
+    import time as _t
+    if TALK["on"]:
+        TALK["ts"] = _t.time()
+
+
+def tool_keep_listening(on: bool = True, **_):
+    import time as _t
+    TALK.update(on=bool(on), ts=_t.time())
+    say = ("I'm listening, sir. Just talk; say 'that's all' when you're done." if on else "Alright, sir.")
+    return {"result": json.dumps({"listening": bool(on)}), "say": say}
+
+
+TOOL_SCHEMAS += [{"type": "function", "function": {
+    "name": "keep_listening",
+    "description": "Keep listening after every answer without the wake word ('let's talk', 'keep listening'), or "
+                   "stop ('that's all', 'stop listening', 'we're done').",
+    "parameters": {"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]}}}]
+REGISTRY["keep_listening"] = tool_keep_listening
+GUARDS["keep_listening"] = r"\b(talk|listening|listen|chat|that'?s all|that'?s it|done|bye|goodbye)\b"
+ACTION_TOOLS |= {"keep_listening"}
+EXACT_TOOLS |= {"keep_listening"}

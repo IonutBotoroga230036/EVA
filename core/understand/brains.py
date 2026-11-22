@@ -5,7 +5,7 @@ Modes (settings: understanding.mode)
   local   the same, with understanding.local_model (e.g. qwen3.5:4b)
   jev     Jev picks the skill (fast, with a real confidence), the local model fills in its details
   claude  Claude Haiku picks the skill and fills in the details in one call
-  auto    Jev first; when Jev isn't sure (or has no key), Claude; offline or over budget, local
+  auto    Claude first (picks and fills in details); if Claude fails, Jev + local details; then local
 
 Every decision comes back in the shape the orchestrator already uses: {"tool": name | "none" | "unavailable",
 ...args}, plus "_by", "_conf" and "_trusted". A trusted decision (Jev sure, or Claude) skips the word guards, so
@@ -196,30 +196,32 @@ async def understand(messages: list[dict], schemas: list[dict], legacy, fill, mo
     if mode in ("legacy", "local"):
         return {**await legacy(), "_by": mode}
 
-    if mode in ("jev", "auto"):
-        j = jev or get_jev()
-        if j.available():
-            try:
-                d = await asyncio.wait_for(jev_pick(messages, schemas, j), timeout=float(c["timeout_s"]))
-                sure = d["_conf"] >= float(c["jev"]["sure"])
-                if sure or mode == "jev":
-                    d["_trusted"] = sure
-                    tool = d["tool"]
-                    if tool in names and names[tool]["function"].get("parameters", {}).get("properties"):
-                        d.update(await fill(tool))
-                    return d
-                logger.info(f"UNDERSTAND jev unsure about {d['tool']} ({d['_conf']:.2f}): asking Claude")
-            except (JevError, asyncio.TimeoutError) as e:
-                logger.warning(f"UNDERSTAND jev failed ({e.__class__.__name__}: {e}); falling back")
-        elif mode == "jev":
-            logger.warning(f"UNDERSTAND mode is jev but there is no {j.key_name}; using the local model")
-
+    # auto: Claude first. Nov 22 on your phone: Jev chose well but the small local model filled in the details
+    # badly ('empty slots for tomorrow' became day='morning'); Claude picks AND fills in one call, ~0.7 s.
+    # Jev (+ local details) is the fallback when Claude is slow, down or out of budget.
     if mode in ("claude", "auto"):
         try:
             d = await asyncio.wait_for(claude_pick(messages, schemas, claude), timeout=float(c["timeout_s"]))
             d["_trusted"] = True
             return d
         except Exception as e:                          # no key, budget, offline, timeout: never stay silent
-            logger.warning(f"UNDERSTAND claude failed ({e.__class__.__name__}: {str(e)[:120]}); using the local model")
+            logger.warning(f"UNDERSTAND claude failed ({e.__class__.__name__}: {str(e)[:120]}); "
+                           f"{'trying Jev' if mode == 'auto' else 'using the local model'}")
+
+    if mode in ("jev", "auto"):
+        j = jev or get_jev()
+        if j.available():
+            try:
+                d = await asyncio.wait_for(jev_pick(messages, schemas, j), timeout=float(c["timeout_s"]))
+                sure = d["_conf"] >= float(c["jev"]["sure"])
+                d["_trusted"] = sure
+                tool = d["tool"]
+                if tool in names and names[tool]["function"].get("parameters", {}).get("properties"):
+                    d.update(await fill(tool))
+                return d                                  # unsure: the word guards still check it
+            except (JevError, asyncio.TimeoutError) as e:
+                logger.warning(f"UNDERSTAND jev failed ({e.__class__.__name__}: {e}); falling back")
+        elif mode == "jev":
+            logger.warning(f"UNDERSTAND mode is jev but there is no {j.key_name}; using the local model")
 
     return {**await legacy(), "_by": "local-fallback"}

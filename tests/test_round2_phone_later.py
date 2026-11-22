@@ -244,7 +244,8 @@ def test_the_ear_button_and_the_logic_share_one_state():
 
 
 def test_media_mode_pauses_the_mic_while_she_speaks():
-    assert "if (phoneMedia()) { if (on) micPause(); else micResume(); }" in HTML
+    # Nov 22: by default the mic now stays open and only "Eva" interrupts her; eva.bargeWake = "0" pauses it again
+    assert "if (phoneMedia() && !wakeBarge()) { if (on) micPause(); else micResume(); }" in HTML
     assert "function micPause()" in HTML and "async function micResume()" in HTML
     assert "audio=call" in HTML and "' audio=call'" in DART
 

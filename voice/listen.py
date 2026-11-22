@@ -61,6 +61,8 @@ class ListenConfig:
     wake_phrase: str = "Yes, sir?"
     carry_secs: float = 8.0             # "and..." waits this long for the rest of the sentence
     early_wake_ms: int = 900            # wake mode: after this much speech, peek for "Eva" so the UI reacts at once
+    barge_peek_ms: int = 1200           # wake-barge mode: how often speech over her voice is checked for "Eva"
+    barge_tail_ms: int = 2400           # ...and how much of the latest audio each check hears
 
     @classmethod
     def from_settings(cls, cfg: dict) -> "ListenConfig":
@@ -129,6 +131,8 @@ class _Utterance:
     barge: Optional[str] = None             # None | "duck" | "stopped"
     wake_checked: int = 0                   # early "Eva?" peeks done (at most two)
     woke: bool = False                      # a peek heard the wake word: this utterance is for her
+    over_her: bool = False                  # started while her voice played, in wake-barge mode
+    peeked_ms: float = 0.0                  # wake-barge mode: speech already checked for "Eva"
 
 
 class Listener:
@@ -145,6 +149,10 @@ class Listener:
         self.armed_until = 0.0              # utterances starting before this need no wake word
         self._armed_notified = True         # "timeout" already sent for the current window
         self.speaking = False               # her voice is playing on the client
+        # "voice": any sustained speech interrupts her (needs echo cancellation, i.e. the PC or call mode).
+        # "wake": only "Eva" interrupts her. The phone in media mode has no echo cancellation, so the mic hears
+        # her too; plain speech can't tell you apart, her name can (Nov 22).
+        self.barge_mode = "voice"
         self._ring: deque[bytes] = deque(maxlen=max(1, round(self.cfg.pre_roll_ms / FRAME_MS)))
         self._pending = b""
         self._vad_speaking = False
@@ -240,7 +248,9 @@ class Listener:
 
         if speaking and not was and utt is None:                      # a new utterance begins
             utt = self._utt = _Utterance(started=now, chunks=list(self._ring))
-            if self.speaking and self.cfg.barge_in:
+            if self.speaking and self.barge_mode == "wake":
+                utt.over_her = True                                   # judged by her name only, never ducked
+            elif self.speaking and self.cfg.barge_in:
                 utt.barge = "duck"
                 await self._emit({"type": "barge_in", "stage": "duck"})
             elif self.armed():                                        # unarmed room speech stays silent in the UI
@@ -254,6 +264,11 @@ class Listener:
                         and utt.speech_ms >= self.cfg.early_wake_ms * (1 + utt.wake_checked * 1.2)):
                     utt.wake_checked += 1               # peek at ~0.9 s and ~2 s: is this "Eva, ..."?
                     asyncio.create_task(self._early_wake(utt, b"".join(utt.chunks)))
+                if (utt.over_her and not utt.woke and self.speaking
+                        and utt.speech_ms - utt.peeked_ms >= self.cfg.barge_peek_ms):
+                    utt.peeked_ms = utt.speech_ms          # every ~1.2 s of speech over her: was "Eva" in it?
+                    tail = b"".join(utt.chunks[-int(self.cfg.barge_tail_ms / FRAME_MS):])
+                    asyncio.create_task(self._early_wake(utt, tail, anywhere=True))
                 if utt.barge == "duck" and utt.speech_ms >= self.cfg.barge_in_secs * 1000:
                     utt.barge = "stopped"
                     logger.info("ECHO: barge-in, stopping her reply")
@@ -287,6 +302,10 @@ class Listener:
             if armed:
                 await self._emit({"type": "listen", "state": "noise"})
             return
+        if utt.over_her and not armed:
+            pcm = b"".join(utt.chunks)                                # over her voice: only her name counts
+            await self._jobs.put((pcm, False, 0.0, True))
+            return
         if not armed and (not self.wake_mode or self.speaking):
             return                                                    # nobody asked; never transcribed
         window_end = self.armed_until
@@ -296,25 +315,37 @@ class Listener:
         pcm = b"".join(utt.chunks)
         await self._jobs.put((pcm, armed, window_end))
 
-    async def _early_wake(self, utt: "_Utterance", pcm: bytes) -> None:
+    async def _early_wake(self, utt: "_Utterance", pcm: bytes, anywhere: bool = False) -> None:
         """Wake mode: transcribe the first second or two while you're still talking. If it starts with her name,
-        say so right away (the listening animation starts now, not after you finish)."""
+        say so right away (the listening animation starts now, not after you finish). anywhere=True (over her
+        voice): her name anywhere in the last couple of seconds stops her at once."""
         try:
             audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
             text = await asyncio.to_thread(self.stt.transcribe, audio)
         except Exception:
             return
-        words = re.findall(r"[A-Za-z']+", (text or "").replace("E.V.A.", "Eva"))[:3]
+        words = re.findall(r"[A-Za-z']+", (text or "").replace("E.V.A.", "Eva"))
+        if not anywhere:
+            words = words[:3]
         if any(w.lower() in self.cfg.wake_words for w in words) and not utt.woke:
             utt.woke = True
             logger.info(f"ECHO: early wake ({text!r})")
+            if anywhere and self.speaking:
+                await self._stop_her()
             if self._utt is utt:
                 await self._emit({"type": "listen", "state": "speech"})
+
+    async def _stop_her(self) -> None:
+        logger.info("ECHO: 'Eva' over her voice, stopping her reply")
+        await self._emit({"type": "barge_in", "stage": "stop"})
+        await self.on_barge_in()
 
     # ---------------------------------------------------------------- transcription
     async def _transcribe_loop(self) -> None:
         while True:
-            pcm, armed, window_end = await self._jobs.get()
+            job = await self._jobs.get()
+            pcm, armed, window_end = job[:3]
+            over_her = len(job) > 3 and job[3]
             try:
                 audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
                 try:
@@ -324,7 +355,10 @@ class Listener:
                     self.failed = True
                     await self._emit({"type": "stt", "engine": "browser", "reason": f"Whisper failed: {e}"})
                     continue
-                await self._handle_text(text, armed, window_end)
+                if over_her:
+                    await self._handle_over_her(text)
+                else:
+                    await self._handle_text(text, armed, window_end)
             except Exception as e:                                   # one bad utterance must not end listening
                 logger.exception(f"ECHO: utterance handling failed: {e}")
             finally:
@@ -353,6 +387,24 @@ class Listener:
             return
         if len(_norm(cmd)) < 2:
             logger.info("ECHO: wake word")
+            self.arm(self.cfg.command_window_secs)
+            await self.on_wake()
+            return
+        await self._command(cmd)
+
+    async def _handle_over_her(self, text: str) -> None:
+        """Speech that began while she was talking (wake-barge mode). Her own voice, heard by the mic, is mixed in,
+        so only what follows the LAST "Eva" counts. No "Eva": it was her, or the room, and it's dropped."""
+        words = re.findall(r"\S+", (text or "").replace("E.V.A.", "Eva"))
+        hits = [i for i, w in enumerate(words) if re.sub(r"[^a-z']", "", w.lower()) in self.cfg.wake_words]
+        if not hits:
+            logger.debug(f"ECHO: over her voice, no 'Eva': dropped {text!r}")
+            return
+        if self.speaking:                                            # the peek didn't catch it in time
+            await self._stop_her()
+        cmd = " ".join(words[hits[-1] + 1:]).strip(" ,.!?")
+        if len(_norm(cmd)) < 2:
+            logger.info("ECHO: wake word (over her voice)")
             self.arm(self.cfg.command_window_secs)
             await self.on_wake()
             return

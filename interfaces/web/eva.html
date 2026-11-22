@@ -859,9 +859,18 @@ function levelLoop() {                                        // the speaking ri
 }
 function isSpeaking() { return P.playing || ('speechSynthesis' in window && speechSynthesis.speaking); }
 let toldSpeaking = false;                                      // server-side barge-in needs to know when her voice plays
+let bargeTold = null;                                          // the socket that was told "only Eva interrupts"
 function tellSpeaking(on) { if (on === toldSpeaking) return; toldSpeaking = on;
-  if (sttMode === 'server' && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'speaking', on }));
-  if (phoneMedia()) { if (on) micPause(); else micResume(); } }
+  if (sttMode === 'server' && ws && ws.readyState === 1) {
+    if (wakeBarge() && bargeTold !== ws) { ws.send(JSON.stringify({ type: 'listen', barge: 'wake' })); bargeTold = ws; }
+    ws.send(JSON.stringify({ type: 'speaking', on }));
+  }
+  if (phoneMedia() && !wakeBarge()) { if (on) micPause(); else micResume(); } }
+// Media mode on the phone (Nov 22): the mic stays open while she speaks and only "Eva" interrupts her, the way
+// Google and Alexa do it. Without echo cancellation the mic hears her too, so plain speech can't be told apart.
+// localStorage eva.bargeWake = "0" goes back to pausing the mic while she speaks.
+function wakeBarge() { let off = false; try { off = localStorage.getItem('eva.bargeWake') === '0'; } catch (_) {}
+  return phoneMedia() && sttMode === 'server' && !off; }
 // In the Android app, an open mic with echo cancellation puts the phone in CALL mode (call audio, call volume).
 // Media mode (the app's default) pauses the mic while she speaks, so her voice plays as normal media.
 // Echo cancellation is what makes Android treat the mic like a CALL: Bluetooth headphones drop from music (A2DP)
@@ -945,7 +954,7 @@ function handle(ev) {
       else sendCtl({ type: 'device_result', id: ev.id, ok: false, error: 'this window is not the phone app' });
       break;
     case 'turn_meta': if (ev.follow_up === false) skipFollow = true;           // music just started: lyrics aren't commands
-      followMs = ev.listen_ms || 7000; break;                                    // she asked a question: more time
+      followMs = ev.listen_ms || FOLLOW_MS; break;                                    // she asked a question: more time
     case 'heard':
       if (ev.stt) { lastWasVoice = true; E.addTranscript({ role: 'you', text: ev.text, time: hm() }); setState('thinking'); micTouch(); }
       caption(ev.text); break;
@@ -1139,10 +1148,11 @@ function listen(windowMs) {
     const done = fin.trim(); if (done) send(done, true); else { setState('idle'); idleHint(); if (wakeMode) ensureWake(); } };
   try { r.start(); } catch (_) { setState('idle'); }
 }
-let skipFollow = false, followMs = 7000;
+const FOLLOW_MS = 12000;                                       // after each answer: time to start talking
+let skipFollow = false, followMs = FOLLOW_MS;
 const followUp = () => {
   if (skipFollow) { skipFollow = false; setState('idle'); idleHint(); if (wakeMode) ensureWake(); return; }
-  const ms = followMs; followMs = 7000;
+  const ms = followMs; followMs = FOLLOW_MS;
   return (sttMode === 'server' && micOn()) ? armServer(ms, 'Go on...') : listen(ms);
 };
 function ensureWake() { if (wakeMode && SR && !wakeRec && !isSpeaking() && state !== 'listening') startWake(); }

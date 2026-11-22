@@ -153,6 +153,52 @@ def is_small_talk(text: str) -> bool:
     return bool(_SMALLTALK_Q.search(text)) or (bool(_INTERJECTION.search(text)) and len(text.split()) <= 4)
 _DENIAL = re.compile(r"\b(?:i (?:can ?not|can't|am unable to|do not have|don't have)|i'?m (?:unable|not able)|"
                      r"as an ai)\b.{0,40}\b(?:see|access|view|look|open|do|help|read)\b", re.I)
+# No made-up facts (Nov 22): "Tomorrow looks clear" with no calendar check, "Music stopped at that time" with
+# nothing planned. A sentence about your calendar, email, weather or music, when no tool of that kind ran this turn,
+# is replaced by an honest offer to check; "yes" then runs the check.
+_FACTS = {
+    "calendar": (re.compile(r"\byou(?:'re| are) (?:free|busy|clear)\b(?! to)|\b(?:looks?|is) (?:clear|wide open|free|"
+                            r"open|busy|packed)\b|\bfree (?:slot|time|window)s?\b|\bno (?:meetings?|events?|class(?:es)?|"
+                            r"appointments?|lectures?)\b|\byou have (?:a |an |no |\d+ |two |three )?(?:meetings?|events?|"
+                            r"class(?:es)?|appointments?|lectures?)\b|\bnothing (?:on|scheduled|planned)\b|\byour "
+                            r"(?:calendar|schedule) (?:is|looks)\b", re.I), ("calendar_",)),
+    "email": (re.compile(r"\byou have (?:\d+|no|a|an|two|three|several) (?:new |unread )?(?:e-?mails?|messages?)\b|"
+                         r"\bno new (?:e-?mails?|messages?)\b|\binbox is\b", re.I), ("email_",)),
+    "weather": (re.compile(r"\b(?:it'?s|it is|it will be|expect|high of|low of|currently)\b[^.]{0,25}?-?\d+ ?(?:°|"
+                           r"degrees)|\b(?:sunny|rainy|cloudy|overcast|snow(?:y|ing)?|rain(?:ing)?) (?:today|tomorrow|"
+                           r"tonight|this (?:morning|afternoon|evening))\b", re.I), ("get_weather",)),
+    "music": (re.compile(r"\b(?:music|song|playback|spotify)\b[^.]{0,25}\b(?:stopped|paused|resumed|will stop|"
+                         r"will pause)\b|\b(?:lights?|music)\b[^.]{0,30}\bat \d{1,2}[:.]\d{2}\b", re.I),
+              ("media_control", "spotify_", "later_", "lights_")),
+}
+_DAY_WORD = re.compile(r"\b(today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+                       r"this week|next week)\b", re.I)
+
+
+def unchecked_fact(text: str, tools: list[str]) -> str | None:
+    """The kind of personal fact this answer states without having looked it up this turn, or None."""
+    for kind, (rx, prefixes) in _FACTS.items():
+        if rx.search(text or "") and not any(t.startswith(p) for t in tools for p in prefixes):
+            return kind
+    return None
+
+
+def offer_for(kind: str, user_text: str, answer: str) -> tuple[str, tuple[str, dict] | None]:
+    """(what she says instead, the check that 'yes' runs)."""
+    m = _DAY_WORD.search(user_text) or _DAY_WORD.search(answer)
+    day = (m.group(1).lower() if m else "today").replace("tonight", "today evening")
+    if kind == "calendar":
+        free = re.search(r"\b(free|open|slots?|empty|available|gaps?|clear|fit)\b", user_text + " " + answer, re.I)
+        tool = "calendar_free" if free else "calendar_agenda"
+        return "I haven't checked your calendar for that yet, sir. Should I?", (tool, {"day": day})
+    if kind == "email":
+        return "I haven't checked your email yet, sir. Should I?", ("email_unread", {})
+    if kind == "weather":
+        return "I haven't looked up the weather yet, sir. Should I?", ("get_weather", {"day": day})
+    return ("I haven't done that, sir. Say it again with the time, like 'stop the music at 2:15' or 'in 10 "
+            "minutes'."), None
+
+
 _YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|do it|go ahead|go on|confirm(?:ed)?|ok(?:ay)?|please do|"
                   r"affirmative|correct|absolutely|of course)\b", re.I)
 _NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forget it|leave it)\b", re.I)
@@ -498,6 +544,15 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
         from core.tools_native import feature_from_words
         feature = feature_from_words(t)
         return "set_brain_mode", ({"mode": mode, "feature": feature} if feature else {"mode": mode})
+    if belt.has("keep_listening"):
+        if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:let'?s (?:talk|chat)(?: for a (?:bit|while))?|keep listening|"
+                        r"(?:start |turn on )?conversation mode(?: on)?|just listen|talk to me)[.!]*", t.strip(), re.I):
+            return "keep_listening", {"on": True}
+        from core.tools_native import talk_mode
+        if talk_mode() and re.fullmatch(r"(?:(?:ok(?:ay)?|thanks|thank you|alright)[,.]? )?(?:that'?s all|that'?s it|"
+                                        r"stop listening|we'?re done|i'?m done|goodbye|bye|good night)"
+                                        r"(?: for now)?(?:[,.]? (?:thanks|thank you|eva))?[.!]*", t.strip(), re.I):
+            return "keep_listening", {"on": False}
     if belt.has("budget_status") and re.search(r"\b(budget|how much (?:have you|did you|did we) spen[dt]|api costs?)\b", t, re.I):
         return "budget_status", {}
 
@@ -734,6 +789,7 @@ class HybridOrchestrator:
         self.last_action: dict | None = None       # the last action that ran: "no, I said in 20 minutes" re-times it
         self.last_planned: dict | None = None      # the last thing planned for later, for the same correction
         self._turn_input = ""
+        self.pending_offer: dict | None = None      # "Should I check?" -> "yes" runs it
         self.understand_mode: str | None = None     # None = settings; the eval sets each mode in turn
         self._stale = False
         self._bg: set[asyncio.Task] = set()
@@ -1050,6 +1106,29 @@ class HybridOrchestrator:
         self.last_planned = {**item, "ts": time.time()}
         return f"Okay, sir: {clean} in {later_mod.human(delay)}, at {datetime.fromtimestamp(item['due']):%H:%M}."
 
+    def _when_later(self, text: str) -> tuple[str, float | None]:
+        """'in 10 minutes', 'at 2:15', 'at that time' (= the last thing planned), and in a correction a bare
+        '211' ('No, not right now, but 211'). (command without the time words, seconds from now) or (text, None)."""
+        clean, delay = later_mod.split_delay(text)
+        if delay:
+            return clean, delay
+        bare_clean, delay = later_mod.split_clock(text, bare=True)
+        if delay and later_mod.is_correction(bare_clean):
+            return bare_clean, delay                 # "No, not right now, but 211": re-time what she just did
+        if not re.search(r"\b(turn|switch|stop|pause|play|start|resume|dim|close|open|mute|unmute|skip|put|lower|"
+                         r"raise|kill|shut|lock|send|set (?:the )?(?:lights?|volume))\b", text, re.I):
+            return text, None              # 'what's the weather at 6' is a question, not something to do later
+        clean, same = later_mod.split_same_time(text)
+        if same:
+            item = self.last_planned
+            pending = item and any(i["id"] == item["id"] for i in later_mod.get_later().pending())
+            if pending and item["due"] - time.time() > 5:
+                return clean, item["due"] - time.time()
+        clean, delay = later_mod.split_clock(text)
+        if delay:
+            return clean, delay
+        return text, None
+
     # what puts things back the way they were, for "no, not now, in 20 minutes" after she already did it
     _UNDO = {"media_control": lambda a: {"action": "playpause"} if a.get("action") == "playpause" else None,
              "spotify_play": lambda a: {"action": "playpause"},
@@ -1279,8 +1358,12 @@ class HybridOrchestrator:
             user_input_for_forge = self.last_missing
             self.last_missing = None
             fp_override = ("forge_build", {"request": user_input_for_forge})
+        elif (self.pending_offer and time.time() - self.pending_offer["ts"] < 120 and _YES.match(user_input)
+              and self.belt.has(self.pending_offer["tool"])):
+            fp_override = (self.pending_offer["tool"], dict(self.pending_offer["args"]))   # "Should I?" "Yes."
         else:
             fp_override = None
+        self.pending_offer = None
 
         async with httpx.AsyncClient(timeout=120) as client:
             # -2. "say that again": her last answer, word for word (Sep 28: it took a screenshot instead)
@@ -1376,7 +1459,7 @@ class HybridOrchestrator:
 
             # 0c. "... in 5 minutes": understood now, done then (v0.3 10b)
             if not fp_override:
-                clean, delay = later_mod.split_delay(user_input)
+                clean, delay = self._when_later(user_input)
                 if delay and later_mod.is_correction(clean):
                     text = await self._retime(delay)
                     if text is None:
@@ -1487,9 +1570,35 @@ class HybridOrchestrator:
             if talk:
                 self._conv_left = conversation.sticky_turns() if conversation.wants(user_input) else self._conv_left - 1
                 self._conv_turn = True
+            # nothing looked up: each sentence is checked before it's spoken; a made-up fact stops the stream
+            tools_now, buf, tripped = [t for t, _ in gathered], "", False
             async for ev in (self._converse(client, user_input, ctx) if talk
                              else self._answer(client, gathered, user_input, ctx)):
+                if ev["type"] == "token":
+                    if tripped:
+                        continue
+                    buf += ev["text"]
+                    m = None
+                    for m in re.finditer(r"[.!?](?:\s|$)", buf):
+                        pass
+                    if not m:
+                        continue
+                    done, buf = buf[:m.end()], buf[m.end():]
+                    if unchecked_fact(done, tools_now):
+                        tripped = True
+                        continue
+                    ev = {**ev, "text": done}
                 if ev["type"] == "final":
+                    kind = unchecked_fact(ev["text"], tools_now)
+                    if kind:
+                        text, check = offer_for(kind, user_input, ev["text"])
+                        logger.warning(f"fact guard ({kind}): {ev['text']!r} without checking")
+                        if check:
+                            self.pending_offer = {"tool": check[0], "args": check[1], "ts": time.time()}
+                        ev = {**ev, "text": text, "replaced": True}
+                    elif buf.strip() and not tripped:
+                        yield {"type": "token", "text": buf}   # the last sentence had no full stop yet
+                    buf = ""
                     answer = ev["text"]
                 yield ev
         self._finish(user_input, answer, used)

@@ -119,18 +119,22 @@ def run_policy(mode, jev=None, claude=None, allowed=True, monkeypatch=None):
     return d, calls
 
 
-def test_auto_jev_sure_is_trusted_and_fills_details(monkeypatch):
-    claude = FakeClaude()
-    d, calls = run_policy("auto", jev=fake_jev("calendar_free", 0.95), claude=claude, monkeypatch=monkeypatch)
-    assert d["tool"] == "calendar_free" and d["_trusted"] and d["day"] == "tomorrow"
-    assert calls["fill"] == ["calendar_free"] and claude.calls == [] and calls["legacy"] == 0
+def test_auto_asks_claude_first(monkeypatch):
+    claude, seen = FakeClaude("calendar_free", {"day": "tomorrow"}), []
+    d, calls = run_policy("auto", jev=fake_jev(seen=seen), claude=claude, monkeypatch=monkeypatch)
+    assert d["tool"] == "calendar_free" and d["day"] == "tomorrow" and d["_by"] == "claude" and d["_trusted"]
+    assert claude.calls[0]["tool_choice"] == {"type": "any"} and seen == [] and calls["fill"] == []
 
 
-def test_auto_jev_unsure_asks_claude(monkeypatch):
-    claude = FakeClaude("calendar_free", {"day": "tomorrow"})
-    d, calls = run_policy("auto", jev=fake_jev("get_datetime", 0.41), claude=claude, monkeypatch=monkeypatch)
-    assert d["tool"] == "calendar_free" and d["_by"] == "claude" and d["_trusted"]
-    assert claude.calls[0]["tool_choice"] == {"type": "any"}          # forced call: answers without thinking first
+def test_auto_uses_jev_when_claude_fails(monkeypatch):
+    d, calls = run_policy("auto", jev=fake_jev("calendar_free", 0.95), claude=FakeClaude(fail=True),
+                          monkeypatch=monkeypatch)
+    assert d["_by"] == "jev" and d["_trusted"] and d["day"] == "tomorrow" and calls["fill"] == ["calendar_free"]
+
+
+def test_auto_unsure_jev_keeps_the_word_guards(monkeypatch):
+    d, _ = run_policy("auto", jev=fake_jev("get_datetime", 0.41), claude=FakeClaude(fail=True), monkeypatch=monkeypatch)
+    assert d["tool"] == "get_datetime" and d["_trusted"] is False
 
 
 def test_auto_falls_back_step_by_step(monkeypatch):
