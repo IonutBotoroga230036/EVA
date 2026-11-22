@@ -151,6 +151,7 @@ voice:
     # Local Whisper (faster-whisper). Used by server-side listening (v0.2.5).
     model: "small"                     # tiny | base | small | medium | large-v3-turbo (more VRAM, better names)
     language: "en"
+    languages: ["en", "ro"]             # v0.3.2: Romanian too (longer sentences; short commands stay English)
     device: "auto"                     # auto = GPU if CUDA libraries load, else CPU; or "cuda" / "cpu"
     compute_type: "auto"               # auto = int8_float16 on GPU, int8 on CPU
     beam_size: 5
@@ -183,11 +184,26 @@ voice:
     lang_code: "a"                     # a = American English, b = British English
     speed: 1.0
     device: "cpu"                      # keeps all VRAM for the LLM; try "cuda" if replies feel slow
+  romanian:                            # v0.3.2: Romanian parts of her answers (Piper, local, free; male voice)
+    voice: "ro_RO-mihai-medium"        # one-time: python -m piper.download_voices ro_RO-mihai-medium --download-dir data/voices
+    dir: "data/voices"
   wake_word:
     engine: "openwakeword"
     words:
       - "eva"
     threshold: 0.7
+
+messages:
+  # v0.3.2 (milestone 9c): WhatsApp and Instagram messages your phone shows as notifications (Android app,
+  # "Messages: on" + Notification access). Text stays in memory on this PC for 24 h, never written to disk.
+  announce: "important"                # important = she tells you when one matters | all | off
+  vip: ["Mom"]                         # always important
+  contacts:                            # one person, the names the apps may show (match ignores case)
+    Mom: ["Mom", "Mama", "Mami", "Mum"]
+  romanian: ["Mom"]                    # replies to these go out in Romanian
+  keywords: ["urgent", "asap", "call me", "emergency", "sună-mă", "suna-ma", "urgent!"]
+  my_names: ["Ionut", "Ionuț"]         # a group message that names you counts as important
+  when_locked: true                    # read and reply with the phone locked (a reply still needs your spoken yes)
 
 # legacy: only used by the v0.1 Redis bus. PULSE v0.2 runs in-process, no Redis needed.
 redis:

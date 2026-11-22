@@ -48,6 +48,17 @@
             android:name=".WakeService"
             android:exported="false"
             android:foregroundServiceType="microphone"/>
+        <!-- v0.3.2 (9c): WhatsApp and Instagram messages. Works only after you allow "Notification access"
+             for E.V.A. in Android settings, and only while "Messages" is on in the app's menu. -->
+        <service
+            android:name=".MessageListener"
+            android:label="E.V.A. messages"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+        </service>
         <activity
             android:name=".OverlayActivity"
             android:exported="false"

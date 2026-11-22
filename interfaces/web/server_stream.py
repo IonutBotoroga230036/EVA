@@ -336,6 +336,15 @@ def _stt_engine():
     return get_stt()
 
 
+def _romanian_hint(orch) -> None:
+    """Whisper heard Romanian: she answers in Romanian (v0.3.2, 9d)."""
+    try:
+        if getattr(_stt_engine(), "last_language", None) == "ro":
+            orch.reply_language = "ro"
+    except Exception:
+        pass
+
+
 def heard_wake(text: str) -> str | None:
     """The PC's double-check of a phone wake (Nov 22: dictating near the phone woke her). The command after "Eva"
     ("" for "Eva" alone), or None when Whisper heard no "Eva" at all. The phone sends ~1.2 s from before the
@@ -385,10 +394,37 @@ async def phone_set(body: dict):
     return prefs
 
 
+@app.post("/api/phone/message")
+async def phone_message(body: dict):
+    """v0.3.2 (9c): a WhatsApp or Instagram notification from the phone app {app, sender, text, conversation,
+    group}. Kept in memory only. When it matters she says so in every open window and answers {announce, audio}
+    so the phone can say it too when its app isn't open. Quiet hours and do-not-disturb keep her quiet."""
+    import base64
+    from core import messages
+    m = messages.get_inbox().add(app=str(body.get("app") or "")[:60], sender=str(body.get("sender") or "")[:80],
+                                 text=str(body.get("text") or "")[:2000],
+                                 conversation=str(body.get("conversation") or "")[:80], group=bool(body.get("group")))
+    out = {"new": bool(m), "important": bool(m and m.important), "announce": "", "audio": ""}
+    if not m or not messages.should_announce(m):
+        return out
+    oracle = get_oracle()
+    if oracle.in_quiet_hours() or oracle.in_dnd():
+        logger.info("MESSAGES: quiet hours or do-not-disturb; kept for 'any messages?'")
+        return out
+    line = messages.announcement(m)
+    m.read = True                                     # said once; "any messages?" doesn't repeat it
+    if messages.cfg().get("pc", True):
+        await broadcast(line)
+    tts = get_tts()
+    wav = await asyncio.to_thread(tts.synth, line) if tts else None
+    out.update(announce=line, audio=base64.b64encode(wav).decode() if wav else "")
+    return out
+
+
 class _DarkPhone:
     """Stands in for the phone app during a screen-off conversation, so alarms and timers still work: the actions
     go back to the phone in the answer and it runs them (it says so if it can't, on the next wake)."""
-    device_caps = ("alarm", "timer")
+    device_caps = ("alarm", "timer", "reply")
 
     def __init__(self):
         self.actions: list[dict] = []
@@ -434,6 +470,7 @@ async def phone_turn(body: dict):
     if orch is None:
         orch = _dark_session["orch"] = HybridOrchestrator(session_id="phone-dark")
     orch.locked = bool(body.get("locked"))
+    _romanian_hint(orch)
     phone = _DarkPhone()
     CONNECTIONS.add(phone)
     try:
@@ -446,9 +483,6 @@ async def phone_turn(body: dict):
         CONNECTIONS.discard(phone)
     logger.info(f"EVA (phone, screen off): {final}")
     return await speak(final, True, phone.actions)
-
-
-@app.get("/api/wakeword/info")
 
 
 @app.get("/api/wakeword/info")
@@ -845,6 +879,7 @@ class Connection:
             self._device_waits.pop(rid, None)
 
     async def voice_command(self, text: str) -> None:
+        _romanian_hint(self.orch)
         await self.submit(text, voice=True, stt=True)
 
     async def on_wake(self) -> None:

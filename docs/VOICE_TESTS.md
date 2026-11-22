@@ -216,3 +216,23 @@ most voice bugs show up.
 | 17.14 | "What's on my calendar tomorrow?" | Your real events, then "Plus your daily routine (N items)." "Everything on my calendar tomorrow" lists the routine too. |
 | 17.15 | Status panel > Brain mode > "Understanding you" | Auto by default; Local keeps it on the PC. |
 
+## 18. Messages and Romanian (v0.3.2)
+
+Setup: on the PC `python -m piper.download_voices ro_RO-mihai-medium --download-dir data/voices`; on the
+phone, menu > Messages: on, then allow Notification access.
+
+| # | Do / say | Expect |
+|---|---|---|
+| 18.1 | Ask someone (or Mom) to send you a WhatsApp | "Message from Mom on WhatsApp: „...”", the quote in the Romanian voice. |
+| 18.2 | A friend sends "ok" | Nothing said; "Eva, any messages?" reads it. |
+| 18.3 | A group message with your name in it | Announced ("Message from Andrei in Boys on WhatsApp: ..."). |
+| 18.4 | "Eva, reply to Mom: I'll be home at 7" | "Just to confirm, sir: reply to Mom on WhatsApp: „Ajung acasă la 7.”. Shall I go ahead?" Nothing sent yet. |
+| 18.5 | "Yes" (or "da") | "Sent to Mom, sir." and the reply is in the WhatsApp chat. |
+| 18.6 | Same, but say "no" | Nothing is sent. |
+| 18.7 | Open the chat on the phone (the notification goes), then "Eva, reply to Mom: ok" and yes | "I couldn't send it, sir: the notification is gone..." |
+| 18.8 | "Eva, tell Dan in Romanian: I'm on my way" | The reply is shown in Romanian. |
+| 18.9 | "Eva, cât e ceasul?" | She answers in Romanian, in the Romanian voice. |
+| 18.10 | "Eva, what time is it" right after | English again. |
+| 18.11 | Phone locked, screen off, Mom writes | She says it on the phone; "Eva, reply ... yes" works without unlocking. |
+| 18.12 | Menu > Messages: off, then Mom writes | Nothing reaches the PC. |
+

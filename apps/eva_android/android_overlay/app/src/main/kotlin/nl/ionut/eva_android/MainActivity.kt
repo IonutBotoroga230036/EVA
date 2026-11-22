@@ -49,6 +49,12 @@ class MainActivity : FlutterActivity() {
                         "running" to (WakeService.instance != null),
                         "overlayAllowed" to Settings.canDrawOverlays(this)))
                     "isAssistant" -> result.success(isAssistant())
+                    // v0.3.2 (9c): WhatsApp/Instagram messages through Notification access (MessageListener)
+                    "setLink" -> result.success(EvaLink.set(
+                        call.argument<String>("address") ?: "", call.argument<String>("token") ?: ""))
+                    "messagesStatus" -> result.success(mapOf(
+                        "on" to MessageListener.enabled(this), "access" to MessageListener.accessGranted(this)))
+                    "setMessages" -> result.success(setMessages(call.argument<Boolean>("on") ?: false))
                     else -> result.notImplemented()
                 }
             }
@@ -81,6 +87,17 @@ class MainActivity : FlutterActivity() {
         getSharedPreferences("eva_wake", MODE_PRIVATE).edit().putString("audio", audio).apply()
         WakeService.start(this, address, token)
         return "started"
+    }
+
+    /** "on", "access" (Android's Notification access screen opened: allow E.V.A., come back) or "off". */
+    private fun setMessages(on: Boolean): String {
+        MessageListener.setEnabled(this, on)
+        if (!on) return "off"
+        if (!MessageListener.accessGranted(this)) {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            return "access"
+        }
+        return "on"
     }
 
     override fun onNewIntent(intent: Intent) {

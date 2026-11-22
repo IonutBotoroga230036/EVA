@@ -153,6 +153,19 @@ def isolate_conversation(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_real_romanian_or_messages(tmp_path, monkeypatch):
+    """v0.3.2: never your real Ollama or Piper voice for Romanian, and a fresh message inbox per test."""
+    import core.messages as messages
+    import core.romanian as romanian
+    monkeypatch.setattr(romanian, "_local_translate", lambda prompt, text: None)
+    monkeypatch.setattr(romanian, "_claude_translate", lambda prompt, text: None)
+    monkeypatch.setattr(romanian, "_cfg", lambda: {"voice": "ro_RO-mihai-medium", "dir": str(tmp_path / "voices")})
+    monkeypatch.setattr(romanian, "_voice", None)
+    monkeypatch.setattr(messages, "_inbox", None)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def no_real_tailscale(monkeypatch):
     """Never run the real tailscale CLI in tests."""
     import core.tailnet as tn

@@ -167,6 +167,22 @@ class KokoroTTS:
             return False
 
     def synth(self, text: str) -> Optional[bytes]:
+        """Her answer as WAV. Romanian parts (a quoted message for Mom, a Romanian reply) are read by the Romanian
+        voice (core/romanian.py); everything else by Kokoro. One clip either way."""
+        from core import romanian
+        mixed = romanian.RO_CHARS & set(text) or "„" in text or romanian.is_romanian(text)
+        segs = romanian.split_languages(text) if mixed else [("en", text)]
+        parts = []
+        for lang, seg in segs:
+            a = romanian.piper_audio(seg, SAMPLE_RATE) if lang == "ro" else None
+            if a is None:
+                a = self._kokoro(seg)
+            if a is not None and len(a):
+                parts.append(a)
+                parts.append(np.zeros(int(SAMPLE_RATE * 0.12), dtype=np.float32))     # a breath between voices
+        return to_wav_bytes(np.concatenate(parts[:-1])) if parts else None
+
+    def _kokoro(self, text: str) -> Optional[np.ndarray]:
         text = speakable(text)
         if not text:
             return None
@@ -182,7 +198,7 @@ class KokoroTTS:
                 if hasattr(audio, "detach"):
                     audio = audio.detach().cpu().numpy()
                 parts.append(np.asarray(audio, dtype=np.float32).reshape(-1))
-        return to_wav_bytes(np.concatenate(parts)) if parts else None
+        return np.concatenate(parts) if parts else None
 
     def phrase(self, text: str) -> Optional[bytes]:
         """Cached synthesis for fixed lines like the wake reply."""

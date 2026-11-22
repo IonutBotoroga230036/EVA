@@ -49,6 +49,8 @@ from core.security.audit import audit
 from core.settings import get_settings, local_cfg
 from core.tools_native import ACTION_TOOLS as BUILTIN_ACTIONS
 from core.tools_native import ARG_FILLERS as BUILTIN_FILLERS
+from core.tools_native import CONFIRM_TOOLS as BUILTIN_CONFIRM
+from core.tools_native import SLOW_FILLERS as BUILTIN_SLOW_FILL
 from core.tools_native import EXACT_TOOLS as BUILTIN_EXACT
 from core.tools_native import GUARDS as BUILTIN_GUARDS
 from core.tools_native import REGISTRY as BUILTIN_FUNCS
@@ -209,9 +211,19 @@ LOCKED_OK = {"get_datetime", "get_weather", "calculate", "convert_currency", "cr
 LOCKED_SAY = "Unlock your phone for that, sir, and I'll carry on."
 
 
+def _messages_when_locked(tool: str) -> bool:
+    """Reading and replying to messages hands-free with the phone locked (settings messages.when_locked, default on:
+    the point is not touching the phone; a reply still needs your spoken yes)."""
+    if tool not in ("messages_check", "message_reply"):
+        return False
+    from core import messages
+    return bool(messages.cfg().get("when_locked", True))
+
+
 _YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|do it|go ahead|go on|confirm(?:ed)?|ok(?:ay)?|please do|"
-                  r"affirmative|correct|absolutely|of course)\b", re.I)
-_NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forget it|leave it)\b", re.I)
+                  r"affirmative|correct|absolutely|of course|da|sigur|trimite|trimite-l|fă-o|fa-o)(?!\w)", re.I)
+_NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forget it|leave it|nu|anulează|anuleaza|"
+                 r"lasă|lasa)(?!\w)", re.I)
 _WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+)?(?:eva\b|e\.v\.a\.?)[\s,:!.-]*", re.I)
 
 
@@ -286,7 +298,8 @@ class ToolBelt:
         self.skill_funcs: dict[str, Callable] = registry.functions() if registry else {}
         self.skill_acks: dict[str, str] = registry.acks() if registry else {}
         self.guards: dict[str, str] = {**BUILTIN_GUARDS, **(registry.guards() if registry else {})}
-        self.confirm_text: dict[str, str] = registry.confirmations() if registry else {}
+        self.confirm_text: dict = {**BUILTIN_CONFIRM, **(registry.confirmations() if registry else {})}
+        self.slow_fill: set[str] = set(BUILTIN_SLOW_FILL)
         self.actions: set[str] = set(BUILTIN_ACTIONS) | (registry.actions() if registry else set())
         self.exact: set[str] = set(BUILTIN_EXACT)
         self.fillers: dict[str, Callable] = {**BUILTIN_FILLERS, **(registry.fillers() if registry else {})}
@@ -958,7 +971,7 @@ class HybridOrchestrator:
             raise
 
     async def _run(self, tool: str, args: dict, gathered: list) -> AsyncIterator[dict]:
-        if getattr(self, "locked", False) and tool not in LOCKED_OK:
+        if getattr(self, "locked", False) and tool not in LOCKED_OK and not _messages_when_locked(tool):
             logger.info(f"LOCKED: {tool} waits for an unlock")
             self.after_unlock = (self._turn_input, time.time())
             yield {"type": "unlock"}
@@ -1006,6 +1019,12 @@ class HybridOrchestrator:
             return None
         self.awaiting = {"tool": tool, "args": args, "field": field, "ts": time.time()}
         return question.format_map(_Blank({k: v for k, v in args.items() if v}))
+
+    async def _fill(self, name: str, args: dict, text: str) -> dict:
+        """The tool's argument filler. A slow one (a reply translated to Romanian) runs off the event loop."""
+        if name in getattr(self.belt, "slow_fill", ()):
+            return await asyncio.to_thread(self.belt.fill, name, args, text)
+        return self.belt.fill(name, args, text)
 
     def _ask_confirmation(self, tool: str, args: dict, user_input: str, used: set) -> list[dict]:
         q = self._question(tool, args)
@@ -1202,7 +1221,7 @@ class HybridOrchestrator:
         """Which tool, with which arguments, for one step. None when nothing fits or a guard says no."""
         fp = fast_path(step, self.belt)
         if fp:
-            return fp[0], self.belt.fill(fp[0], fp[1], step)
+            return fp[0], await self._fill(fp[0], fp[1], step)
         msgs = [*self.history[-MAX_HISTORY:-1], {"role": "user", "content": step}]
         decision = await self._decide(client, ctx["skills"], gathered if dependent else [], messages=msgs)
         tool = decision.get("tool", "none")
@@ -1213,9 +1232,9 @@ class HybridOrchestrator:
             logger.info(f"MULTI guard: {tool} blocked for {step!r}")
             return None
         schema = self.belt.by_name[tool]
-        args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), step)
+        args = await self._fill(tool, args_for(schema, decision, self.belt.names()), step)
         if missing_required(schema, args):
-            args = self.belt.fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool, msgs),
+            args = await self._fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool, msgs),
                                                             self.belt.names())}, step)
             if missing_required(schema, args):
                 return None
@@ -1372,6 +1391,30 @@ class HybridOrchestrator:
 
     # ------------------------------------------------------------ main loop
     async def process_stream(self, user_input: str) -> AsyncIterator[dict]:
+        """One turn. Spoken to in Romanian (v0.3.2, 9d): she understands it as usual and answers in Romanian, read
+        by the Romanian voice. Her streamed English words are held back and the finished answer is translated."""
+        from core import romanian
+        hint, self.reply_language = getattr(self, "reply_language", None), None
+        if hint != "ro" and not romanian.is_romanian(user_input):
+            async for ev in self._process_stream(user_input):
+                yield ev
+            return
+        logger.info("ROMANIAN: answering in Romanian")
+        async for ev in self._process_stream(user_input):
+            kind = ev.get("type")
+            if kind in ("token", "ack"):
+                continue                                  # English on the way; the Romanian answer comes whole
+            if kind == "final" and ev.get("text"):
+                ro = await asyncio.to_thread(romanian.translate, ev["text"], "ro", "assistant")
+                if ro and ro != ev["text"]:
+                    ev = {**ev, "text": ro, "replaced": True, "language": "ro"}
+                    for m in reversed(self.history):
+                        if m.get("role") == "assistant":
+                            m["content"] = ro              # so "say that again" repeats the Romanian
+                            break
+            yield ev
+
+    async def _process_stream(self, user_input: str) -> AsyncIterator[dict]:
         from core import activity
         activity.mark()                                  # background GPU work steps aside
         if self._stale:
@@ -1418,7 +1461,7 @@ class HybridOrchestrator:
                 loose_yes = (re.search(r"\b(yes|yeah|yep|sure|go ahead|do it|please do|correct|right)\b", user_input, re.I)
                              and len(user_input.split()) <= 10 and not _NO.search(user_input))
                 if fresh and (_YES.search(user_input) or loose_yes):
-                    extra = self.belt.fill(p["tool"], dict(p["args"]), user_input)      # "At 3 o'clock, yes"
+                    extra = await self._fill(p["tool"], dict(p["args"]), user_input)      # "At 3 o'clock, yes"
                     p["args"] = {**p["args"], **{k: extra[k] for k in ("day", "time", "when", "hour", "level")
                                                  if extra.get(k) and extra.get(k) != p["args"].get(k)}}
                     audit.log("confirm_granted", "orchestrator", {"tool": p["tool"]})
@@ -1508,7 +1551,7 @@ class HybridOrchestrator:
             # 1. fast path: no LLM, no embeddings
             fp = fp_override or fast_path(user_input, self.belt)
             if fp:
-                tool, args = fp[0], self.belt.fill(fp[0], fp[1], user_input)
+                tool, args = fp[0], await self._fill(fp[0], fp[1], user_input)
                 if self.belt.needs_confirm(tool):
                     for ev in self._ask_confirmation(tool, args, user_input, used):
                         yield ev
@@ -1554,16 +1597,16 @@ class HybridOrchestrator:
                         if self.belt.is_action(tool) and not gathered and not self.belt.needs_confirm(tool):
                             # never let the model claim or deny it: ask about the exact action instead
                             schema = self.belt.by_name[tool]
-                            args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), user_input)
+                            args = await self._fill(tool, args_for(schema, decision, self.belt.names()), user_input)
                             if not missing_required(schema, args):
                                 for ev in self._ask_confirmation(tool, args, user_input, used):
                                     yield ev
                                 return
                         break
                     schema = self.belt.by_name[tool]
-                    args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), user_input)
+                    args = await self._fill(tool, args_for(schema, decision, self.belt.names()), user_input)
                     if missing_required(schema, args):
-                        args = self.belt.fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool),
+                        args = await self._fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool),
                                                                         self.belt.names())}, user_input)
                         if missing_required(schema, args):
                             logger.warning(f"{tool}: still missing {missing_required(schema, args)}; skipping")

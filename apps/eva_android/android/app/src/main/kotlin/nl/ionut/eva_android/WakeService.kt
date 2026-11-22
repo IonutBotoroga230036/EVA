@@ -488,6 +488,7 @@ class WakeService : Service() {
 
         fun start(ctx: Context, address: String, token: String) {
             enabled = true
+            EvaLink.set(address, token)                        // messages (v0.3.2) use the same link
             val i = Intent(ctx, WakeService::class.java).putExtra(EXTRA_ADDRESS, address).putExtra(EXTRA_TOKEN, token)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i) else ctx.startService(i)
         }

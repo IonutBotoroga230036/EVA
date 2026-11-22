@@ -723,3 +723,18 @@ REGISTRY["keep_listening"] = tool_keep_listening
 GUARDS["keep_listening"] = r"\b(talk|listening|listen|chat|that'?s all|that'?s it|done|bye|goodbye)\b"
 ACTION_TOOLS |= {"keep_listening"}
 EXACT_TOOLS |= {"keep_listening"}
+
+
+# ---------------------------------------------------------------- messages (v0.3.2, milestone 9c)
+# WhatsApp and Instagram through your phone's notifications. Reading is private (waits for an unlock when the
+# phone is locked); a reply is shown and read to you word for word, in Romanian for Mom, and sent only on yes.
+from core import messages as _messages  # noqa: E402
+
+TOOL_SCHEMAS += _messages.SCHEMAS
+REGISTRY.update(_messages.FUNCTIONS)
+GUARDS.update(_messages.GUARDS)
+ARG_FILLERS["message_reply"] = _messages.fill_reply
+ACTION_TOOLS |= {"message_reply"}
+EXACT_TOOLS |= {"messages_check", "message_reply"}
+CONFIRM_TOOLS = dict(_messages.CONFIRM)
+SLOW_FILLERS = {"message_reply"}

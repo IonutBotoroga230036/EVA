@@ -42,6 +42,24 @@ Menu (back button) > **Hands-free: off** turns it on. Android asks for two thing
   voice only and the screen stays off; follow-ups need no "Eva"; "that's all" ends it. "Stay dark off" lights
   the screen again. Alarms and timers work in both, and from the overlay.
 
+## New in v0.3.2: messages (WhatsApp, Instagram) and Romanian
+
+Menu > **Messages: off** turns it on. Android opens its **Notification access** screen once: allow E.V.A.
+(if the switch is greyed out: Settings > Apps > E.V.A. > the three dots > **Allow restricted settings**, then
+try again). Then:
+
+- Each new WhatsApp, WhatsApp Business or Instagram chat message (sender, text, chat name) goes to your PC.
+  Nothing else: no chat history, no contacts, no other apps. On the PC it stays in memory for 24 hours, never
+  on disk; the log names only who and which app.
+- When one matters (Mom, "urgent" or "call me", your name in a group, a direct question) she says it at once:
+  in the open E.V.A. windows, and on the phone itself when the app isn't open. Not during a call, Do Not
+  Disturb, or her quiet hours (23:00-08:00).
+- "Eva, any messages?" reads the new ones. "Eva, reply to Mom: I'll be home at 7" shows and says the exact text
+  first, in Romanian for Mom ("Ajung acasă la 7."), and sends it only after your yes (or "da").
+- Replies use the notification's own Reply button, so they only work while that notification is still on the
+  phone. If you already opened or swiped it away, she says so.
+- After a phone restart, open E.V.A. once so the messages know where your PC is (kept in memory only).
+
 ## Build (after unzipping, once)
 ```powershell
 cd "D:\Project E.V.A\eva\apps\eva_android"
@@ -67,5 +85,5 @@ Watch E.V.A.'s terminal when you tap the mic. She now says exactly what's wrong:
 - `mic audio is arriving but it is silent`: another app holds the mic, or it's muted.
 
 ## Limits of this version
-- "Eva, ..." hands-free works while the app is on screen (the ear button). Screen-off wake word: milestone 9b.
-- Opens full screen; an overlay above other apps needs a VoiceInteractionService (9b).
+- Messages: WhatsApp and Instagram only (not SMS yet), and replies only while the notification is there.
+- The Romanian voice is Piper's "Mihai", the only Romanian Piper voice (male).
