@@ -19,6 +19,15 @@ conversation:
 forge:
   crew: true                           # v0.3 13b: planner, coder, tester, fixer, reviewer (false = one-shot)
 
+github:
+  # Nov 23: a skill you install is also opened as a pull request on your repo, written by E.V.A. with you as
+  # co-author (counts on your contribution graph once merged). Needs GITHUB_TOKEN in config/secrets.env
+  # (fine-grained, this repo only, Contents + Pull requests: read and write). core/github_pr.py
+  pull_requests: false
+  repo: "IonutBotoroga230036/EVA"
+  base: "main"
+  co_author: ""                        # empty = your GitHub no-reply address, looked up with the token
+
 server:
   # v0.2.5 network safety. "local": only this PC can reach E.V.A. (default).
   # "network": other devices on your Wi-Fi can connect, but only with the remote token
@@ -59,7 +68,8 @@ inference:
       conversation: "default"             # the conversation lane (milestone 4)
       planning: "default"                 # splitting multi-step commands
       thinking: "default"                 # think_deeply
-      forge: "default"                    # writing skills ("use Claude for FORGE" by voice)
+      forge: "auto"                       # writing skills: Claude when available (~EUR 0.10-0.30 a skill, facts checked
+                                          # against the web); "local" = your GPU, free, facts unchecked
       understanding: "auto"               # which skill a sentence wants (Claude, ~EUR 0.0001 a command). local = stays on the PC
 
 # v0.3.1: understanding what you mean (core/understand/brains.py). Measure first: python -m core.understand.eval

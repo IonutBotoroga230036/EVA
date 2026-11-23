@@ -77,11 +77,20 @@ def result_message(p) -> dict:
                   if str(f.get("msg", "")).startswith("judge dropped tests"))
     caution = (f" Heads-up: I dropped {dropped} of its tests that looked wrong, so its answers aren't fully verified. "
                f"Check a couple of answers you know before relying on it.") if dropped else ""
+    facts = next((f["msg"] for f in (getattr(p, "review", None) or []) if str(f.get("msg", "")).startswith(
+        ("facts checked", "fact check corrected", "facts not checked"))), "")
+    fixed = sum(1 for f in (getattr(p, "review", None) or []) if str(f.get("msg", "")).startswith("fact check corrected"))
+    fact_line = (f" I checked its real-world answers against sources and corrected {fixed}." if fixed else
+                 " I checked its real-world answers against sources." if facts.startswith("facts checked: ") and
+                 "no test" not in facts else
+                 " Its real-world answers weren't checked against any source (built locally)." if
+                 facts.startswith("facts not checked: FORGE ran locally") else "")
     say = (f"Your skill is ready, sir: {pretty(p.name)}. {p.summary}{net} It passed the security review and "
-           f"{p.tests_passed} tests.{caution} {cost} Shall I install it?").replace("  ", " ")
+           f"{p.tests_passed} tests.{fact_line}{caution} {cost} Shall I install it?").replace("  ", " ")
     return {"status": "ready", "say": say, "name": p.name,
             "widget": {"kind": "forge", "name": pretty(p.name), "summary": p.summary, "tools": p.tools,
                        "hosts": p.network_hosts, "tests": p.tests_passed, "review_passed": True,
+                       "facts": facts,
                        "cost": (f"EUR {p.cost_eur:.2f}" if p.cost_eur >= 0.005 else "Free, built locally")},
             "confirm_next": {"tool": "forge_install", "args": {"name": p.name},
                              "desc": f"install the {pretty(p.name)} skill"}}
