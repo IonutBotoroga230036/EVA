@@ -34,12 +34,11 @@ fixed_expect: when correct is false, the expected result rewritten with the righ
 
 
 def _client():
-    from core.brain import get_brain
-    b = get_brain()
-    if b.pick("forge") != "cloud":
-        return None
     from core.claude import ClaudeClient, _load_key
-    if not _load_key():
+    if not _load_key():                    # first the cheap check: no key, no cloud (and no slow brain lookup)
+        return None
+    from core.brain import get_brain
+    if get_brain().pick("forge") != "cloud":
         return None
     from core.settings import get_settings
     model = ((get_settings().get("inference") or {}).get("cloud") or {}).get("model_heavy") or "claude-sonnet-5"

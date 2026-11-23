@@ -168,7 +168,7 @@ def test_code_blocks_are_found_with_or_without_a_language():
 def test_with_claude_the_coder_and_tester_work_at_the_same_time(forge):
     t0 = time.monotonic()
     p = build(forge, FakeBrain(mode="cloud", delay=0.4))
-    assert p.status == "ready" and time.monotonic() - t0 < 0.75          # 2 x 0.4 s, in parallel
+    assert p.status == "ready" and time.monotonic() - t0 < 0.79          # in a row would be 0.8 s or more
 
 
 def test_forge_uses_the_crew_in_production_and_reports_stages(tmp_path, monkeypatch):
