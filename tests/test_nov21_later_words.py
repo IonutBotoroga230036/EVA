@@ -103,9 +103,9 @@ def test_about_20_minutes_is_planned_not_done(eva):
 def test_no_not_now_undoes_and_plans_the_previous_command(eva):
     o, ran = eva
     turn(o, "stop the music")
-    assert ran == [("media_control", {"action": "playpause"})]
+    assert ran == [("media_control", {"action": "pause"})]          # Nov 23: "stop" pauses, never toggles
     text = turn(o, "No, not now, I said in 20 minutes.")
-    assert ran[-1] == ("media_control", {"action": "playpause"}) and len(ran) == 2       # music back on
+    assert ran[-1] == ("media_control", {"action": "play"}) and len(ran) == 2           # music back on
     assert "put it back" in text and "stop the music in 20 minutes" in text
     (item,) = later.get_later().pending()
     assert item["text"] == "stop the music" and item["tool"] == "media_control"

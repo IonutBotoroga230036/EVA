@@ -264,6 +264,12 @@ class Crew:
         self.provider = provider
         return text or ""
 
+    def check_facts(self, plan: dict, request: str) -> tuple[dict, list[dict], float]:
+        from core import forge_facts
+        return forge_facts.check(plan, request, client=self.facts_client)
+
+    facts_client = None                                  # tests inject a fake; None = Claude when FORGE may use it
+
     def build(self, request: str):
         from core.forge_engine import Proposal, review_code, run_sandbox
         self.progress("planning")
@@ -276,6 +282,9 @@ class Crew:
         if not plan["tools"]:
             return Proposal(name=plan["name"], request=request, status="rejected", provider=self.provider,
                             cost_eur=self.cost, reason="the plan had no usable tools")
+        self.progress("checking facts")                  # Nov 23: tests that state real-world facts, checked first
+        plan, fact_notes, fact_cost = self.check_facts(plan, request)
+        self.cost += fact_cost
         name = plan["name"] if not self.forge._taken(plan["name"]) else f"{plan['name']}_2"[:31]
         plan["name"] = name
         spec = json.dumps({k: plan[k] for k in ("name", "description", "method", "network_hosts", "tools",
@@ -334,7 +343,7 @@ class Crew:
                 impl = blocks_out[0]
                 if len(blocks_out) > 1 and "def test_" in blocks_out[1]:
                     tests = lint_tests(blocks_out[1])
-        findings = findings + notes
+        findings = findings + notes + fact_notes
         status, reason = ("ready", "") if not problems else ("rejected", "; ".join(problems)[:600])
         if status == "ready":
             self.progress("reviewing")

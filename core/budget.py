@@ -93,6 +93,15 @@ class BudgetTracker:
             logger.warning(f"VAULT: daily budget at {day['total_euros'] / self.daily_limit * 100:.0f}%")
         return cost_eur
 
+    def record_extra(self, cost_eur: float, purpose: str = "", what: str = "") -> float:
+        """Costs that aren't tokens, like web searches ($10 per 1,000)."""
+        day = self._ensure_today()
+        day["total_euros"] += cost_eur
+        day["calls"].append({"time": datetime.now().isoformat(), "model": what, "purpose": purpose,
+                             "input_tokens": 0, "output_tokens": 0, "cost_eur": round(cost_eur, 6)})
+        self._save()
+        return cost_eur
+
     def month_spent(self) -> float:
         prefix = self._today()[:7]
         return sum(d["total_euros"] for k, d in self._data["days"].items() if k.startswith(prefix))

@@ -63,6 +63,9 @@ def no_real_services(tmp_path, monkeypatch):
     monkeypatch.setattr(jev, "_secret", lambda name: None)          # never your real Jev or OpenRouter key
     monkeypatch.setattr(understanding, "_jev", None)
     monkeypatch.setattr(understanding, "_claude", None)
+    # the shipped default is auto (Nov 22); tests that check understanding pick their mode explicitly
+    real_cfg = understanding.cfg
+    monkeypatch.setattr(understanding, "cfg", lambda: {**real_cfg(), "mode": "legacy"})
     monkeypatch.setattr(budget, "_budget", budget.BudgetTracker(track_file=str(tmp_path / "budget.json")))
     monkeypatch.setattr(brain, "STATE", tmp_path / "brain_mode.json")
     monkeypatch.setenv("EVA_TESTING", "1")
@@ -147,6 +150,31 @@ def isolate_conversation(tmp_path, monkeypatch):
     import core.conversation as conv
     monkeypatch.setattr(conv, "STATE", tmp_path / "conversation.json")
     yield
+
+
+@pytest.fixture(autouse=True)
+def no_real_romanian_or_messages(tmp_path, monkeypatch):
+    """v0.3.2: never your real Ollama or Piper voice for Romanian, and a fresh message inbox per test."""
+    import core.messages as messages
+    import core.romanian as romanian
+    monkeypatch.setattr(romanian, "_local_translate", lambda prompt, text: None)
+    monkeypatch.setattr(romanian, "_claude_translate", lambda prompt, text: None)
+    monkeypatch.setattr(romanian, "_cfg", lambda: {"voice": "ro_RO-mihai-medium", "dir": str(tmp_path / "voices")})
+    monkeypatch.setattr(romanian, "_voice", None)
+    monkeypatch.setattr(messages, "_inbox", None)
+    import core.phone_prefs as phone_prefs            # never your real data/phone.json (stay dark, unlock)
+    monkeypatch.setattr(phone_prefs, "PATH", tmp_path / "phone.json")
+    import core.places as places                      # never your real places or location history
+    monkeypatch.setattr(places, "PATH", tmp_path / "places.json")
+    monkeypatch.setattr(places, "HISTORY", tmp_path / "location_history.jsonl")
+    monkeypatch.setattr(places, "_places", None)
+    import core.meetings as meetings                  # never your real recordings
+    monkeypatch.setattr(meetings, "DIR", tmp_path / "meetings")
+    monkeypatch.setattr(meetings, "_recorder", None)
+    import core.device as device                      # no windows left over from another test
+    device.CONNECTIONS.clear()
+    yield
+    device.CONNECTIONS.clear()
 
 
 @pytest.fixture(autouse=True)

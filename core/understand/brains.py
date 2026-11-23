@@ -48,7 +48,8 @@ CLAUDE_SYSTEM = (
     "follow-ups. Leave out optional arguments the user didn't give; never invent names, times or text. Act when "
     "there is a sensible default ('play some music' = their liked songs, weather = their city now); when the "
     "request lacks what a tool needs and has no default ('search the web' with no topic, 'set an alarm' with no "
-    "time), call just_answer so she can ask. Call just_answer when no tool is needed. Call cannot_do_yet when the user wants something done that none of the "
+    "time), call just_answer so she can ask, unless the tool's description says it asks for what's missing itself: then "
+    "call that tool with what you have. Call just_answer when no tool is needed. Call cannot_do_yet when the user wants something done that none of the "
     "tools can do.")
 DEFAULTS = {"mode": "legacy", "local_model": "", "claude_model": "claude-haiku-5-5", "timeout_s": 6.0,
             "jev": {"provider": "typesafe", "model": "", "sure": 0.8}}
@@ -142,6 +143,9 @@ _claude = None
 def get_claude_light():
     global _claude
     if _claude is None:
+        from core.claude import _load_key
+        if not _load_key():                    # no key: say so at once (an HTTPS client costs ~0.5 s on Windows)
+            raise RuntimeError("no Claude key")
         from core.claude import ClaudeClient
         _claude = ClaudeClient(model=cfg()["claude_model"], timeout=float(cfg()["timeout_s"]) + 4)
     return _claude

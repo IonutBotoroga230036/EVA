@@ -44,6 +44,14 @@ Each reply runs as its own task, so a new message or a stop cancels it mid-sente
 
 from __future__ import annotations
 
+import sys
+
+if __name__ == "__main__":
+    # `python -m interfaces.web.server_stream` runs this file as __main__; without this, the first
+    # `from interfaces.web.server_stream import ...` elsewhere loads a SECOND copy with its own empty state
+    # (Nov 23: every phone alarm said "your phone app isn't open" while it was).
+    sys.modules.setdefault("interfaces.web.server_stream", sys.modules[__name__])
+
 import asyncio
 import numpy as np
 import re
@@ -83,7 +91,7 @@ UI_FILE = Path(__file__).parent / "eva.html"
 STATIC = Path(__file__).parent / "static"
 PORT = 8001
 STARTED = time.time()
-CONNECTIONS: set["Connection"] = set()
+from core.device import CONNECTIONS  # noqa: E402  (one set of open windows, shared with core/device.py)
 MAX_AUDIO_FRAME = 256 * 1024          # bytes; a larger binary frame is dropped, never buffered
 MAX_PCM_COMMAND = 12 * 16000 * 2 * 4 // 3 + 16     # base64 of at most 12 s of 16 kHz PCM16
 
@@ -336,6 +344,15 @@ def _stt_engine():
     return get_stt()
 
 
+def _romanian_hint(orch) -> None:
+    """Whisper heard Romanian: she answers in Romanian (v0.3.2, 9d)."""
+    try:
+        if getattr(_stt_engine(), "last_language", None) == "ro":
+            orch.reply_language = "ro"
+    except Exception:
+        pass
+
+
 def heard_wake(text: str) -> str | None:
     """The PC's double-check of a phone wake (Nov 22: dictating near the phone woke her). The command after "Eva"
     ("" for "Eva" alone), or None when Whisper heard no "Eva" at all. The phone sends ~1.2 s from before the
@@ -385,13 +402,106 @@ async def phone_set(body: dict):
     return prefs
 
 
+@app.post("/api/phone/message")
+async def phone_message(body: dict):
+    """v0.3.2 (9c): a WhatsApp or Instagram notification from the phone app {app, sender, text, conversation,
+    group}. Kept in memory only. When it matters she says so in every open window and answers {announce, audio}
+    so the phone can say it too when its app isn't open. Quiet hours and do-not-disturb keep her quiet."""
+    import base64
+    from core import messages
+    m = messages.get_inbox().add(app=str(body.get("app") or "")[:60], sender=str(body.get("sender") or "")[:80],
+                                 text=str(body.get("text") or "")[:2000],
+                                 conversation=str(body.get("conversation") or "")[:80], group=bool(body.get("group")))
+    out = {"new": bool(m), "important": bool(m and m.important), "announce": "", "audio": ""}
+    if not m or not messages.should_announce(m):
+        return out
+    oracle = get_oracle()
+    if oracle.in_quiet_hours() or oracle.in_dnd():
+        logger.info("MESSAGES: quiet hours or do-not-disturb; kept for 'any messages?'")
+        return out
+    line = messages.announcement(m)
+    m.read = True                                     # said once; "any messages?" doesn't repeat it
+    logger.info(f"MESSAGES: telling you about {m.who}'s message ({m.why})")
+    if messages.cfg().get("pc", True):
+        await broadcast(line)
+    tts = get_tts()
+    wav = await asyncio.to_thread(tts.synth, line) if tts else None
+    out.update(announce=line, audio=base64.b64encode(wav).decode() if wav else "")
+    return out
+
+
+@app.post("/api/phone/location")
+async def phone_location(body: dict):
+    """Nov 23: where the phone is {lat, lon, acc, ts}. Fires your place rules (reminders, actions) and answers
+    {say, audio} for the phone to speak when it isn't showing E.V.A."""
+    import base64
+    from core import places
+    try:
+        lat, lon = float(body["lat"]), float(body["lon"])
+        acc = float(body.get("acc") or 50.0)
+    except (KeyError, TypeError, ValueError):
+        return JSONResponse({"detail": "lat and lon are needed"}, status_code=400)
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return JSONResponse({"detail": "out of range"}, status_code=400)
+    ts = body.get("ts")
+    fired = places.get_places().update(lat, lon, acc, float(ts) if isinstance(ts, (int, float)) else None)
+    lines = []
+    for f in fired:
+        r = f["rule"]
+        if r.get("tool"):
+            from core.orchestrator_hybrid import ToolBelt
+            out = await ToolBelt(get_registry(), None).aexecute(r["tool"], r.get("args") or {})
+            lines.append(out.get("say") or f"Done, sir: {r['text']}.")
+        else:
+            lines.append(f"Reminder, sir: {r['text']}.")
+    if not lines:
+        return {"ok": True, "say": "", "audio": ""}
+    text = " ".join(lines)
+    await broadcast(text)
+    tts = get_tts()
+    wav = await asyncio.to_thread(tts.synth, text) if tts else None
+    return {"ok": True, "say": text, "audio": base64.b64encode(wav).decode() if wav else ""}
+
+
+_MEETING_ID = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{4}$")
+
+
+@app.post("/api/meetings/{mid}/audio")
+async def meeting_audio(mid: str, request: Request):
+    """Nov 23: 15 s of a phone recording (PCM16, 16 kHz, mono)."""
+    from core import meetings
+    if not _MEETING_ID.match(mid):
+        return JSONResponse({"detail": "bad id"}, status_code=400)
+    body = await request.body()
+    if len(body) > 4 * 1024 * 1024:
+        return JSONResponse({"detail": "too big"}, status_code=413)
+    ok = await asyncio.to_thread(meetings.get_recorder().append, mid, body)
+    return {"ok": ok}
+
+
+@app.post("/api/meetings/upload")
+async def meeting_upload(request: Request):
+    """Nov 23: a recording or a transcript shared to E.V.A. (Pixel Recorder, any audio app). Header X-Filename."""
+    from core import meetings
+    from core.events.bus import get_bus
+    body = await request.body()
+    if not body or len(body) > 300 * 1024 * 1024:
+        return JSONResponse({"detail": "empty or over 300 MB"}, status_code=413)
+    name = re.sub(r"[^\w. -]", "", request.headers.get("x-filename", "") or "recording.m4a")[:80] or "recording.m4a"
+    meta = await asyncio.to_thread(meetings.add_file, name, body, request.headers.get("x-title", ""))
+    meetings.process_in_background(meta["id"], lambda text: get_bus().publish("forge.done", {"message": {"say": text}}))
+    logger.info(f"MEETING: {name} shared ({len(body) // 1024} KB), making notes")
+    return {"id": meta["id"], "say": "Got it, sir. I'll tell you when the notes are ready."}
+
+
 class _DarkPhone:
     """Stands in for the phone app during a screen-off conversation, so alarms and timers still work: the actions
     go back to the phone in the answer and it runs them (it says so if it can't, on the next wake)."""
-    device_caps = ("alarm", "timer")
+    device_caps = ("alarm", "timer", "reply", "volume", "send", "record")
 
     def __init__(self):
         self.actions: list[dict] = []
+        self.connected_at = time.time()
 
     async def request_device(self, action: str, args: dict, timeout: float = 12.0) -> dict:
         self.actions.append({"action": action, "args": args})
@@ -434,8 +544,11 @@ async def phone_turn(body: dict):
     if orch is None:
         orch = _dark_session["orch"] = HybridOrchestrator(session_id="phone-dark")
     orch.locked = bool(body.get("locked"))
+    _romanian_hint(orch)
     phone = _DarkPhone()
     CONNECTIONS.add(phone)
+    from core import device as _device
+    _device.CURRENT.set(phone)                       # this turn's alarms go back with this answer
     try:
         logger.info(f"USER (phone, screen off): {text}")
         final = ""
@@ -446,9 +559,6 @@ async def phone_turn(body: dict):
         CONNECTIONS.discard(phone)
     logger.info(f"EVA (phone, screen off): {final}")
     return await speak(final, True, phone.actions)
-
-
-@app.get("/api/wakeword/info")
 
 
 @app.get("/api/wakeword/info")
@@ -670,6 +780,7 @@ class Connection:
         self.listener = None                 # built on the first audio frame or listen message
         self.music_on = False                # E.V.A. started music and nobody stopped it: lyrics aren't commands
         self.device_caps: tuple = ()         # v0.3: the Android app says what it can do (alarm, timer)
+        self.connected_at = time.time()      # the newest phone window gets device actions
         self._device_waits: dict = {}
         self._listener_lock = asyncio.Lock()
         self._resample = Resampler(16000)
@@ -693,6 +804,8 @@ class Connection:
         await self.send({"type": "stt", **self.stt})
 
     async def reply(self, text: str, turn: int) -> None:
+        from core import device as _device
+        _device.CURRENT.set(self)                    # device actions go to the window you're talking to
         await self.send({"type": "turn_start", "turn": turn})
         speaker = TurnSpeaker(self.tts, self.send, turn) if self.tts else None
         chunker, streamed = SentenceChunker(), False
@@ -845,6 +958,7 @@ class Connection:
             self._device_waits.pop(rid, None)
 
     async def voice_command(self, text: str) -> None:
+        _romanian_hint(self.orch)
         await self.submit(text, voice=True, stt=True)
 
     async def on_wake(self) -> None:
@@ -854,6 +968,10 @@ class Connection:
         await self.interrupt()
 
     async def on_device_state(self, locked: bool) -> None:
+        if not self.device_caps:                   # only the phone sends this: it can act before it announces
+            from core.device import PHONE_CAPS
+            self.device_caps = PHONE_CAPS[:4]
+            self.connected_at = time.time()
         was = getattr(self.orch, "locked", False)
         self.orch.locked = locked
         logger.info(f"DEVICE: phone {'locked: private things wait for an unlock' if locked else 'unlocked'}")
@@ -953,11 +1071,14 @@ class Connection:
                     await self.submit(data.get("text") or "", voice=bool(data.get("voice")))
                 elif kind == "device":
                     self.device_caps = tuple(str(c) for c in (data.get("caps") or [])[:20])
+                    self.connected_at = time.time()
                     logger.info(f"DEVICE: {data.get('kind', 'device')} connected with {', '.join(self.device_caps)}")
                 elif kind == "device_result":
                     fut = self._device_waits.get(str(data.get("id")))
                     if fut and not fut.done():
-                        fut.set_result({"ok": bool(data.get("ok")), "error": str(data.get("error") or "")[:200]})
+                        fut.set_result({"ok": bool(data.get("ok")), "error": str(data.get("error") or "")[:200],
+                                        # Nov 23: "opened" (WhatsApp shows the text) was lost, so she said "Sent"
+                                        **{k: bool(data[k]) for k in ("opened", "auto", "locked") if k in data}})
                 elif kind in ("listen", "speaking", "audio_format"):
                     await self.on_control(data)
                 elif kind == "device_state":               # v0.3 9b: the phone overlay, locked or not

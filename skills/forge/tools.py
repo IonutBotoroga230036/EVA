@@ -2,6 +2,7 @@
 
 import json
 import time
+from pathlib import Path
 
 from core.budget import BudgetExceeded
 from core.events.bus import get_bus
@@ -101,8 +102,13 @@ def forge_install(name: str = "", **_):
     from skills.registry import get_registry
     get_registry().discover()                                   # hot reload: no restart needed
     get_bus().publish("skills.changed", {"installed": p.name})
+    from core import github_pr                                  # Nov 23: her change as a pull request, you co-author
+    pr = github_pr.propose_in_background(
+        p.name, Path(get_forge().skills_dir) / p.name, p.summary, p.request, p.review,
+        tell=lambda text: get_bus().publish("forge.done", {"message": {"say": text}}))
+    more = " I'm also opening a pull request for it on GitHub." if pr else ""
     return {"result": json.dumps({"installed": p.name, "tools": p.tools}),
-            "say": f"Installed, sir. {_pretty(p.name).capitalize()} is ready, you can use it right away."}
+            "say": f"Installed, sir. {_pretty(p.name).capitalize()} is ready, you can use it right away.{more}"}
 
 
 def forge_discard(name: str = "", **_):

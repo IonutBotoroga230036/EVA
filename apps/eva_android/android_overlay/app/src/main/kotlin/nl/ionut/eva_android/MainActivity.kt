@@ -26,6 +26,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         launchedByAssist = isAssist(intent)
+        handleShare(intent)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "eva/assistant").also { ch ->
             ch.setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -49,6 +50,21 @@ class MainActivity : FlutterActivity() {
                         "running" to (WakeService.instance != null),
                         "overlayAllowed" to Settings.canDrawOverlays(this)))
                     "isAssistant" -> result.success(isAssistant())
+                    // v0.3.2 (9c): WhatsApp/Instagram messages through Notification access (MessageListener)
+                    "setLink" -> result.success(EvaLink.set(
+                        call.argument<String>("address") ?: "", call.argument<String>("token") ?: ""))
+                    "messagesStatus" -> result.success(mapOf(
+                        "on" to MessageListener.enabled(this), "access" to MessageListener.accessGranted(this),
+                        "autoSend" to EvaSend.enabled(this)))
+                    "openAutoSend" -> {                  // Nov 23: Android's Accessibility screen (E.V.A. send)
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        result.success(true)
+                    }
+                    "setMessages" -> result.success(setMessages(call.argument<Boolean>("on") ?: false))
+                    // Nov 23: location for place reminders (EvaLocation, inside the hands-free service)
+                    "locationStatus" -> result.success(mapOf("on" to EvaLocation.isOn(this),
+                        "allowed" to EvaLocation.allowed(this)))
+                    "setLocation" -> result.success(setLocation(call.argument<Boolean>("on") ?: false))
                     else -> result.notImplemented()
                 }
             }
@@ -83,8 +99,94 @@ class MainActivity : FlutterActivity() {
         return "started"
     }
 
+    /** "on" (hands-free restarts with location), "permission" (Android asked), or "off". */
+    private fun setLocation(on: Boolean): String {
+        EvaLocation.setOn(this, on)
+        if (on && !EvaLocation.allowed(this)) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION), LOCATION_REQUEST)
+            return "permission"
+        }
+        val a = WakeService.address
+        val t = WakeService.token
+        if (WakeService.instance != null && a != null && t != null) {   // restart so the service gains location
+            WakeService.stop(this)
+            WakeService.start(this, a, t)
+        }
+        return if (on) "on" else "off"
+    }
+
+    /** "on", "access" (Android's Notification access screen opened: allow E.V.A., come back) or "off". */
+    private fun setMessages(on: Boolean): String {
+        MessageListener.setEnabled(this, on)
+        if (!on) return "off"
+        if (!MessageListener.accessGranted(this)) {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            return "access"
+        }
+        return "on"
+    }
+
+    /** Nov 23: Share > E.V.A. from Pixel Recorder (or any app): a recording or a transcript becomes meeting notes. */
+    private fun handleShare(i: Intent?) {
+        if (i?.action != Intent.ACTION_SEND) return
+        val text = i.getStringExtra(Intent.EXTRA_TEXT)
+        @Suppress("DEPRECATION") val uri = i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        if (uri == null && text.isNullOrBlank()) return
+        val ctx = applicationContext
+        android.widget.Toast.makeText(ctx, "Sending to E.V.A. for notes...", android.widget.Toast.LENGTH_SHORT).show()
+        Thread {
+            var waited = 0
+            while ((EvaLink.address == null || EvaLink.token == null) && waited < 20_000) {   // the page sets the link
+                Thread.sleep(500)
+                waited += 500
+            }
+            val ok = try {
+                val name: String
+                val bytes: ByteArray
+                if (uri != null) {
+                    name = contentResolver.query(uri, null, null, null, null)?.use { c ->
+                        val col = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (col >= 0 && c.moveToFirst()) c.getString(col) else null
+                    } ?: "recording.m4a"
+                    bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+                } else {
+                    name = "transcript.txt"
+                    bytes = text!!.toByteArray(Charsets.UTF_8)
+                }
+                uploadShared(name, bytes)
+            } catch (e: Exception) {
+                false
+            }
+            runOnUiThread {
+                android.widget.Toast.makeText(ctx, if (ok) "E.V.A. is making the notes. She'll tell you when they're ready."
+                    else "Couldn't reach E.V.A. Is the PC on?", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }.start()
+    }
+
+    private fun uploadShared(name: String, bytes: ByteArray): Boolean {
+        val address = EvaLink.address ?: return false
+        val c = java.net.URL("$address/api/meetings/upload").openConnection() as java.net.HttpURLConnection
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Authorization", "Bearer ${EvaLink.token}")
+        c.setRequestProperty("Content-Type", "application/octet-stream")
+        c.setRequestProperty("X-Filename", name.replace(Regex("[^\\w. -]"), "_"))
+        c.setFixedLengthStreamingMode(bytes.size)
+        c.connectTimeout = 8000
+        c.readTimeout = 120_000
+        return try {
+            c.outputStream.use { it.write(bytes) }
+            c.responseCode == 200
+        } finally {
+            c.disconnect()
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        handleShare(intent)
         if (isAssist(intent)) channel?.invokeMethod("assist", null)
     }
 
@@ -135,5 +237,6 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val MIC_REQUEST = 7001
         private const val NOTIFY_REQUEST = 7002
+        private const val LOCATION_REQUEST = 7003
     }
 }

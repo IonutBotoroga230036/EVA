@@ -32,7 +32,10 @@ Menu (back button) > **Hands-free: off** turns it on. Android asks for two thing
   see-through, closing by itself a few seconds after you're done.
 - **Locked phone:** time, weather, music, lights, timers and alarms work; adding a meeting, reminder or shopping
   item works (she reads it back); anything private (email, your calendar, memories, notes) asks you to unlock,
-  then carries on by itself.
+  then carries on by itself. **"Eva, work while locked"** (or status panel > Phone > Just work) makes everything
+  work locked; it needs one unlock to switch on, and "ask me to unlock again" switches it back. Sending,
+  deleting and paying still wait for your spoken yes. Anyone who says "Eva" near your phone can then hear your
+  private things.
 - While the app is open, the page listens as before and the service pauses.
 - After a phone restart, open E.V.A. once: hands-free comes back on (the token is kept only in memory by the
   service, never written by it).
@@ -41,6 +44,39 @@ Menu (back button) > **Hands-free: off** turns it on. Android asks for two thing
 - **Stay dark** ("Eva, stay dark", or the Phone switch in the status panel): with the screen off she answers by
   voice only and the screen stays off; follow-ups need no "Eva"; "that's all" ends it. "Stay dark off" lights
   the screen again. Alarms and timers work in both, and from the overlay.
+
+## New in v0.3.2: messages (WhatsApp, Instagram) and Romanian
+
+Menu > **Messages: off** turns it on. Android opens its **Notification access** screen once: allow E.V.A.
+(if the switch is greyed out: Settings > Apps > E.V.A. > the three dots > **Allow restricted settings**, then
+try again). Then:
+
+- Each new WhatsApp, WhatsApp Business or Instagram chat message (sender, text, chat name) goes to your PC.
+  Nothing else: no chat history, no contacts, no other apps. On the PC it stays in memory for 24 hours, never
+  on disk; the log names only who and which app.
+- When one matters (Mom, "urgent" or "call me", your name in a group, a direct question) she says it at once:
+  in the open E.V.A. windows, and on the phone itself when the app isn't open. Not during a call, Do Not
+  Disturb, or her quiet hours (23:00-08:00).
+- "Eva, any messages?" reads the new ones. "Eva, reply to Mom: I'll be home at 7" shows and says the exact text
+  first, in Romanian for Mom ("Ajung acasă la 7."), and sends it only after your yes (or "da").
+- Replies use the notification's own Reply button, so they only work while that notification is still on the
+  phone. If you already opened or swiped it away, she says so.
+- After a phone restart, open E.V.A. once so the messages know where your PC is (kept in memory only).
+
+## New on Nov 23: location, meeting recording, Share > E.V.A.
+
+- Menu > **Location: on** (needs Hands-free on; Android asks for location once, "while using the app" is
+  enough). The phone tells your PC where it is every few minutes, in the same notification as hands-free. Then:
+  "remember this place as home", "remind me to buy milk when I leave work", "when I get home, turn on the
+  lights", "remember where I parked" / "where did I park?". "Track my location" keeps a 30-day trail on the PC
+  (off by default; "stop tracking my location" deletes it).
+- **"Eva, record this meeting"** (Hands-free on): the phone records and sends the audio to your PC every 15 s.
+  "Eva" still works meanwhile, answering by voice. "Eva, stop recording": notes (summary, decisions, to-dos,
+  the transcript) a few minutes later.
+- **Share > E.V.A.** from Pixel Recorder (a recording or its transcript) or any audio app: the same notes.
+- "Tell Mom I'm on my way" works without a message to reply to: through her chat's reply button if she wrote
+  since the phone started, otherwise WhatsApp opens with the text written (add her number under
+  messages.numbers in config/settings.local.yaml) and you tap send.
 
 ## Build (after unzipping, once)
 ```powershell
@@ -67,5 +103,5 @@ Watch E.V.A.'s terminal when you tap the mic. She now says exactly what's wrong:
 - `mic audio is arriving but it is silent`: another app holds the mic, or it's muted.
 
 ## Limits of this version
-- "Eva, ..." hands-free works while the app is on screen (the ear button). Screen-off wake word: milestone 9b.
-- Opens full screen; an overlay above other apps needs a VoiceInteractionService (9b).
+- Messages: WhatsApp and Instagram only (not SMS yet), and replies only while the notification is there.
+- The Romanian voice is Piper's "Mihai", the only Romanian Piper voice (male).

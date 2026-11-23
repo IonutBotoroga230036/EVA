@@ -171,7 +171,7 @@ class FakeClaude:
 def test_local_is_the_default_everywhere():
     b = Brain(claude=FakeClaude())
     # Nov 22: understanding defaults to auto (about EUR 0.0001 a command); everything else stays local
-    assert b.mode() == "local" and all(b.pick(f) == "local" for f in brain_mod.FEATURES if f != "understanding")
+    assert b.mode() == "local" and all(b.pick(f) == "local" for f in brain_mod.FEATURES if f not in ("understanding", "forge"))
     assert b.pick("understanding") == "cloud"
 
 

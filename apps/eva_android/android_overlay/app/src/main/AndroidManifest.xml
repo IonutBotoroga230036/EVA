@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Nov 23: place reminders ("when I get home"), "where did I park". Only while Location is on in the menu. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
 
     <application
         android:label="E.V.A."
@@ -43,11 +47,45 @@
                 <action android:name="android.intent.action.VOICE_COMMAND"/>
                 <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
+            <!-- Nov 23: Share > E.V.A. (Pixel Recorder recordings and transcripts) becomes meeting notes -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="audio/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
         </activity>
         <service
             android:name=".WakeService"
             android:exported="false"
-            android:foregroundServiceType="microphone"/>
+            android:foregroundServiceType="microphone|location"/>
+        <!-- v0.3.2 (9c): WhatsApp and Instagram messages. Works only after you allow "Notification access"
+             for E.V.A. in Android settings, and only while "Messages" is on in the app's menu. -->
+        <service
+            android:name=".MessageListener"
+            android:label="E.V.A. messages"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+        </service>
+        <!-- Nov 23: presses Send in WhatsApp for a message you approved (off until you turn it on in
+             Android Settings > Accessibility > E.V.A. send). res/xml/eva_accessibility.xml -->
+        <service
+            android:name=".EvaSend"
+            android:label="@string/eva_send_label"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/eva_accessibility"/>
+        </service>
         <activity
             android:name=".OverlayActivity"
             android:exported="false"

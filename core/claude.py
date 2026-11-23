@@ -94,8 +94,12 @@ class ClaudeClient:
         audit.log("claude_call", "claude", {"model": model, "purpose": purpose, "cost_eur": round(cost, 5),
                                             "input_tokens": usage.get("input_tokens"),
                                             "output_tokens": usage.get("output_tokens")})
+        searches = int((usage.get("server_tool_use") or {}).get("web_search_requests", 0) or 0)
+        if searches:                                     # the web search tool: $10 per 1,000 searches
+            from core.budget import USD_TO_EUR
+            cost += self.budget.record_extra(searches * 0.01 * USD_TO_EUR, purpose=purpose, what="web_search")
         out = {"text": "", "thinking": "", "tool_input": None, "tool_name": None, "cost_eur": cost, "usage": usage,
-               "stop_reason": data.get("stop_reason")}
+               "stop_reason": data.get("stop_reason"), "searches": searches}
         for block in data.get("content", []):
             if block.get("type") == "text":
                 out["text"] += block.get("text", "")

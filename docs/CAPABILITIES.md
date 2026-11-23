@@ -106,6 +106,30 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - Voice notes work once faster-whisper is installed (pip install faster-whisper).
 - Only your paired account can talk to her. The PC must be on.
 
+## WhatsApp and Instagram messages (v0.3.2, Android app: Messages on)
+- "Any messages?" / "What did Mom say?" / "Read my Instagram messages"
+- She tells you at once when one matters: Mom (settings messages.vip), "urgent" or "call me", your name in a
+  group, a direct question. Change who and what in settings `messages:`.
+- "Reply to Mom: I'll be home at 7" (goes out in Romanian for Mom), "Tell Dan in Romanian: on my way".
+  Always read back and sent only after your yes. Works while the notification is still on the phone.
+
+## Romanian (v0.3.2)
+- Speak Romanian and she answers in Romanian, read by the Romanian voice ("Eva, cât e ceasul?").
+- Romanian in her English answers (a message from Mom) is read in the Romanian voice.
+- One-time setup: `python -m piper.download_voices ro_RO-mihai-medium --download-dir data/voices`.
+
+## Places (Nov 23, Android app: Location on)
+- "Remember this place as home" / "this is the gym" / "remember where I parked" / "where did I park?"
+- "Remind me to buy milk when I leave work" / "when I get home, turn on the lights" / "every time I get to the
+  gym, play my workout playlist"
+- "Track my location" (opt-in, 30 days, this PC only) / "where was I yesterday at 3?" / "when did I get home?"
+
+## Meetings (Nov 23)
+- "Record this meeting" ... "stop recording" (phone with Hands-free, or the PC microphone)
+- Share a Pixel Recorder recording or transcript to E.V.A.
+- "What were the to-dos?" / "what did we decide?" / "summarize the meeting"
+- Whisper large-v3-turbo on your GPU; notes by Claude when the cloud is allowed, otherwise locally.
+
 ## Memory and notes
 - "Remember that I prefer tea over coffee" / "What do you know about me?"
 - "What did I tell you about Tom?" (searches facts, past conversations, and notes together)

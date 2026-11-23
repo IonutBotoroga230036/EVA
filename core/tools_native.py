@@ -100,7 +100,22 @@ def _fill_currency(args: dict, text: str) -> dict:
     return out
 
 
-ARG_FILLERS = {"get_weather": fill_from_words, "spotify_play": _fill_spotify, "spotify_volume": _fill_level,
+def _fill_media(args: dict, text: str) -> dict:
+    """Nov 23: "turn off the music in 10 minutes" planned a TOGGLE, which would START music that was already off.
+    Stop words pause, resume words play; the toggle stays only when the words don't say which."""
+    out = dict(args)
+    if out.get("action") in (None, "", "playpause"):
+        t = (text or "").lower()
+        if re.search(r"\b(stop|pause|turn (?:it |the music |that )?off|switch (?:it |the music )?off|kill|silence|"
+                     r"shut (?:it |the music )?(?:up|off)|enough music)\b", t):
+            out["action"] = "pause"
+        elif re.search(r"\b(resume|unpause|continue|turn (?:it |the music )?(?:back )?on|start (?:it|the music) "
+                       r"(?:again|back)|play (?:it )?again|back on)\b", t):
+            out["action"] = "play"
+    return out
+
+
+ARG_FILLERS = {"get_weather": fill_from_words, "media_control": _fill_media, "spotify_play": _fill_spotify, "spotify_volume": _fill_level,
                "set_volume": _fill_level, "convert_currency": _fill_currency}
 
 # The user's message must match before an action runs (case-insensitive search).
@@ -193,10 +208,12 @@ TOOL_SCHEMAS = [
             "required": ["what"]}}},
     {"type": "function", "function": {
         "name": "media_control",
-        "description": ("Press a media key: playpause (also used to stop or pause music), next, previous. "
-                        "Use 'mute' ONLY when the user literally says mute or unmute."),
+        "description": ("Control what's playing: pause (stop, pause or turn off the music), play (resume, turn the "
+                        "music back on: what was playing, not something new), playpause (toggle, only when it's "
+                        "unclear), next, previous. Use 'mute' ONLY when the user literally says mute or unmute."),
         "parameters": {"type": "object", "properties": {
-            "action": {"type": "string", "enum": ["playpause", "next", "previous", "volup", "voldown", "mute"]}},
+            "action": {"type": "string",
+                       "enum": ["pause", "play", "playpause", "next", "previous", "volup", "voldown", "mute"]}},
             "required": ["action"]}}},
     {"type": "function", "function": {
         "name": "set_volume",
@@ -377,17 +394,18 @@ def tool_media_control(action: str = "playpause", **_):
     keymap = {"playpause": "playpause", "next": "nexttrack", "previous": "prevtrack",
               "volup": "volumeup", "voldown": "volumedown", "mute": "volumemute"}
     from core import spotify as sp
-    if sp.connected() and action in ("playpause", "next", "previous"):
+    if sp.connected() and action in ("pause", "play", "playpause", "next", "previous"):
         try:
-            sp.get_spotify().control({"playpause": "toggle"}.get(action, action))
-            says = {"playpause": "Done, sir.", "next": "Skipping ahead, sir.", "previous": "Going back a track, sir."}
+            sp.get_spotify().control({"playpause": "toggle", "play": "resume"}.get(action, action))
+            says = {"playpause": "Done, sir.", "next": "Skipping ahead, sir.", "previous": "Going back a track, sir.",
+                    "pause": "Paused, sir.", "play": "Playing, sir."}
             return {"result": json.dumps({"done": action, "via": "spotify"}), "say": says[action]}
         except Exception as e:
             logger.info(f"SPOTIFY: control via API failed ({e}); using media keys")
     if not PYAUTOGUI_OK:
         return {"result": json.dumps({"error": "media keys unavailable (pyautogui not installed)"})}
     try:
-        pyautogui.press(keymap.get(action, "playpause"))
+        pyautogui.press(keymap.get(action, "playpause"))       # without Spotify, pause and play are the one key
         says = {"playpause": "Done, sir.", "next": "Skipping ahead, sir.", "previous": "Going back a track, sir.",
                 "volup": "A little louder, sir.", "voldown": "A little quieter, sir.", "mute": "Mute toggled, sir."}
         return {"result": json.dumps({"done": action}), "say": says.get(action, "Done, sir.")}
@@ -683,8 +701,10 @@ REGISTRY.update({"later_list": tool_later_list, "later_cancel": tool_later_cance
 GUARDS.update(_device.GUARDS)
 GUARDS.update({"later_list": r"\b(later|planned|scheduled)\b",
                "later_cancel": r"\b(cancel|don'?t|never mind)\b.*\b(later|planned|scheduled)\b|\bcancel\b"})
-ACTION_TOOLS |= {"phone_alarm", "phone_timer", "later_cancel", "phone_stay_dark"}
-EXACT_TOOLS |= {"phone_alarm", "phone_timer", "later_list", "later_cancel", "phone_stay_dark"}
+ACTION_TOOLS |= {"phone_alarm", "phone_timer", "later_cancel", "phone_stay_dark", "phone_ask_unlock", "phone_volume"}
+EXACT_TOOLS |= {"phone_alarm", "phone_timer", "later_list", "later_cancel", "phone_stay_dark", "phone_ask_unlock",
+                "phone_volume"}
+ARG_FILLERS["phone_volume"] = _fill_level
 
 
 # ---------------------------------------------------------------- keep listening (v0.3.1, Nov 22)
@@ -723,3 +743,37 @@ REGISTRY["keep_listening"] = tool_keep_listening
 GUARDS["keep_listening"] = r"\b(talk|listening|listen|chat|that'?s all|that'?s it|done|bye|goodbye)\b"
 ACTION_TOOLS |= {"keep_listening"}
 EXACT_TOOLS |= {"keep_listening"}
+
+
+# ---------------------------------------------------------------- messages (v0.3.2, milestone 9c)
+# WhatsApp and Instagram through your phone's notifications. Reading is private (waits for an unlock when the
+# phone is locked); a reply is shown and read to you word for word, in Romanian for Mom, and sent only on yes.
+from core import messages as _messages  # noqa: E402
+
+TOOL_SCHEMAS += _messages.SCHEMAS
+REGISTRY.update(_messages.FUNCTIONS)
+GUARDS.update(_messages.GUARDS)
+ARG_FILLERS["message_reply"] = _messages.fill_reply
+ACTION_TOOLS |= {"message_reply"}
+EXACT_TOOLS |= {"messages_check", "message_reply"}
+CONFIRM_TOOLS = dict(_messages.CONFIRM)
+ASK_TOOLS = dict(_messages.ASKS)            # "What should I tell Mom, sir?"
+
+# ---------------------------------------------------------------- places (Nov 23)
+from core import places as _places  # noqa: E402
+
+TOOL_SCHEMAS += _places.SCHEMAS
+REGISTRY.update(_places.FUNCTIONS)
+GUARDS.update(_places.GUARDS)
+ACTION_TOOLS |= _places.ACTIONS
+EXACT_TOOLS |= _places.EXACT
+
+# ---------------------------------------------------------------- meetings (Nov 23)
+from core import meetings as _meetings  # noqa: E402
+
+TOOL_SCHEMAS += _meetings.SCHEMAS
+REGISTRY.update(_meetings.FUNCTIONS)
+GUARDS.update(_meetings.GUARDS)
+ACTION_TOOLS |= _meetings.ACTIONS
+EXACT_TOOLS |= _meetings.EXACT
+SLOW_FILLERS = {"message_reply"}

@@ -216,3 +216,50 @@ most voice bugs show up.
 | 17.14 | "What's on my calendar tomorrow?" | Your real events, then "Plus your daily routine (N items)." "Everything on my calendar tomorrow" lists the routine too. |
 | 17.15 | Status panel > Brain mode > "Understanding you" | Auto by default; Local keeps it on the PC. |
 
+## 18. Messages and Romanian (v0.3.2)
+
+Setup: on the PC `python -m piper.download_voices ro_RO-mihai-medium --download-dir data/voices`; on the
+phone, menu > Messages: on, then allow Notification access.
+
+| # | Do / say | Expect |
+|---|---|---|
+| 18.1 | Ask someone (or Mom) to send you a WhatsApp | "Message from Mom on WhatsApp: „...”", the quote in the Romanian voice. |
+| 18.2 | A friend sends "ok" | Nothing said; "Eva, any messages?" reads it. |
+| 18.3 | A group message with your name in it | Announced ("Message from Andrei in Boys on WhatsApp: ..."). |
+| 18.4 | "Eva, reply to Mom: I'll be home at 7" | "Just to confirm, sir: reply to Mom on WhatsApp: „Ajung acasă la 7.”. Shall I go ahead?" Nothing sent yet. |
+| 18.5 | "Yes" (or "da") | "Sent to Mom, sir." and the reply is in the WhatsApp chat. |
+| 18.6 | Same, but say "no" | Nothing is sent. |
+| 18.7 | Open the chat on the phone (the notification goes), then "Eva, reply to Mom: ok" and yes | "I couldn't send it, sir: the notification is gone..." |
+| 18.8 | "Eva, tell Dan in Romanian: I'm on my way" | The reply is shown in Romanian. |
+| 18.9 | "Eva, cât e ceasul?" | She answers in Romanian, in the Romanian voice. |
+| 18.10 | "Eva, what time is it" right after | English again. |
+| 18.11 | Phone locked, screen off, Mom writes | She says it on the phone; "Eva, reply ... yes" works without unlocking. |
+| 18.12 | Menu > Messages: off, then Mom writes | Nothing reaches the PC. |
+| 18.13 | Phone locked: "Eva, set an alarm for 7 in the morning" | The alarm is set (Nov 23 it said "your phone app isn't open"). |
+| 18.14 | Unlocked: "Eva, work while locked"; lock; "Eva, what's on my calendar tomorrow?" | Answered without unlocking. "Ask me to unlock again" switches back. |
+| 18.15 | "Turn off the lights and stop the music in 10 minutes" | Both planned for the same minute; nothing happens now. |
+| 18.16 | Music off, then "turn off the music in 1 minute"; wait | Stays off (it pauses, never toggles back on). |
+| 18.17 | "Hey Eva, can you..." (pause) "...set a timer for 5 minutes" | "Yes, sir?" after the pause, then the timer. |
+| 18.18 | "Play Two Faced radio" | Two Faced by Linkin Park, then similar songs (Spotify's Autoplay on). |
+| 18.19 | "Set my phone volume to 50%" | The phone's media volume changes, locked too. |
+
+## 19. New messages, places, meetings, FORGE (Nov 23)
+
+| # | Do / say | Expect |
+|---|---|---|
+| 19.1 | Phone locked, overlay: "Eva, set an alarm for 7 in the morning" | Set (the overlay gets it, not the app page in the background). |
+| 19.2 | "Set my phone volume to 50%" | The phone's volume, not the PC's. |
+| 19.3 | "Play Two Feet" | The artist, not a long playlist that mentions them. |
+| 19.4 | "Tell Mom I'm on my way" when she hasn't written since the phone started | With messages.numbers set: WhatsApp opens with "Sunt pe drum." written; tap send. |
+| 19.5 | Same after Mom wrote earlier (notification swiped away) | Sent straight away, if WhatsApp still accepts that chat's reply button. |
+| 19.6 | Menu > Location: on (Hands-free on). At home: "Eva, remember this place as home" | "Got it, sir: this is home now." |
+| 19.7 | "Remind me to buy milk when I leave home"; walk ~300 m | "Reminder, sir: buy milk." on the phone. |
+| 19.8 | "When I get home, turn on the lights" | Lights on when you arrive. |
+| 19.9 | Park: "Remember where I parked"; later "Where did I park?" | Time, distance, map link. |
+| 19.10 | "Track my location"; later "Where was I at 3?"; "Stop tracking my location" | Answered from the trail; stopping deletes it. |
+| 19.11 | Phone: "Eva, record this meeting" ... talk ... "Eva, stop recording" | Notes announced a few minutes later; "What were the to-dos?" reads them. |
+| 19.12 | PC: same | Uses the PC microphone (pip install sounddevice). |
+| 19.13 | Pixel Recorder: a recording > Share > E.V.A. | "E.V.A. is making the notes"; notes in data/meetings and your vault's Meetings folder. |
+| 19.14 | "Build me a skill that tells the moon phase" | The ready message says its real-world answers were checked against sources. |
+| 19.15 | Install it (with github.pull_requests: true and GITHUB_TOKEN) | "I've opened pull request N on GitHub ... with you as co-author." |
+

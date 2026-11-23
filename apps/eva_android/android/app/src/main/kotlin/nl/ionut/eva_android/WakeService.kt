@@ -72,11 +72,18 @@ class WakeService : Service() {
         }
         val note = notification("Listening for \"Eva\"")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            startForeground(NOTE_ID, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            val located = EvaLocation.wanted(this)            // Nov 23: location rides on this service
+            try {
+                startForeground(NOTE_ID, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    (if (located) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0))
+            } catch (e: SecurityException) {                    // location not allowed right now: the mic still works
+                startForeground(NOTE_ID, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            }
         } else {
             startForeground(NOTE_ID, note)
         }
         instance = this
+        EvaLocation.start(this)
         try {
             android.webkit.WebView(applicationContext).destroy()   // loads the web engine now, not after "Eva"
         } catch (_: Exception) {}
@@ -87,7 +94,50 @@ class WakeService : Service() {
         return START_NOT_STICKY            // a microphone service can't restart itself from the background anyway
     }
 
+    // ------------------------------------------------------------------ meeting recording (Nov 23)
+    private val meetingBuf = ByteArrayOutputStream()
+    private var meetingFlushed = 0L
+    private val meetingPool = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    private fun keepForMeeting(chunk: ShortArray, n: Int) {
+        synchronized(meetingBuf) { for (i in 0 until n) meetingBuf.write2(chunk[i]) }
+        if (System.currentTimeMillis() - meetingFlushed > 15_000) flushMeeting()
+    }
+
+    /** Send what was recorded so far to the PC (every 15 s, and at the end). Returns when it's sent. */
+    fun flushMeeting(wait: Boolean = false) {
+        val id = meeting ?: return
+        meetingFlushed = System.currentTimeMillis()
+        val bytes = synchronized(meetingBuf) { meetingBuf.toByteArray().also { meetingBuf.reset() } }
+        if (bytes.isEmpty()) return
+        val job = meetingPool.submit { postRaw("/api/meetings/$id/audio", bytes) }
+        if (wait) try { job.get(15, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Exception) {}
+    }
+
+    private fun postRaw(path: String, body: ByteArray) = try {
+        val c = URL(address + path).openConnection() as HttpURLConnection
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Authorization", "Bearer $token")
+        c.setRequestProperty("Content-Type", "application/octet-stream")
+        c.connectTimeout = 5000
+        c.readTimeout = 30_000
+        try {
+            c.outputStream.use { it.write(body) }
+            c.responseCode
+        } finally {
+            c.disconnect()
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "a meeting chunk didn't reach the PC: ${e.message}")
+        -1
+    }
+
+    /** Something the PC wants said (a location reminder), through the same speaker path as her answers. */
+    fun speak(b64: String) = play(b64)
+
     override fun onDestroy() {
+        EvaLocation.stop(this)
         running = false
         worker?.interrupt()
         releaseRecorder()
@@ -111,7 +161,7 @@ class WakeService : Service() {
                     Thread.sleep(30_000)
                     continue
                 }
-                if (appVisible || overlayOpen) {             // the app's page (or the overlay) has the mic
+                if ((appVisible || overlayOpen) && meeting == null) {   // the page (or overlay) has the mic
                     releaseRecorder()
                     filled = 0
                     Thread.sleep(300)
@@ -124,6 +174,7 @@ class WakeService : Service() {
                 }
                 val n = rec.read(chunk, 0, CHUNK)
                 if (n <= 0) continue
+                if (meeting != null) keepForMeeting(chunk, n)       // Nov 23: "Eva, record this meeting"
                 System.arraycopy(ring, n, ring, 0, ring.size - n)          // slide: newest audio at the end
                 System.arraycopy(chunk, 0, ring, ring.size - n, n)
                 filled = minOf(ring.size, filled + n)
@@ -180,7 +231,7 @@ class WakeService : Service() {
                 lastLoud = now
             }
             if (!spoke && now - start > 1000) break                // just "Eva": the overlay will listen
-            if (spoke && now - lastLoud > 800) break               // you stopped talking
+            if (spoke && now - lastLoud > 1300) break              // you stopped talking (800 ms cut "can you...")
             if (now - start > 9000) break
         }
         val audio = out.toByteArray()
@@ -190,7 +241,8 @@ class WakeService : Service() {
             return                                                 // recorder still open: straight back to listening
         }
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (verdict == true && stayDark && !pm.isInteractive) {    // "Eva, stay dark": voice only, screen stays off
+        if (verdict == true && (meeting != null || stayDark && !pm.isInteractive)) {   // voice only (a recording
+            // keeps the mic, so no overlay page then)
             darkConversation(command ?: "")
             return
         }
@@ -348,7 +400,7 @@ class WakeService : Service() {
                 } else {
                     for (i in 0 until n) out.write2(chunk[i])
                     if (loud) lastLoud = now
-                    if (now - lastLoud > 800 || now - start > 12_000) break
+                    if (now - lastLoud > 1200 || now - start > 12_000) break
                 }
             }
         } finally {
@@ -485,9 +537,23 @@ class WakeService : Service() {
         @Volatile var address: String? = null                  // memory only
         @Volatile var token: String? = null                    // memory only, never written to disk here
         @Volatile var instance: WakeService? = null
+        @Volatile var meeting: String? = null                  // the recording's id while recording
+
+        fun startMeeting(id: String): Map<String, Any> {
+            if (instance == null) return mapOf("ok" to false, "error" to "Hands-free is off")
+            meeting = id
+            return mapOf("ok" to true)
+        }
+
+        fun stopMeeting(): Map<String, Any> {
+            instance?.flushMeeting(wait = true)
+            meeting = null
+            return mapOf("ok" to true)
+        }
 
         fun start(ctx: Context, address: String, token: String) {
             enabled = true
+            EvaLink.set(address, token)                        // messages (v0.3.2) use the same link
             val i = Intent(ctx, WakeService::class.java).putExtra(EXTRA_ADDRESS, address).putExtra(EXTRA_TOKEN, token)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i) else ctx.startService(i)
         }

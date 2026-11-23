@@ -121,6 +121,8 @@ def _due_from(m: "re.Match", now: datetime, text: str = "") -> Optional[float]:
     elif ap == "am" and h == 12:
         h = 0
     options = [h] if ap or h > 12 or h == 0 else [h, h + 12]     # "at 7": the next 7, morning or evening
+    if h == 12 and not ap:
+        options = [12, 0]                                          # "12:16" just after midnight is 00:16
     best = None
     for hh in options:
         if hh > 23:

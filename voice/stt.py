@@ -131,9 +131,14 @@ class WhisperSTT:
     """Thread-safe faster-whisper wrapper. Loads lazily; one transcription at a time."""
 
     def __init__(self, model: str = "small", device: str = "auto", compute_type: str = "auto",
-                 language: str = "en", beam_size: int = 5, vocab_source=None, model_factory=None):
+                 language: str = "en", beam_size: int = 5, vocab_source=None, model_factory=None,
+                 languages=None):
         self.model_name, self.device, self.compute_type = model, device, compute_type
         self.language, self.beam_size = (language or None), int(beam_size)
+        # v0.3.2: also Romanian. Whisper guesses the language of longer utterances; a short command, or a weak
+        # guess, stays in the main language (a 1-second "Eva, lights off" is too short to guess well).
+        self.languages = tuple(languages or ([language] if language else []))
+        self.last_language: Optional[str] = self.language
         self._vocab_source = vocab_source                 # callable -> raw Vocabulary text
         self._factory = model_factory                     # tests inject a fake WhisperModel
         self._model = None
@@ -201,11 +206,25 @@ class WhisperSTT:
             return ""
         with self._lock:
             model = self._load()
-            segments, _info = model.transcribe(
-                a, language=self.language, beam_size=self.beam_size, vad_filter=False,
+            lang = self.language
+            guess = len(self.languages) > 1 and a.size >= int(SAMPLE_RATE * 1.5)
+            segments, info = model.transcribe(
+                a, language=None if guess else lang, beam_size=self.beam_size, vad_filter=False,
                 condition_on_previous_text=False, without_timestamps=True, hotwords=self.hotwords())
             segs = [{"text": s.text, "no_speech_prob": getattr(s, "no_speech_prob", 0.0),
                      "avg_logprob": getattr(s, "avg_logprob", 0.0)} for s in segments]
+            if guess:
+                got, p = getattr(info, "language", None), float(getattr(info, "language_probability", 0.0) or 0.0)
+                main = self.languages[0]
+                if got not in self.languages or (got != main and p < 0.8):
+                    segments, _ = model.transcribe(          # a weak or unexpected guess: read it as the main language
+                        a, language=main, beam_size=self.beam_size, vad_filter=False,
+                        condition_on_previous_text=False, without_timestamps=True, hotwords=self.hotwords())
+                    segs = [{"text": s.text, "no_speech_prob": getattr(s, "no_speech_prob", 0.0),
+                             "avg_logprob": getattr(s, "avg_logprob", 0.0)} for s in segments]
+                    got = main
+                lang = got
+            self.last_language = lang
         text = clean_transcript(segs)
         hints = self.hotwords() or ""
         if is_hint_echo(text, hints):
@@ -237,5 +256,6 @@ def get_stt() -> Optional[WhisperSTT]:
         cfg = get_settings().get("voice", {}).get("stt", {}) or {}
         _stt = WhisperSTT(model=str(cfg.get("model", "small")), device=str(cfg.get("device", "auto")),
                           compute_type=str(cfg.get("compute_type", "auto")), language=cfg.get("language", "en"),
-                          beam_size=int(cfg.get("beam_size", 5)), vocab_source=vocabulary_text)
+                          beam_size=int(cfg.get("beam_size", 5)), vocab_source=vocabulary_text,
+                          languages=cfg.get("languages") or None)
         return _stt

@@ -5,7 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
 
-/** Alarms and timers through Android's own clock app: used by the app, the overlay and the screen-off mode. */
+/** Alarms and timers through Android's own clock app, the phone's volume, and message replies (MessageListener): used by the app,
+ *  the overlay and the screen-off mode. */
 object DeviceActions {
     fun run(ctx: Context, action: String, args: Map<String, Any?>): Map<String, Any> = try {
         when (action) {
@@ -26,6 +27,17 @@ object DeviceActions {
                     putExtra(AlarmClock.EXTRA_SKIP_UI, true)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 })
+                mapOf("ok" to true)
+            }
+            "reply_message" -> MessageListener.reply(ctx, args)        // v0.3.2: after your spoken yes
+            "send_message" -> MessageListener.send(ctx, args)          // Nov 23: a new message, after your yes
+            "record_start" -> WakeService.startMeeting(args["id"]?.toString() ?: "")
+            "record_stop" -> WakeService.stopMeeting()
+            "set_volume" -> {                                          // the phone's own media volume, 0-100
+                val am = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                val level = ((args["level"] as? Number)?.toInt() ?: 50).coerceIn(0, 100)
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, Math.round(level * max / 100f), 0)
                 mapOf("ok" to true)
             }
             else -> mapOf("ok" to false, "error" to "unknown action $action")

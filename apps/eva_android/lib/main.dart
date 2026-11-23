@@ -90,7 +90,8 @@ class EvaScreen extends StatefulWidget {
 class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
   WebViewController? controller;
   String? error;
-  bool micAllowed = false, listenWhenLoaded = false, handsFree = false;
+  bool micAllowed = false, listenWhenLoaded = false, handsFree = false, messagesOn = false, locationOn = false,
+      autoSend = false;
 
   @override
   void initState() {
@@ -162,6 +163,13 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
     await c.loadRequest(widget.address, headers: {'Authorization': 'Bearer ${widget.token}'});
     handsFree = (await _store.read(key: 'handsfree')) == '1';
     if (handsFree) _handsFree(ask: false);                     // back on after the app was closed
+    // v0.3.2: where E.V.A. is, for WhatsApp/Instagram messages (memory only on the native side, https only)
+    await _native.invokeMethod('setLink', {'address': widget.address.toString(), 'token': widget.token});
+    final ms = await _native.invokeMethod<Map>('messagesStatus');
+    messagesOn = ms?['on'] == true;
+    autoSend = ms?['autoSend'] == true;
+    final ls = await _native.invokeMethod<Map>('locationStatus');
+    locationOn = ls?['on'] == true;
     setState(() {
       controller = c;
       error = null;
@@ -212,6 +220,34 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// v0.3.2 (9c): WhatsApp and Instagram messages through Android's Notification access.
+  Future<void> _setMessages(bool on) async {
+    final r = await _native.invokeMethod<String>('setMessages', {'on': on});
+    messagesOn = on;
+    if (!mounted) return;
+    final msg = {
+          'on': 'Messages on: E.V.A. tells you when a WhatsApp or Instagram message matters.',
+          'access': 'Allow "Notification access" for E.V.A. (if it is greyed out: App info > menu > Allow restricted settings).',
+          'off': 'Messages off: E.V.A. no longer sees your WhatsApp or Instagram notifications.',
+        }[r] ??
+        'Messages: $r';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// Nov 23: location for "remind me when I get home" and "where did I park" (needs Hands-free on).
+  Future<void> _setLocation(bool on) async {
+    final r = await _native.invokeMethod<String>('setLocation', {'on': on});
+    locationOn = on;
+    if (!mounted) return;
+    final msg = {
+          'on': handsFree ? 'Location on: place reminders work now.' : 'Location on. It works while Hands-free is on.',
+          'permission': 'Allow location for E.V.A. ("While using the app" is enough), then turn Hands-free off and on.',
+          'off': 'Location off: E.V.A. no longer knows where your phone is.',
+        }[r] ??
+        'Location: $r';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   void _tapMic() => controller?.runJavaScript("window.dispatchEvent(new CustomEvent('eva:mic'))");
 
   Future<void> _menu() async {
@@ -226,12 +262,39 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
             title: Text(handsFree ? 'Hands-free: on' : 'Hands-free: off'),
             subtitle: const Text('Say "Eva" with the screen off or in another app'),
             onTap: () => Navigator.pop(context, 'handsfree')),
+        ListTile(
+            leading: Icon(messagesOn ? Icons.mark_chat_unread_outlined : Icons.chat_bubble_outline),
+            title: Text(messagesOn ? 'Messages: on' : 'Messages: off'),
+            subtitle: const Text('She tells you which WhatsApp and Instagram messages matter'),
+            onTap: () => Navigator.pop(context, 'messages')),
+        if (messagesOn)
+          ListTile(
+              leading: Icon(autoSend ? Icons.send : Icons.send_outlined),
+              title: Text(autoSend ? 'Send without tapping: on' : 'Send without tapping: off'),
+              subtitle: const Text('She presses Send in WhatsApp after your yes'),
+              onTap: () => Navigator.pop(context, 'autosend')),
+        ListTile(
+            leading: Icon(locationOn ? Icons.location_on : Icons.location_off),
+            title: Text(locationOn ? 'Location: on' : 'Location: off'),
+            subtitle: const Text('Reminders when you arrive or leave a place'),
+            onTap: () => Navigator.pop(context, 'location')),
         ListTile(leading: const Icon(Icons.settings_outlined), title: const Text('Connection settings'), onTap: () => Navigator.pop(context, 'settings')),
         ListTile(leading: const Icon(Icons.close), title: const Text('Leave E.V.A.'), onTap: () => Navigator.pop(context, 'leave')),
       ])),
     );
     if (choice == 'handsfree') {
       await _setHandsFree(!handsFree);
+    } else if (choice == 'messages') {
+      await _setMessages(!messagesOn);
+    } else if (choice == 'autosend') {
+      await _native.invokeMethod('openAutoSend');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Turn on "E.V.A. send" (if it is greyed out: App info > menu > Allow restricted settings). '
+                'Turn it off there to stop.')));
+      }
+    } else if (choice == 'location') {
+      await _setLocation(!locationOn);
     } else if (choice == 'reload') {
       setState(() => error = null);
       await controller?.reload();

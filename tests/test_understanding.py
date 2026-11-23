@@ -383,9 +383,8 @@ def gclient(svc):
 
 
 def next_monday():
-    from datetime import date, timedelta
-    t = date.today()
-    return t + timedelta(days=(7 - t.weekday()) % 7 or 7)
+    from core.tempo import day_window                 # the same "monday" she means (today, on a Monday)
+    return day_window("monday")[0].date()
 
 
 def ev(i, title, h1, h2):

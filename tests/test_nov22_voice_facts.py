@@ -316,7 +316,7 @@ def test_android_pieces_are_wired():
     root = Path("apps/eva_android")
     for base in ("android_overlay/app/src/main", "android/app/src/main"):
         man = (root / base / "AndroidManifest.xml").read_text(encoding="utf-8")
-        assert 'android:foregroundServiceType="microphone"' in man and "FOREGROUND_SERVICE_MICROPHONE" in man
+        assert 'android:foregroundServiceType="microphone|location"' in man and "FOREGROUND_SERVICE_MICROPHONE" in man
         assert ".OverlayActivity" in man and 'android:showWhenLocked="true"' in man and "SYSTEM_ALERT_WINDOW" in man
         kt = root / base / "kotlin/nl/ionut/eva_android"
         for f in ("WakeService.kt", "WakeEngine.kt", "OverlayActivity.kt", "MainActivity.kt"):
@@ -355,7 +355,7 @@ def test_verify_endpoint(monkeypatch):
         monkeypatch.setattr(srv, "_stt_engine", lambda: STT("Eva, what time is it"))
         assert tc.post("/api/wakeword/verify", content=pcm).json() == {"wake": True, "command": "what time is it",
                                                                      "heard": "Eva, what time is it",
-                                                                     "stay_dark": False}
+                                                                     "stay_dark": False, "ask_unlock": True}
         monkeypatch.setattr(srv, "_stt_engine", lambda: STT("so I was saying to the computer"))
         assert tc.post("/api/wakeword/verify", content=pcm).json()["wake"] is False
         assert tc.post("/api/wakeword/verify", content=b"").status_code == 400
@@ -375,8 +375,8 @@ def test_stay_dark_by_voice_and_by_button(eva):
     dev.tool_phone_stay_dark(True)
     assert phone_prefs.get()["stay_dark"] is True
     with TestClient(srv.app) as tc:
-        assert tc.post("/api/phone", json={"stay_dark": False}).json() == {"stay_dark": False}
-        assert tc.get("/api/status").json()["phone"] == {"stay_dark": False}
+        assert tc.post("/api/phone", json={"stay_dark": False}).json() == {"stay_dark": False, "ask_unlock": True}
+        assert tc.get("/api/status").json()["phone"] == {"stay_dark": False, "ask_unlock": True}
     assert "phone_stay_dark" in orch_mod.LOCKED_OK
 
 
@@ -471,3 +471,9 @@ def test_overlay_can_set_alarms():
     assert "/api/phone/turn" in ws and "stay_dark" in ws and "DeviceActions.run" in ws
     page = Path("interfaces/web/eva.html").read_text(encoding="utf-8")
     assert "['understanding', 'Understanding you']" in page and "emit('phone-setting'" in page
+
+
+def test_twelve_something_just_after_midnight_is_tonight():
+    c, secs = later.split_clock("stop the music at 12:16", datetime(2026, 11, 23, 0, 6))
+    assert c == "stop the music" and abs(secs / 60 - 10) < 0.1
+    assert abs(later.split_clock("stop the music at 12:16", datetime(2026, 11, 23, 11, 0))[1] / 60 - 76) < 0.1

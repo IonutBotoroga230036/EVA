@@ -689,7 +689,11 @@ function renderPanel() {
       h('div', { class: 'brain-feat' },
         h('div', { class: 'panel__row' }, h('span', null, 'Screen off, "Eva"'), h('span', { class: 'muted', style: 'font-size:12px' }, s.phone && s.phone.stay_dark ? 'answers by voice, screen stays off' : 'lights the screen with the overlay')),
         h('div', { class: 'seg seg--sm', style: 'grid-template-columns:repeat(2,1fr)', role: 'group', 'aria-label': 'Phone screen' }, [['wake', 'Light it'], ['dark', 'Stay dark']].map(([v, t]) =>
-          h('button', { 'aria-pressed': String(!!(s.phone && s.phone.stay_dark) === (v === 'dark')), onclick: () => { s.phone = Object.assign({}, s.phone, { stay_dark: v === 'dark' }); emit('phone-setting', { stay_dark: v === 'dark' }); renderPanel(); } }, t))))),
+          h('button', { 'aria-pressed': String(!!(s.phone && s.phone.stay_dark) === (v === 'dark')), onclick: () => { s.phone = Object.assign({}, s.phone, { stay_dark: v === 'dark' }); emit('phone-setting', { stay_dark: v === 'dark' }); renderPanel(); } }, t))),
+        // Nov 23: same as "Eva, work while locked" / "ask me to unlock again"
+        h('div', { class: 'panel__row' }, h('span', null, 'Phone locked'), h('span', { class: 'muted', style: 'font-size:12px' }, s.phone && s.phone.ask_unlock === false ? 'everything works, private things too' : 'private things ask you to unlock')),
+        h('div', { class: 'seg seg--sm', style: 'grid-template-columns:repeat(2,1fr)', role: 'group', 'aria-label': 'Phone locked' }, [['ask', 'Ask to unlock'], ['work', 'Just work']].map(([v, t]) =>
+          h('button', { 'aria-pressed': String((s.phone && s.phone.ask_unlock === false) === (v === 'work')), onclick: () => { s.phone = Object.assign({}, s.phone, { ask_unlock: v === 'ask' }); emit('phone-setting', { ask_unlock: v === 'ask' }); renderPanel(); } }, t))))),
     s.budget ? sec('Budget', budget('Today', s.budget.today), budget('This month', s.budget.month)) : null,
     s.memory ? sec('Memory', h('div', { style: 'display:flex;gap:28px' },
       h('div', null, h('span', { class: 'num' }, s.memory.facts.toLocaleString('en-GB')), h('span', { class: 'muted', style: 'font-size:13px' }, ' facts')),
@@ -1109,7 +1113,7 @@ async function tapServer() {
   else { idleHint(); listen(0); }
 }
 function onStt(ev) {
-  if (window.EvaNative) sendCtl({ type: 'device', kind: 'android', caps: ['alarm', 'timer'] });   // v0.3 9c
+  if (window.EvaNative) sendCtl({ type: 'device', kind: 'android', caps: ['alarm', 'timer', 'reply', 'volume', 'record'] });   // v0.3 9c; reply = messages (v0.3.2)
   sttMode = ev.engine === 'server' ? 'server' : 'browser'; sttReason = ev.reason || '';
   if (sttMode === 'server') {
     if (wakeMode) { stopListening(); micStart().then(ok => { if (ok) sendCtl({ type: 'listen', wake: true }); else startWake(); }); }

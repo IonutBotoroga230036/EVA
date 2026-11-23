@@ -57,3 +57,7 @@
 {"say": "the music one", "expect": ["later_cancel"], "history": [["user", "cancel something you planned"], ["assistant", "Which one, sir: the lights at 21:40 or the music at 21:50?"]], "why": "answering her question"}
 {"say": "can you search the web", "expect": ["none"], "why": "no topic, no default: she asks (Nov 22)"}
 {"say": "set an alarm", "expect": ["none"], "why": "no time, no default: she asks"}
+{"say": "any new messages?", "expect": ["messages_check"], "why": "WhatsApp/Instagram (v0.3.2)"}
+{"say": "what did my mom write", "expect": ["messages_check"], "why": "messages from one person"}
+{"say": "reply to mom that I'll be home at 7", "expect": ["message_reply"], "why": "reply, confirmed first"}
+{"say": "tell her I'm on my way", "expect": ["message_reply"], "history": [["user", "any messages?"], ["assistant", "You have 1 new message, sir. Mom on WhatsApp: „Când vii?”."]], "why": "reply to the message she just read"}

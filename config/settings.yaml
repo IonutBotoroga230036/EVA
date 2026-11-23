@@ -19,6 +19,15 @@ conversation:
 forge:
   crew: true                           # v0.3 13b: planner, coder, tester, fixer, reviewer (false = one-shot)
 
+github:
+  # Nov 23: a skill you install is also opened as a pull request on your repo, written by E.V.A. with you as
+  # co-author (counts on your contribution graph once merged). Needs GITHUB_TOKEN in config/secrets.env
+  # (fine-grained, this repo only, Contents + Pull requests: read and write). core/github_pr.py
+  pull_requests: false
+  repo: "IonutBotoroga230036/EVA"
+  base: "main"
+  co_author: ""                        # empty = your GitHub no-reply address, looked up with the token
+
 server:
   # v0.2.5 network safety. "local": only this PC can reach E.V.A. (default).
   # "network": other devices on your Wi-Fi can connect, but only with the remote token
@@ -59,7 +68,8 @@ inference:
       conversation: "default"             # the conversation lane (milestone 4)
       planning: "default"                 # splitting multi-step commands
       thinking: "default"                 # think_deeply
-      forge: "default"                    # writing skills ("use Claude for FORGE" by voice)
+      forge: "auto"                       # writing skills: Claude when available (~EUR 0.10-0.30 a skill, facts checked
+                                          # against the web); "local" = your GPU, free, facts unchecked
       understanding: "auto"               # which skill a sentence wants (Claude, ~EUR 0.0001 a command). local = stays on the PC
 
 # v0.3.1: understanding what you mean (core/understand/brains.py). Measure first: python -m core.understand.eval
@@ -151,6 +161,7 @@ voice:
     # Local Whisper (faster-whisper). Used by server-side listening (v0.2.5).
     model: "small"                     # tiny | base | small | medium | large-v3-turbo (more VRAM, better names)
     language: "en"
+    languages: ["en", "ro"]             # v0.3.2: Romanian too (longer sentences; short commands stay English)
     device: "auto"                     # auto = GPU if CUDA libraries load, else CPU; or "cuda" / "cpu"
     compute_type: "auto"               # auto = int8_float16 on GPU, int8 on CPU
     beam_size: 5
@@ -183,11 +194,35 @@ voice:
     lang_code: "a"                     # a = American English, b = British English
     speed: 1.0
     device: "cpu"                      # keeps all VRAM for the LLM; try "cuda" if replies feel slow
+  romanian:                            # v0.3.2: Romanian parts of her answers (Piper, local, free; male voice)
+    voice: "ro_RO-mihai-medium"        # one-time: python -m piper.download_voices ro_RO-mihai-medium --download-dir data/voices
+    dir: "data/voices"
   wake_word:
     engine: "openwakeword"
     words:
       - "eva"
     threshold: 0.7
+
+messages:
+  # v0.3.2 (milestone 9c): WhatsApp and Instagram messages your phone shows as notifications (Android app,
+  # "Messages: on" + Notification access). Text stays in memory on this PC for 24 h, never written to disk.
+  announce: "important"                # important = she tells you when one matters | all | off
+  vip: ["Mom"]                         # always important
+  contacts:                            # one person, the names the apps may show (match ignores case)
+    Mom: ["Mom", "Mama", "Mami", "Mum"]
+  romanian: ["Mom"]                    # replies to these go out in Romanian
+  numbers: {}                          # for NEW messages when they haven't written lately; put yours in
+                                       # config/settings.local.yaml, e.g. numbers: {Mom: "+40 7xx xxx xxx"}
+  keywords: ["urgent", "asap", "call me", "emergency", "sună-mă", "suna-ma", "urgent!"]
+  my_names: ["Ionut", "Ionuț"]         # a group message that names you counts as important
+  when_locked: true                    # read and reply with the phone locked (a reply still needs your spoken yes)
+
+meetings:
+  # Nov 23: "Eva, record this meeting" -> transcript, summary, decisions, to-dos (core/meetings.py)
+  whisper_model: "large-v3-turbo"      # transcription on your GPU, loaded only while it works (~1.6 GB VRAM)
+  device: "cuda"
+  compute_type: "int8_float16"
+  notes_folder: "Meetings"             # inside your Obsidian vault (obsidian.vault_path), if set
 
 # legacy: only used by the v0.1 Redis bus. PULSE v0.2 runs in-process, no Redis needed.
 redis:

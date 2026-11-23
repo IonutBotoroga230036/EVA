@@ -10,6 +10,7 @@ If no phone app is open, she says that plainly.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import re
 from datetime import datetime
@@ -17,11 +18,19 @@ from typing import Optional
 
 LOOP: Optional[asyncio.AbstractEventLoop] = None       # the server's loop, set at startup
 TIMEOUT_S = 12.0
+# Every open E.V.A. window (the server adds and removes them). It lives here, not in the server module: run as
+# `python -m interfaces.web.server_stream`, that module exists twice, and a second empty copy found no phone.
+CONNECTIONS: set = set()
+# The window this turn came from (set by the server for each turn; worker threads inherit it). Nov 23: an alarm
+# asked from the overlay went to the app page sleeping in the background, which never answered.
+CURRENT: contextvars.ContextVar = contextvars.ContextVar("eva_window", default=None)
+PHONE_CAPS = ("alarm", "timer", "reply", "volume", "send", "location", "record")
 
 
 def phones(cap: str) -> list:
-    from interfaces.web.server_stream import CONNECTIONS
-    return [c for c in list(CONNECTIONS) if cap in (getattr(c, "device_caps", None) or ())]
+    """Connected phone windows that can do `cap`, the most recently connected last."""
+    found = [c for c in list(CONNECTIONS) if cap in (getattr(c, "device_caps", None) or ())]
+    return sorted(found, key=lambda c: getattr(c, "connected_at", 0.0))
 
 
 def _ask(cap: str, action: str, args: dict) -> dict:
@@ -29,11 +38,18 @@ def _ask(cap: str, action: str, args: dict) -> dict:
     targets = phones(cap)
     if not targets or LOOP is None:
         return {"ok": False, "error": "no phone"}
-    fut = asyncio.run_coroutine_threadsafe(targets[-1].request_device(action, args, TIMEOUT_S), LOOP)
-    try:
-        return fut.result(TIMEOUT_S + 2)
-    except Exception as e:
-        return {"ok": False, "error": f"the phone didn't answer ({e.__class__.__name__})"}
+    here = CURRENT.get()
+    order = ([here] if here in targets else []) + [t for t in reversed(targets) if t is not here]
+    out: dict = {}
+    for target in order[:2]:              # the window you're talking to first, then the newest other one
+        fut = asyncio.run_coroutine_threadsafe(target.request_device(action, args, TIMEOUT_S), LOOP)
+        try:
+            out = fut.result(TIMEOUT_S + 2)
+        except Exception as e:
+            out = {"ok": False, "error": f"the phone didn't answer ({e.__class__.__name__})"}
+        if out.get("ok") or "didn't answer" not in str(out.get("error", "")):
+            return out
+    return out
 
 
 NO_PHONE = ("Your phone app isn't open, sir, so I can't reach your phone right now. Open E.V.A. on it and ask me "
@@ -130,6 +146,32 @@ def tool_phone_stay_dark(on: bool = True, **_):
     return {"result": json.dumps({"stay_dark": bool(on)}), "say": say, "exact": True}
 
 
+def tool_phone_ask_unlock(on: bool = True, **_):
+    """'Eva, work while locked' (on=False): email, calendar, notes and memories answer with the phone locked too.
+    'Ask me to unlock again' (on=True). Turning the asking OFF needs an unlocked phone once (orchestrator)."""
+    from core import phone_prefs
+    phone_prefs.set(ask_unlock=bool(on))
+    say = ("Alright, sir. I'll ask you to unlock for private things again." if on else
+           "Done, sir. Everything works with your phone locked now, private things too. Anyone who says my name "
+           "near it can hear them, so say 'ask me to unlock again' to switch it back.")
+    return {"result": json.dumps({"ask_unlock": bool(on)}), "say": say, "exact": True}
+
+
+def tool_phone_volume(level: int = 50, **_):
+    """The phone's own media volume (not Spotify's, not the PC's)."""
+    try:
+        level = max(0, min(100, int(level)))
+    except (TypeError, ValueError):
+        return {"result": json.dumps({"error": "no level"}), "say": "What level, sir?"}
+    out = _ask("volume", "set_volume", {"level": level})
+    if out.get("error") == "no phone":
+        return {"result": json.dumps({"error": "no phone"}), "say": NO_PHONE}
+    if not out.get("ok"):
+        return {"result": json.dumps({"error": out.get("error", "failed")}),
+                "say": f"Your phone couldn't change the volume, sir: {out.get('error', 'no reason given')}."}
+    return {"result": json.dumps({"phone_volume": level}), "say": f"Phone volume at {level} percent, sir."}
+
+
 SCHEMAS = [
     {"type": "function", "function": {"name": "phone_alarm", "description": "Set an alarm on the user's phone.",
      "parameters": {"type": "object", "properties": {"time": {"type": "string", "description": "e.g. 7:30 am"},
@@ -143,6 +185,18 @@ SCHEMAS.append({"type": "function", "function": {
     "description": "Whether the phone's screen stays off when the user calls E.V.A. with the screen off ('stay dark', "
                    "'stay dark off', 'light the screen when I call you').",
     "parameters": {"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]}}})
-FUNCTIONS = {"phone_alarm": tool_phone_alarm, "phone_timer": tool_phone_timer, "phone_stay_dark": tool_phone_stay_dark}
+SCHEMAS.append({"type": "function", "function": {
+    "name": "phone_ask_unlock",
+    "description": "Whether private things (email, calendar, notes, memories) need the phone unlocked: 'work while "
+                   "locked' / 'stop asking me to unlock' (on=false), 'ask me to unlock again' (on=true).",
+    "parameters": {"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]}}})
+SCHEMAS.append({"type": "function", "function": {
+    "name": "phone_volume",
+    "description": "Set the volume of the user's PHONE itself, 0 to 100 ('my phone volume to 50%'). Not Spotify's "
+                   "and not the computer's volume.",
+    "parameters": {"type": "object", "properties": {"level": {"type": "integer"}}, "required": ["level"]}}})
+FUNCTIONS = {"phone_alarm": tool_phone_alarm, "phone_timer": tool_phone_timer, "phone_stay_dark": tool_phone_stay_dark,
+             "phone_ask_unlock": tool_phone_ask_unlock, "phone_volume": tool_phone_volume}
 GUARDS = {"phone_alarm": r"\b(alarm|wake me)\b", "phone_timer": r"\btimer\b",
-          "phone_stay_dark": r"\b(dark|screen)\b"}
+          "phone_stay_dark": r"\b(dark|screen)\b", "phone_ask_unlock": r"\b(unlock|locked)\b",
+          "phone_volume": r"phone\b.*\b(volume|louder|quieter)\b|\b(volume|louder|quieter)\b.*phone\b"}

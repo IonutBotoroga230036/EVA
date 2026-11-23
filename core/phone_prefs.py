@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 
 PATH = Path("data/phone.json")
-DEFAULTS = {"stay_dark": False}       # stay dark: with the screen off, she answers by voice only, screen stays off
+DEFAULTS = {"stay_dark": False,       # stay dark: with the screen off, she answers by voice only, screen stays off
+            "ask_unlock": True}       # Nov 23: off = private things (email, calendar, notes) work locked too
 
 
 def get() -> dict:

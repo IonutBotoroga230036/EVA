@@ -49,6 +49,9 @@ from core.security.audit import audit
 from core.settings import get_settings, local_cfg
 from core.tools_native import ACTION_TOOLS as BUILTIN_ACTIONS
 from core.tools_native import ARG_FILLERS as BUILTIN_FILLERS
+from core.tools_native import CONFIRM_TOOLS as BUILTIN_CONFIRM
+from core.tools_native import SLOW_FILLERS as BUILTIN_SLOW_FILL
+from core.tools_native import ASK_TOOLS as BUILTIN_ASKS
 from core.tools_native import EXACT_TOOLS as BUILTIN_EXACT
 from core.tools_native import GUARDS as BUILTIN_GUARDS
 from core.tools_native import REGISTRY as BUILTIN_FUNCS
@@ -163,9 +166,9 @@ _FACTS = {
                             r"class(?:es)?|appointments?|lectures?)\b|\bnothing (?:on|scheduled|planned)\b|\byour "
                             r"(?:calendar|schedule) (?:is|looks)\b", re.I), ("calendar_",)),
     "email": (re.compile(r"\byou have (?:\d+|no|a|an|two|three|several) (?:new |unread )?(?:e-?mails?|messages?)\b|"
-                         r"\bno new (?:e-?mails?|messages?)\b|\binbox is\b", re.I), ("email_",)),
-    "weather": (re.compile(r"\b(?:it'?s|it is|it will be|expect|high of|low of|currently)\b[^.]{0,25}?-?\d+ ?(?:°|"
-                           r"degrees)|\b(?:sunny|rainy|cloudy|overcast|snow(?:y|ing)?|rain(?:ing)?) (?:today|tomorrow|"
+                         r"\bno new (?:e-?mails?|messages?)\b|\binbox is\b", re.I), ("email_", "messages_")),
+    "weather": (re.compile(r"\b(?:it'?s|it is|it will be|expect|high of|low of|currently|temperature)\b[^.]{0,30}?-?\d+ ?"
+                           r"(?:°|degrees)|\b(?:sunny|rainy|cloudy|overcast|snow(?:y|ing)?|rain(?:ing)?) (?:today|tomorrow|"
                            r"tonight|this (?:morning|afternoon|evening))\b", re.I), ("get_weather",)),
     "music": (re.compile(r"\b(?:music|song|playback|spotify)\b[^.]{0,25}\b(?:stopped|paused|resumed|will stop|"
                          r"will pause)\b|\b(?:lights?|music)\b[^.]{0,30}\bat \d{1,2}[:.]\d{2}\b", re.I),
@@ -205,13 +208,40 @@ LOCKED_OK = {"get_datetime", "get_weather", "calculate", "convert_currency", "cr
              "media_control", "set_volume", "spotify_play", "spotify_queue", "spotify_now_playing",
              "lights_power", "lights_set", "set_mood", "list_moods", "phone_alarm", "phone_timer",
              "later_list", "later_cancel", "keep_listening", "calendar_add", "set_reminder", "shopping_add",
-             "phone_stay_dark"}
+             "phone_stay_dark", "phone_volume", "spotify_volume", "set_brain_mode", "set_conversation_mode",
+             "place_remember", "place_reminder", "where_am_i", "meeting_record"}
 LOCKED_SAY = "Unlock your phone for that, sir, and I'll carry on."
 
 
+def _fine_locked(tool: str, args: dict) -> bool:
+    """Nov 23 ("the point is not touching the phone"): with 'Eva, work while locked' everything works locked.
+    Switching that ON needs one unlock (a stranger saying it to your locked phone must not); 'ask me to unlock
+    again' works locked."""
+    if tool == "phone_ask_unlock":
+        return bool((args or {}).get("on", True))
+    from core import phone_prefs
+    return not phone_prefs.get().get("ask_unlock", True)
+
+
+def _messages_when_locked(tool: str) -> bool:
+    """Reading and replying to messages hands-free with the phone locked (settings messages.when_locked, default on:
+    the point is not touching the phone; a reply still needs your spoken yes)."""
+    if tool not in ("messages_check", "message_reply"):
+        return False
+    from core import messages
+    return bool(messages.cfg().get("when_locked", True))
+
+
 _YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|do it|go ahead|go on|confirm(?:ed)?|ok(?:ay)?|please do|"
-                  r"affirmative|correct|absolutely|of course)\b", re.I)
-_NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forget it|leave it)\b", re.I)
+                  r"affirmative|correct|absolutely|of course|da|sigur|trimite|trimite-l|fă-o|fa-o)(?!\w)", re.I)
+_NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forget it|leave it|nu|anulează|anuleaza|"
+                 r"lasă|lasa)(?!\w)", re.I)
+# Nov 23: "Hey Eva, can you..." and a pause: the phone sent only "can you", and she answered a guess. Half a
+# sentence gets "Yes, sir?" and she listens for the rest.
+_DANGLING = re.compile(r"(?:(?:hey\s+)?eva[,.!]?\s*)?(?:(?:can|could|would|will) you(?: please)?|please|so|and|um+|uh+|"
+                       r"hmm+|i (?:want|need|would like) (?:you )?to|can i|let'?s|okay,? so|could i)[\s.,?!…]*", re.I)
+_CHANGE = re.compile(r"\b(?:change|different|instead|rewrite|re-?word|edit|something else|other (?:text|words))\b", re.I)
+_PHONE_WORD = re.compile(r"\b(?:i ?|my |the )?phone'?s?\b", re.I)      # Whisper hears "iPhone" for "my phone"
 _WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+)?(?:eva\b|e\.v\.a\.?)[\s,:!.-]*", re.I)
 
 
@@ -286,11 +316,12 @@ class ToolBelt:
         self.skill_funcs: dict[str, Callable] = registry.functions() if registry else {}
         self.skill_acks: dict[str, str] = registry.acks() if registry else {}
         self.guards: dict[str, str] = {**BUILTIN_GUARDS, **(registry.guards() if registry else {})}
-        self.confirm_text: dict[str, str] = registry.confirmations() if registry else {}
+        self.confirm_text: dict = {**BUILTIN_CONFIRM, **(registry.confirmations() if registry else {})}
+        self.slow_fill: set[str] = set(BUILTIN_SLOW_FILL)
         self.actions: set[str] = set(BUILTIN_ACTIONS) | (registry.actions() if registry else set())
         self.exact: set[str] = set(BUILTIN_EXACT)
         self.fillers: dict[str, Callable] = {**BUILTIN_FILLERS, **(registry.fillers() if registry else {})}
-        self.asks: dict[str, tuple] = registry.asks() if registry and hasattr(registry, "asks") else {}
+        self.asks: dict = {**BUILTIN_ASKS, **(registry.asks() if registry and hasattr(registry, "asks") else {})}
         schemas = list(BUILTIN_SCHEMAS)
         taken = {t["function"]["name"] for t in schemas}
         # built-ins first, then skills, then MCP: nothing can shadow a trusted tool
@@ -445,7 +476,9 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     if m and belt.has("shopping_add"):
         return "shopping_add", {"items": m.group(1)}
     m = re.search(r"(?:set |turn |change )?(?:the )?volume (?:to |at )?(\d{1,3})\s*%?", t, re.I)
-    if m and re.search(r"\b(spotify|phone)\b", t, re.I):   # "the Spotify volume": never the PC's volume
+    if m and _PHONE_WORD.search(t) and belt.has("phone_volume"):   # Nov 23: "my iPhone volume" changed the PC
+        return "phone_volume", {"level": volume_level(int(m.group(1)))}
+    if m and re.search(r"\bspotify\b", t, re.I):   # "the Spotify volume": never the PC's volume
         if belt.has("spotify_volume"):
             return "spotify_volume", {"level": volume_level(int(m.group(1)))}
         m = None
@@ -562,6 +595,15 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
                         r"(?:light|wake|turn on) the screen(?: when i call you| again)?|stop staying dark)[.!]*",
                         t.strip(), re.I):
             return "phone_stay_dark", {"on": False}
+    if belt.has("phone_ask_unlock"):
+        if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:(?:you can )?work (?:while|when) (?:the phone is |my phone is |it'?s )?"
+                        r"locked|(?:stop|don'?t|no more) ask(?:ing)? me to unlock(?: (?:it|my phone|the phone))?|"
+                        r"(?:i )?don'?t (?:want|need) to unlock(?: (?:it|my phone|the phone))?(?: anymore)?|"
+                        r"unlock (?:mode|setting) off)(?: please| anymore| from now on)?[.!]*", t.strip(), re.I):
+            return "phone_ask_unlock", {"on": False}
+        if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:ask me to unlock(?: (?:it|my phone|the phone))?(?: again)?"
+                        r"(?: for private things)?|unlock (?:mode|setting) on)(?: please)?[.!]*", t.strip(), re.I):
+            return "phone_ask_unlock", {"on": True}
     if belt.has("keep_listening"):
         if re.fullmatch(r"(?:(?:hey )?eva[,.]? )?(?:let'?s (?:talk|chat)(?: for a (?:bit|while))?|keep listening|"
                         r"(?:start |turn on )?conversation mode(?: on)?|just listen|talk to me)[.!]*", t.strip(), re.I):
@@ -698,7 +740,9 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
             re.findall(r"\bvolume(?: up| down)?(?: to| at)? (\d{1,3})\b", t, re.I)
         if nums:
             level = volume_level(int(nums[-1]))
-            if re.search(r"\b(spotify|phone)\b", t, re.I):
+            if _PHONE_WORD.search(t) and belt.has("phone_volume"):
+                return "phone_volume", {"level": level}
+            if re.search(r"\bspotify\b", t, re.I):
                 if belt.has("spotify_volume"):
                     return "spotify_volume", {"level": level}
             elif belt.has("set_volume"):
@@ -958,7 +1002,8 @@ class HybridOrchestrator:
             raise
 
     async def _run(self, tool: str, args: dict, gathered: list) -> AsyncIterator[dict]:
-        if getattr(self, "locked", False) and tool not in LOCKED_OK:
+        if getattr(self, "locked", False) and tool not in LOCKED_OK and not _messages_when_locked(tool) \
+                and not _fine_locked(tool, args):
             logger.info(f"LOCKED: {tool} waits for an unlock")
             self.after_unlock = (self._turn_input, time.time())
             yield {"type": "unlock"}
@@ -1006,6 +1051,34 @@ class HybridOrchestrator:
             return None
         self.awaiting = {"tool": tool, "args": args, "field": field, "ts": time.time()}
         return question.format_map(_Blank({k: v for k, v in args.items() if v}))
+
+    async def _place_rule(self, client, clean: str, place: str, event: str, once: bool, user_input: str,
+                          ctx: dict) -> str:
+        """Understood now, done when you arrive or leave: an action (decided now, like 'in 10 minutes') or a
+        reminder."""
+        from core import places as places_mod
+        pl = places_mod.get_places()
+        if place not in pl.data["places"]:
+            return (f"I don't know where {place} is yet, sir. When you're there, say 'remember this place as "
+                    f"{place}', and ask me again.")
+        when = places_mod.phrase(event, place)
+        m = re.match(r"^(?:please\s+)?(?:can you\s+)?(?:remind me|tell me|ask me)(?:\s+(?:to|that|about))?\s+(.+)$",
+                     clean, re.I)
+        if not m:
+            self._context(clean, ctx)
+            picked = await self._pick(client, clean, user_input, ctx, [], False)
+            if picked and self.belt.is_action(picked[0]) and not self.belt.needs_confirm(picked[0]):
+                pl.add_rule(place, event, clean, tool=picked[0], args=picked[1], once=once)
+                return f"Okay, sir: when you {when}, I'll {later_mod.tidy(clean)}."
+        what = (m.group(1) if m else clean).strip().rstrip(".")
+        pl.add_rule(place, event, what, once=once)
+        return f"Okay, sir: when you {when}, I'll remind you to {what}."
+
+    async def _fill(self, name: str, args: dict, text: str) -> dict:
+        """The tool's argument filler. A slow one (a reply translated to Romanian) runs off the event loop."""
+        if name in getattr(self.belt, "slow_fill", ()):
+            return await asyncio.to_thread(self.belt.fill, name, args, text)
+        return self.belt.fill(name, args, text)
 
     def _ask_confirmation(self, tool: str, args: dict, user_input: str, used: set) -> list[dict]:
         q = self._question(tool, args)
@@ -1159,8 +1232,9 @@ class HybridOrchestrator:
         return text, None
 
     # what puts things back the way they were, for "no, not now, in 20 minutes" after she already did it
-    _UNDO = {"media_control": lambda a: {"action": "playpause"} if a.get("action") == "playpause" else None,
-             "spotify_play": lambda a: {"action": "playpause"},
+    _UNDO = {"media_control": lambda a: {"playpause": {"action": "playpause"}, "pause": {"action": "play"},
+                                         "play": {"action": "pause"}}.get(a.get("action")),
+             "spotify_play": lambda a: {"action": "pause"},
              "lights_power": lambda a: {**a, "on": not a.get("on")}}
     _UNDO_TOOL = {"spotify_play": "media_control"}
 
@@ -1202,7 +1276,7 @@ class HybridOrchestrator:
         """Which tool, with which arguments, for one step. None when nothing fits or a guard says no."""
         fp = fast_path(step, self.belt)
         if fp:
-            return fp[0], self.belt.fill(fp[0], fp[1], step)
+            return fp[0], await self._fill(fp[0], fp[1], step)
         msgs = [*self.history[-MAX_HISTORY:-1], {"role": "user", "content": step}]
         decision = await self._decide(client, ctx["skills"], gathered if dependent else [], messages=msgs)
         tool = decision.get("tool", "none")
@@ -1213,9 +1287,9 @@ class HybridOrchestrator:
             logger.info(f"MULTI guard: {tool} blocked for {step!r}")
             return None
         schema = self.belt.by_name[tool]
-        args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), step)
+        args = await self._fill(tool, args_for(schema, decision, self.belt.names()), step)
         if missing_required(schema, args):
-            args = self.belt.fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool, msgs),
+            args = await self._fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool, msgs),
                                                             self.belt.names())}, step)
             if missing_required(schema, args):
                 return None
@@ -1256,12 +1330,20 @@ class HybridOrchestrator:
         batch, confirms, skipped = [], [], []
         skipped_q = None
         planned: list[str] = []
+        # Nov 23: "turn off the lights and stop the music in 10 minutes" ran both at once: the planner dropped the
+        # time words from both steps. When no step keeps its own time, the sentence's time is for every step.
+        # (relative times only: "the PC at 100" is a volume, not 1 o'clock)
+        whole_clean, whole = later_mod.split_delay(user_input)
+        own = any(later_mod.split_delay(s["command"])[1] for s in steps)
+        shared = whole if whole and not own and not later_mod.is_correction(whole_clean) else None
         for step in steps:
             if step["uses_previous"]:
                 async for ev in self._flush(batch, gathered):
                     yield ev
                 batch = []
             clean, delay = later_mod.split_delay(step["command"])
+            if not delay and shared and not step["uses_previous"]:
+                clean, delay = step["command"], shared
             if delay:                                      # "stop the music in 10 minutes": later, not now
                 later_pick = await self._pick(client, clean, user_input, ctx, gathered, step["uses_previous"])
                 if later_pick and self.belt.is_action(later_pick[0]):
@@ -1359,7 +1441,8 @@ class HybridOrchestrator:
         self.cortex.log_turn(self.session_id, "assistant", answer)
         self.bus.publish("turn.completed", {"session": self.session_id})
         memory_ops = {"remember_fact", "forget_memory", "forget_recent_facts", "add_instruction", "recall_memory"}
-        if self.mem_cfg.get("extract_facts", True) and not (used and used & memory_ops) and not conv:
+        if self.mem_cfg.get("extract_facts", True) and not (used and used & memory_ops) and not conv \
+                and not self.pending:                    # Nov 23: "Sent a message to Dan" was learned from a question
             task = asyncio.create_task(self._extract(user_input))
             self._bg.add(task)
             task.add_done_callback(self._bg.discard)
@@ -1372,7 +1455,35 @@ class HybridOrchestrator:
 
     # ------------------------------------------------------------ main loop
     async def process_stream(self, user_input: str) -> AsyncIterator[dict]:
+        """One turn. Spoken to in Romanian (v0.3.2, 9d): she understands it as usual and answers in Romanian, read
+        by the Romanian voice. Her streamed English words are held back and the finished answer is translated."""
+        from core import romanian
+        hint, self.reply_language = getattr(self, "reply_language", None), None
+        if hint != "ro" and not romanian.is_romanian(user_input):
+            async for ev in self._process_stream(user_input):
+                yield ev
+            return
+        logger.info("ROMANIAN: answering in Romanian")
+        async for ev in self._process_stream(user_input):
+            kind = ev.get("type")
+            if kind in ("token", "ack"):
+                continue                                  # English on the way; the Romanian answer comes whole
+            if kind == "final" and ev.get("text"):
+                ro = await asyncio.to_thread(romanian.translate, ev["text"], "ro", "assistant")
+                if ro and ro != ev["text"]:
+                    ev = {**ev, "text": ro, "replaced": True, "language": "ro"}
+                    for m in reversed(self.history):
+                        if m.get("role") == "assistant":
+                            m["content"] = ro              # so "say that again" repeats the Romanian
+                            break
+            yield ev
+
+    async def _process_stream(self, user_input: str) -> AsyncIterator[dict]:
         from core import activity
+        if _DANGLING.fullmatch((user_input or "").strip()):
+            logger.info(f"half a sentence ({user_input!r}): listening for the rest")
+            yield {"type": "final", "text": "Yes, sir?"}
+            return
         activity.mark()                                  # background GPU work steps aside
         if self._stale:
             self.refresh_tools()
@@ -1418,7 +1529,7 @@ class HybridOrchestrator:
                 loose_yes = (re.search(r"\b(yes|yeah|yep|sure|go ahead|do it|please do|correct|right)\b", user_input, re.I)
                              and len(user_input.split()) <= 10 and not _NO.search(user_input))
                 if fresh and (_YES.search(user_input) or loose_yes):
-                    extra = self.belt.fill(p["tool"], dict(p["args"]), user_input)      # "At 3 o'clock, yes"
+                    extra = await self._fill(p["tool"], dict(p["args"]), user_input)      # "At 3 o'clock, yes"
                     p["args"] = {**p["args"], **{k: extra[k] for k in ("day", "time", "when", "hour", "level")
                                                  if extra.get(k) and extra.get(k) != p["args"].get(k)}}
                     audit.log("confirm_granted", "orchestrator", {"tool": p["tool"]})
@@ -1435,6 +1546,16 @@ class HybridOrchestrator:
                                 ev = {"type": "final", "text": answer}
                         yield ev
                     self._finish(user_input, answer, used)
+                    return
+                spec = self.belt.asks.get(p["tool"])
+                if fresh and not callable(spec) and spec and _CHANGE.search(user_input):
+                    # Nov 23: "no, change the message" read the message out again instead of asking for a new one
+                    field, question = spec
+                    args = {k: v for k, v in p["args"].items() if k not in (field, "final", "language", "untranslated")}
+                    self.awaiting = {"tool": p["tool"], "args": args, "field": field, "ts": time.time()}
+                    text = question.format_map(_Blank({k: v for k, v in args.items() if v}))
+                    self._finish(user_input, text, used)
+                    yield {"type": "final", "text": text}
                     return
                 if fresh and _NO.search(user_input):
                     audit.log("confirm_denied", "orchestrator", {"tool": p["tool"]})
@@ -1460,6 +1581,8 @@ class HybridOrchestrator:
                         yield {"type": "final", "text": text}
                         return
                     args = {**a["args"], a["field"]: user_input.strip()}
+                    if a["tool"] in getattr(self.belt, "slow_fill", ()):     # the message, now in Romanian for Mom
+                        args = await self._fill(a["tool"], {**args, "final": False}, user_input)
                     if self.belt.needs_confirm(a["tool"]):
                         for ev in self._ask_confirmation(a["tool"], args, user_input, used):
                             yield ev
@@ -1472,6 +1595,16 @@ class HybridOrchestrator:
                         answer = ev["text"] if ev["type"] == "final" else answer
                         yield ev
                     self._finish(user_input, answer, used)
+                    return
+
+            # 0a. "when I get home, turn on the lights" / "remind me to buy milk when I leave work" (Nov 23)
+            if not fp_override and self.belt.has("place_reminder"):
+                from core import places as places_mod
+                t_clean, t_place, t_event, once = places_mod.split_trigger(user_input)
+                if t_place and t_clean:
+                    text = await self._place_rule(client, t_clean, t_place, t_event, once, user_input, ctx)
+                    self._finish(user_input, text, used)
+                    yield {"type": "final", "text": text}
                     return
 
             # 0b. several commands in one sentence (v0.2.5): plan, run, one combined answer
@@ -1508,7 +1641,7 @@ class HybridOrchestrator:
             # 1. fast path: no LLM, no embeddings
             fp = fp_override or fast_path(user_input, self.belt)
             if fp:
-                tool, args = fp[0], self.belt.fill(fp[0], fp[1], user_input)
+                tool, args = fp[0], await self._fill(fp[0], fp[1], user_input)
                 if self.belt.needs_confirm(tool):
                     for ev in self._ask_confirmation(tool, args, user_input, used):
                         yield ev
@@ -1554,16 +1687,16 @@ class HybridOrchestrator:
                         if self.belt.is_action(tool) and not gathered and not self.belt.needs_confirm(tool):
                             # never let the model claim or deny it: ask about the exact action instead
                             schema = self.belt.by_name[tool]
-                            args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), user_input)
+                            args = await self._fill(tool, args_for(schema, decision, self.belt.names()), user_input)
                             if not missing_required(schema, args):
                                 for ev in self._ask_confirmation(tool, args, user_input, used):
                                     yield ev
                                 return
                         break
                     schema = self.belt.by_name[tool]
-                    args = self.belt.fill(tool, args_for(schema, decision, self.belt.names()), user_input)
+                    args = await self._fill(tool, args_for(schema, decision, self.belt.names()), user_input)
                     if missing_required(schema, args):
-                        args = self.belt.fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool),
+                        args = await self._fill(tool, {**args, **args_for(schema, await self._repair_args(client, tool),
                                                                         self.belt.names())}, user_input)
                         if missing_required(schema, args):
                             logger.warning(f"{tool}: still missing {missing_required(schema, args)}; skipping")
@@ -1590,6 +1723,8 @@ class HybridOrchestrator:
                         succeeded.add(tool)
                     if self.belt.is_action(tool) and ok:
                         break                      # an action is the whole job; don't chain more
+                    if ok and out.get("say") and (tool in self.belt.exact or out.get("exact")):
+                        break                      # Nov 23: "any messages?" then 27 s deciding what else to do
                     if self.belt.is_action(tool) and not ok and out.get("say"):
                         break                      # it failed and said why honestly: don't retry blindly
 
