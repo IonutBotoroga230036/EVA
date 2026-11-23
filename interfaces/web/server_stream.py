@@ -429,6 +429,39 @@ async def phone_message(body: dict):
     return out
 
 
+@app.post("/api/phone/location")
+async def phone_location(body: dict):
+    """Nov 23: where the phone is {lat, lon, acc, ts}. Fires your place rules (reminders, actions) and answers
+    {say, audio} for the phone to speak when it isn't showing E.V.A."""
+    import base64
+    from core import places
+    try:
+        lat, lon = float(body["lat"]), float(body["lon"])
+        acc = float(body.get("acc") or 50.0)
+    except (KeyError, TypeError, ValueError):
+        return JSONResponse({"detail": "lat and lon are needed"}, status_code=400)
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return JSONResponse({"detail": "out of range"}, status_code=400)
+    ts = body.get("ts")
+    fired = places.get_places().update(lat, lon, acc, float(ts) if isinstance(ts, (int, float)) else None)
+    lines = []
+    for f in fired:
+        r = f["rule"]
+        if r.get("tool"):
+            from core.orchestrator_hybrid import ToolBelt
+            out = await ToolBelt(get_registry(), None).aexecute(r["tool"], r.get("args") or {})
+            lines.append(out.get("say") or f"Done, sir: {r['text']}.")
+        else:
+            lines.append(f"Reminder, sir: {r['text']}.")
+    if not lines:
+        return {"ok": True, "say": "", "audio": ""}
+    text = " ".join(lines)
+    await broadcast(text)
+    tts = get_tts()
+    wav = await asyncio.to_thread(tts.synth, text) if tts else None
+    return {"ok": True, "say": text, "audio": base64.b64encode(wav).decode() if wav else ""}
+
+
 class _DarkPhone:
     """Stands in for the phone app during a screen-off conversation, so alarms and timers still work: the actions
     go back to the phone in the answer and it runs them (it says so if it can't, on the next wake)."""

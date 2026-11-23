@@ -72,11 +72,18 @@ class WakeService : Service() {
         }
         val note = notification("Listening for \"Eva\"")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            startForeground(NOTE_ID, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            val located = EvaLocation.wanted(this)            // Nov 23: location rides on this service
+            try {
+                startForeground(NOTE_ID, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    (if (located) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0))
+            } catch (e: SecurityException) {                    // location not allowed right now: the mic still works
+                startForeground(NOTE_ID, note, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            }
         } else {
             startForeground(NOTE_ID, note)
         }
         instance = this
+        EvaLocation.start(this)
         try {
             android.webkit.WebView(applicationContext).destroy()   // loads the web engine now, not after "Eva"
         } catch (_: Exception) {}
@@ -87,7 +94,11 @@ class WakeService : Service() {
         return START_NOT_STICKY            // a microphone service can't restart itself from the background anyway
     }
 
+    /** Something the PC wants said (a location reminder), through the same speaker path as her answers. */
+    fun speak(b64: String) = play(b64)
+
     override fun onDestroy() {
+        EvaLocation.stop(this)
         running = false
         worker?.interrupt()
         releaseRecorder()

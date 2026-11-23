@@ -164,6 +164,10 @@ def no_real_romanian_or_messages(tmp_path, monkeypatch):
     monkeypatch.setattr(messages, "_inbox", None)
     import core.phone_prefs as phone_prefs            # never your real data/phone.json (stay dark, unlock)
     monkeypatch.setattr(phone_prefs, "PATH", tmp_path / "phone.json")
+    import core.places as places                      # never your real places or location history
+    monkeypatch.setattr(places, "PATH", tmp_path / "places.json")
+    monkeypatch.setattr(places, "HISTORY", tmp_path / "location_history.jsonl")
+    monkeypatch.setattr(places, "_places", None)
     import core.device as device                      # no windows left over from another test
     device.CONNECTIONS.clear()
     yield

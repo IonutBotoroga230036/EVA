@@ -207,7 +207,8 @@ LOCKED_OK = {"get_datetime", "get_weather", "calculate", "convert_currency", "cr
              "media_control", "set_volume", "spotify_play", "spotify_queue", "spotify_now_playing",
              "lights_power", "lights_set", "set_mood", "list_moods", "phone_alarm", "phone_timer",
              "later_list", "later_cancel", "keep_listening", "calendar_add", "set_reminder", "shopping_add",
-             "phone_stay_dark", "phone_volume", "spotify_volume", "set_brain_mode", "set_conversation_mode"}
+             "phone_stay_dark", "phone_volume", "spotify_volume", "set_brain_mode", "set_conversation_mode",
+             "place_remember", "place_reminder", "where_am_i"}
 LOCKED_SAY = "Unlock your phone for that, sir, and I'll carry on."
 
 
@@ -1049,6 +1050,28 @@ class HybridOrchestrator:
         self.awaiting = {"tool": tool, "args": args, "field": field, "ts": time.time()}
         return question.format_map(_Blank({k: v for k, v in args.items() if v}))
 
+    async def _place_rule(self, client, clean: str, place: str, event: str, once: bool, user_input: str,
+                          ctx: dict) -> str:
+        """Understood now, done when you arrive or leave: an action (decided now, like 'in 10 minutes') or a
+        reminder."""
+        from core import places as places_mod
+        pl = places_mod.get_places()
+        if place not in pl.data["places"]:
+            return (f"I don't know where {place} is yet, sir. When you're there, say 'remember this place as "
+                    f"{place}', and ask me again.")
+        when = places_mod.phrase(event, place)
+        m = re.match(r"^(?:please\s+)?(?:can you\s+)?(?:remind me|tell me|ask me)(?:\s+(?:to|that|about))?\s+(.+)$",
+                     clean, re.I)
+        if not m:
+            self._context(clean, ctx)
+            picked = await self._pick(client, clean, user_input, ctx, [], False)
+            if picked and self.belt.is_action(picked[0]) and not self.belt.needs_confirm(picked[0]):
+                pl.add_rule(place, event, clean, tool=picked[0], args=picked[1], once=once)
+                return f"Okay, sir: when you {when}, I'll {later_mod.tidy(clean)}."
+        what = (m.group(1) if m else clean).strip().rstrip(".")
+        pl.add_rule(place, event, what, once=once)
+        return f"Okay, sir: when you {when}, I'll remind you to {what}."
+
     async def _fill(self, name: str, args: dict, text: str) -> dict:
         """The tool's argument filler. A slow one (a reply translated to Romanian) runs off the event loop."""
         if name in getattr(self.belt, "slow_fill", ()):
@@ -1558,6 +1581,16 @@ class HybridOrchestrator:
                         answer = ev["text"] if ev["type"] == "final" else answer
                         yield ev
                     self._finish(user_input, answer, used)
+                    return
+
+            # 0a. "when I get home, turn on the lights" / "remind me to buy milk when I leave work" (Nov 23)
+            if not fp_override and self.belt.has("place_reminder"):
+                from core import places as places_mod
+                t_clean, t_place, t_event, once = places_mod.split_trigger(user_input)
+                if t_place and t_clean:
+                    text = await self._place_rule(client, t_clean, t_place, t_event, once, user_input, ctx)
+                    self._finish(user_input, text, used)
+                    yield {"type": "final", "text": text}
                     return
 
             # 0b. several commands in one sentence (v0.2.5): plan, run, one combined answer

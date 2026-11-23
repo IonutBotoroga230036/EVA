@@ -757,4 +757,13 @@ ARG_FILLERS["message_reply"] = _messages.fill_reply
 ACTION_TOOLS |= {"message_reply"}
 EXACT_TOOLS |= {"messages_check", "message_reply"}
 CONFIRM_TOOLS = dict(_messages.CONFIRM)
+
+# ---------------------------------------------------------------- places (Nov 23)
+from core import places as _places  # noqa: E402
+
+TOOL_SCHEMAS += _places.SCHEMAS
+REGISTRY.update(_places.FUNCTIONS)
+GUARDS.update(_places.GUARDS)
+ACTION_TOOLS |= _places.ACTIONS
+EXACT_TOOLS |= _places.EXACT
 SLOW_FILLERS = {"message_reply"}

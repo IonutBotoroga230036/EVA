@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Nov 23: place reminders ("when I get home"), "where did I park". Only while Location is on in the menu. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
 
     <application
         android:label="E.V.A."
@@ -47,7 +51,7 @@
         <service
             android:name=".WakeService"
             android:exported="false"
-            android:foregroundServiceType="microphone"/>
+            android:foregroundServiceType="microphone|location"/>
         <!-- v0.3.2 (9c): WhatsApp and Instagram messages. Works only after you allow "Notification access"
              for E.V.A. in Android settings, and only while "Messages" is on in the app's menu. -->
         <service

@@ -55,6 +55,10 @@ class MainActivity : FlutterActivity() {
                     "messagesStatus" -> result.success(mapOf(
                         "on" to MessageListener.enabled(this), "access" to MessageListener.accessGranted(this)))
                     "setMessages" -> result.success(setMessages(call.argument<Boolean>("on") ?: false))
+                    // Nov 23: location for place reminders (EvaLocation, inside the hands-free service)
+                    "locationStatus" -> result.success(mapOf("on" to EvaLocation.isOn(this),
+                        "allowed" to EvaLocation.allowed(this)))
+                    "setLocation" -> result.success(setLocation(call.argument<Boolean>("on") ?: false))
                     else -> result.notImplemented()
                 }
             }
@@ -87,6 +91,23 @@ class MainActivity : FlutterActivity() {
         getSharedPreferences("eva_wake", MODE_PRIVATE).edit().putString("audio", audio).apply()
         WakeService.start(this, address, token)
         return "started"
+    }
+
+    /** "on" (hands-free restarts with location), "permission" (Android asked), or "off". */
+    private fun setLocation(on: Boolean): String {
+        EvaLocation.setOn(this, on)
+        if (on && !EvaLocation.allowed(this)) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION), LOCATION_REQUEST)
+            return "permission"
+        }
+        val a = WakeService.address
+        val t = WakeService.token
+        if (WakeService.instance != null && a != null && t != null) {   // restart so the service gains location
+            WakeService.stop(this)
+            WakeService.start(this, a, t)
+        }
+        return if (on) "on" else "off"
     }
 
     /** "on", "access" (Android's Notification access screen opened: allow E.V.A., come back) or "off". */
@@ -152,5 +173,6 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val MIC_REQUEST = 7001
         private const val NOTIFY_REQUEST = 7002
+        private const val LOCATION_REQUEST = 7003
     }
 }

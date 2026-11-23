@@ -90,7 +90,7 @@ class EvaScreen extends StatefulWidget {
 class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
   WebViewController? controller;
   String? error;
-  bool micAllowed = false, listenWhenLoaded = false, handsFree = false, messagesOn = false;
+  bool micAllowed = false, listenWhenLoaded = false, handsFree = false, messagesOn = false, locationOn = false;
 
   @override
   void initState() {
@@ -166,6 +166,8 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
     await _native.invokeMethod('setLink', {'address': widget.address.toString(), 'token': widget.token});
     final ms = await _native.invokeMethod<Map>('messagesStatus');
     messagesOn = ms?['on'] == true;
+    final ls = await _native.invokeMethod<Map>('locationStatus');
+    locationOn = ls?['on'] == true;
     setState(() {
       controller = c;
       error = null;
@@ -230,6 +232,20 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  /// Nov 23: location for "remind me when I get home" and "where did I park" (needs Hands-free on).
+  Future<void> _setLocation(bool on) async {
+    final r = await _native.invokeMethod<String>('setLocation', {'on': on});
+    locationOn = on;
+    if (!mounted) return;
+    final msg = {
+          'on': handsFree ? 'Location on: place reminders work now.' : 'Location on. It works while Hands-free is on.',
+          'permission': 'Allow location for E.V.A. ("While using the app" is enough), then turn Hands-free off and on.',
+          'off': 'Location off: E.V.A. no longer knows where your phone is.',
+        }[r] ??
+        'Location: $r';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   void _tapMic() => controller?.runJavaScript("window.dispatchEvent(new CustomEvent('eva:mic'))");
 
   Future<void> _menu() async {
@@ -249,6 +265,11 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
             title: Text(messagesOn ? 'Messages: on' : 'Messages: off'),
             subtitle: const Text('She tells you which WhatsApp and Instagram messages matter'),
             onTap: () => Navigator.pop(context, 'messages')),
+        ListTile(
+            leading: Icon(locationOn ? Icons.location_on : Icons.location_off),
+            title: Text(locationOn ? 'Location: on' : 'Location: off'),
+            subtitle: const Text('Reminders when you arrive or leave a place'),
+            onTap: () => Navigator.pop(context, 'location')),
         ListTile(leading: const Icon(Icons.settings_outlined), title: const Text('Connection settings'), onTap: () => Navigator.pop(context, 'settings')),
         ListTile(leading: const Icon(Icons.close), title: const Text('Leave E.V.A.'), onTap: () => Navigator.pop(context, 'leave')),
       ])),
@@ -257,6 +278,8 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
       await _setHandsFree(!handsFree);
     } else if (choice == 'messages') {
       await _setMessages(!messagesOn);
+    } else if (choice == 'location') {
+      await _setLocation(!locationOn);
     } else if (choice == 'reload') {
       setState(() => error = null);
       await controller?.reload();
