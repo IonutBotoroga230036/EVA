@@ -198,9 +198,12 @@ class MessageListener : NotificationListenerService() {
             return try {
                 val uri = android.net.Uri.parse("https://api.whatsapp.com/send?phone=$number&text=" +
                     android.net.Uri.encode(text))
+                val auto = EvaSend.enabled(ctx)                  // Nov 23: press Send too, if you turned it on
+                val km = ctx.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+                if (auto) EvaSend.expect(text, km.isKeyguardLocked)
                 ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage("com.whatsapp")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                mapOf("ok" to true, "opened" to true)
+                mapOf("ok" to true, "opened" to true, "auto" to auto, "locked" to km.isKeyguardLocked)
             } catch (e: Exception) {
                 mapOf("ok" to false, "error" to "WhatsApp didn't open (${e.javaClass.simpleName})")
             }

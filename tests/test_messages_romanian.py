@@ -243,7 +243,11 @@ def test_a_new_message_when_there_is_nothing_to_reply_to(monkeypatch):
     assert asked == [("send_message", {"to": "Mom", "names": ["Mom", "Mama", "Mami", "Mum"], "number": "40712345678",
                                        "app": "WhatsApp", "text": "Sunt pe drum."})]
     monkeypatch.setattr(dev, "_ask", lambda *a: {"ok": True, "opened": True})
-    assert messages.tool_message_reply(to="Mom", text="x")["say"] == "It's written in your chat with Mom, sir. Tap send."
+    assert messages.tool_message_reply(to="Mom", text="x")["say"].startswith("It's written in your chat with Mom, sir. Tap send.")
+    monkeypatch.setattr(dev, "_ask", lambda *a: {"ok": True, "opened": True, "auto": True})
+    assert messages.tool_message_reply(to="Mom", text="x")["say"] == "It's in your chat with Mom, and I'm pressing send, sir."
+    monkeypatch.setattr(dev, "_ask", lambda *a: {"ok": True, "opened": True, "auto": True, "locked": True})
+    assert "Unlock your phone and I'll press send" in messages.tool_message_reply(to="Mom", text="x")["say"]
     monkeypatch.setattr(messages, "cfg", lambda: dict(messages.DEFAULTS))
     monkeypatch.setattr(dev, "_ask", lambda *a: {"ok": False, "error": "no chat"})
     assert "I don't have their number" in messages.tool_message_reply(to="Dan", text="hi")["say"]
@@ -457,4 +461,16 @@ def test_a_message_from_earlier_in_the_conversation_is_not_reused():
     args = messages.fill_reply({"to": "Mom", "app": "whatsapp", "language": "ro",
                                 "text": "Mulțumesc, mamă, că ești mereu lângă mine."}, "reply to my mum")
     assert "text" not in args
+
+
+def test_the_phone_says_it_only_opened_the_chat():
+    """Nov 23 11:55: she said 'Sent to Mom' while WhatsApp only showed the text: 'opened' was dropped on the way."""
+    import interfaces.web.server_stream as srv
+    src = Path(srv.__file__).read_text(encoding="utf-8")
+    assert 'for k in ("opened", "auto", "locked") if k in data' in src
+    base = Path("apps/eva_android/android_overlay/app/src/main")
+    send = (base / "kotlin/nl/ionut/eva_android/EvaSend.kt").read_text(encoding="utf-8")
+    assert "if (typed != text.trim()) return" in send               # only ever the exact approved text
+    assert "BIND_ACCESSIBILITY_SERVICE" in (base / "AndroidManifest.xml").read_text(encoding="utf-8")
+    assert 'android:packageNames="com.whatsapp,com.whatsapp.w4b"' in (base / "res/xml/eva_accessibility.xml").read_text(encoding="utf-8")
 

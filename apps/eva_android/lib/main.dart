@@ -90,7 +90,8 @@ class EvaScreen extends StatefulWidget {
 class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
   WebViewController? controller;
   String? error;
-  bool micAllowed = false, listenWhenLoaded = false, handsFree = false, messagesOn = false, locationOn = false;
+  bool micAllowed = false, listenWhenLoaded = false, handsFree = false, messagesOn = false, locationOn = false,
+      autoSend = false;
 
   @override
   void initState() {
@@ -166,6 +167,7 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
     await _native.invokeMethod('setLink', {'address': widget.address.toString(), 'token': widget.token});
     final ms = await _native.invokeMethod<Map>('messagesStatus');
     messagesOn = ms?['on'] == true;
+    autoSend = ms?['autoSend'] == true;
     final ls = await _native.invokeMethod<Map>('locationStatus');
     locationOn = ls?['on'] == true;
     setState(() {
@@ -265,6 +267,12 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
             title: Text(messagesOn ? 'Messages: on' : 'Messages: off'),
             subtitle: const Text('She tells you which WhatsApp and Instagram messages matter'),
             onTap: () => Navigator.pop(context, 'messages')),
+        if (messagesOn)
+          ListTile(
+              leading: Icon(autoSend ? Icons.send : Icons.send_outlined),
+              title: Text(autoSend ? 'Send without tapping: on' : 'Send without tapping: off'),
+              subtitle: const Text('She presses Send in WhatsApp after your yes'),
+              onTap: () => Navigator.pop(context, 'autosend')),
         ListTile(
             leading: Icon(locationOn ? Icons.location_on : Icons.location_off),
             title: Text(locationOn ? 'Location: on' : 'Location: off'),
@@ -278,6 +286,13 @@ class _EvaScreenState extends State<EvaScreen> with WidgetsBindingObserver {
       await _setHandsFree(!handsFree);
     } else if (choice == 'messages') {
       await _setMessages(!messagesOn);
+    } else if (choice == 'autosend') {
+      await _native.invokeMethod('openAutoSend');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Turn on "E.V.A. send" (if it is greyed out: App info > menu > Allow restricted settings). '
+                'Turn it off there to stop.')));
+      }
     } else if (choice == 'location') {
       await _setLocation(!locationOn);
     } else if (choice == 'reload') {

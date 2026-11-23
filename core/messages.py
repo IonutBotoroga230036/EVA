@@ -341,9 +341,15 @@ def tool_message_reply(to: str = "", text: str = "", app: str = "", **_):
     if out.get("error") == "no phone":
         return {"result": json.dumps({"error": "no phone"}), "say": device.NO_PHONE, "exact": True}
     if out.get("ok") and out.get("opened"):
-        logger.info(f"MESSAGES: chat with {who} opened with the text ready")
-        return {"result": json.dumps({"opened": True, "to": who}),
-                "say": f"It's written in your chat with {who}, sir. Tap send.", "exact": True}
+        logger.info(f"MESSAGES: chat with {who} opened with the text ready (auto-send: {bool(out.get('auto'))})")
+        if out.get("auto") and out.get("locked"):
+            say = f"It's in your chat with {who}, sir. Unlock your phone and I'll press send."
+        elif out.get("auto"):
+            say = f"It's in your chat with {who}, and I'm pressing send, sir."
+        else:
+            say = (f"It's written in your chat with {who}, sir. Tap send. To skip that, turn on 'Send without "
+                   f"tapping' in the app menu.")
+        return {"result": json.dumps({"opened": True, "to": who}), "say": say, "exact": True}
     if not out.get("ok"):
         reason = out.get("error") or "no reason given"
         if reason == "no chat":

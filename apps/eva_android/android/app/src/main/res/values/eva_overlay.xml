@@ -9,4 +9,7 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
+    <!-- Nov 23: shown in Android's Accessibility settings for E.V.A. send -->
+    <string name="eva_send_label">E.V.A. send</string>
+    <string name="eva_send_description">Presses WhatsApp\'s Send button for a message you approved by voice, right after E.V.A. opens the chat with it. Nothing else: no reading, no other apps.</string>
 </resources>

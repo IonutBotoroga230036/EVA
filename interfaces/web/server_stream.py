@@ -1076,7 +1076,9 @@ class Connection:
                 elif kind == "device_result":
                     fut = self._device_waits.get(str(data.get("id")))
                     if fut and not fut.done():
-                        fut.set_result({"ok": bool(data.get("ok")), "error": str(data.get("error") or "")[:200]})
+                        fut.set_result({"ok": bool(data.get("ok")), "error": str(data.get("error") or "")[:200],
+                                        # Nov 23: "opened" (WhatsApp shows the text) was lost, so she said "Sent"
+                                        **{k: bool(data[k]) for k in ("opened", "auto", "locked") if k in data}})
                 elif kind in ("listen", "speaking", "audio_format"):
                     await self.on_control(data)
                 elif kind == "device_state":               # v0.3 9b: the phone overlay, locked or not

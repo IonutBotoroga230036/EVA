@@ -54,7 +54,12 @@ class MainActivity : FlutterActivity() {
                     "setLink" -> result.success(EvaLink.set(
                         call.argument<String>("address") ?: "", call.argument<String>("token") ?: ""))
                     "messagesStatus" -> result.success(mapOf(
-                        "on" to MessageListener.enabled(this), "access" to MessageListener.accessGranted(this)))
+                        "on" to MessageListener.enabled(this), "access" to MessageListener.accessGranted(this),
+                        "autoSend" to EvaSend.enabled(this)))
+                    "openAutoSend" -> {                  // Nov 23: Android's Accessibility screen (E.V.A. send)
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        result.success(true)
+                    }
                     "setMessages" -> result.success(setMessages(call.argument<Boolean>("on") ?: false))
                     // Nov 23: location for place reminders (EvaLocation, inside the hands-free service)
                     "locationStatus" -> result.success(mapOf("on" to EvaLocation.isOn(this),
