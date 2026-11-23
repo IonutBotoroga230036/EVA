@@ -15,6 +15,7 @@ from __future__ import annotations
 import colorsys
 import json
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -80,24 +81,66 @@ class Light:
                 import tinytuya
                 self._d = tinytuya.BulbDevice(dev_id=self.dev["id"], address=self.dev.get("ip") or "Auto",
                                               local_key=self.dev["key"], version=float(self.dev.get("version") or 3.3))
-                self._d.set_socketTimeout(4)
+                # Nov 23: "lights on" took 80 s. tinytuya's defaults retry 5 times x 4 s per step; fail fast,
+                # then look for the strip on the network once (its IP may have changed) and keep the new IP.
+                self._d.set_socketTimeout(2.5)
+                for name, value in (("set_socketRetryLimit", 1), ("set_socketRetryDelay", 0.3)):
+                    if hasattr(self._d, name):
+                        getattr(self._d, name)(value)
         return self._d
+
+    def _rediscover(self) -> bool:
+        if self._factory:
+            return False
+        try:
+            import tinytuya
+            found = tinytuya.find_device(dev_id=self.dev["id"]) or {}
+        except Exception as e:
+            logger.warning(f"LIGHTS: couldn't search for {self.name} ({e})")
+            return False
+        ip = found.get("ip")
+        if not ip or ip == self.dev.get("ip"):
+            return False
+        logger.info(f"LIGHTS: {self.name} moved to {ip}; remembering it")
+        self.dev = {**self.dev, "ip": ip, "version": found.get("version") or self.dev.get("version")}
+        self._d = None
+        remember_ip(self.dev["id"], ip, self.dev.get("version"))
+        return True
 
     def apply(self, on: Optional[bool] = None, rgb=None, white: Optional[int] = None,
               brightness: Optional[int] = None) -> None:
+        t0 = time.monotonic()
+        try:
+            self._apply(on, rgb, white, brightness)
+        except ConnectionError:
+            if not self._rediscover():
+                raise
+            self._apply(on, rgb, white, brightness)
+        took = time.monotonic() - t0
+        if took > 3:
+            logger.info(f"LIGHTS: {self.name} took {took:.1f} s")
+
+    @staticmethod
+    def _check(result) -> None:
+        """tinytuya returns its errors instead of raising them."""
+        if isinstance(result, dict) and result.get("Error"):
+            raise ConnectionError(f"{result.get('Error')} ({result.get('Err', '')})")
+
+    def _apply(self, on, rgb, white, brightness) -> None:
         d = self._device()
+        check = self._check
         if on is False:
-            d.turn_off()
+            check(d.turn_off())
             return
-        d.turn_on()
+        check(d.turn_on())
         if rgb is not None:
-            # tinytuya sets colour at full value; brightness follows as a separate step
-            d.set_colour(*rgb)
+            check(d.set_colour(*rgb))
         elif white is not None:
-            d.set_white_percentage(brightness or 80, white)
+            check(d.set_white_percentage(brightness or 80, white))
             return
         if brightness is not None:
-            d.set_brightness_percentage(brightness)
+            check(d.set_brightness_percentage(brightness))
+
 
 
 class Lights:
@@ -127,6 +170,25 @@ class Lights:
             for name, err in ex.map(run, targets):
                 (failed if err else ok).append(name)
         return ok, failed
+
+
+def remember_ip(dev_id: str, ip: str, version=None, folder: Optional[Path] = None) -> None:
+    """Write a strip's new IP into snapshot.json, so the next start uses it straight away."""
+    path = Path(folder or DIR) / "snapshot.json"
+    try:
+        snap = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        snap = {"devices": []}
+    devs = snap.setdefault("devices", [])
+    hit = next((d for d in devs if d.get("id") == dev_id), None)
+    if hit is None:
+        devs.append({"id": dev_id, "ip": ip, **({"ver": version} if version else {})})
+    else:
+        hit["ip"] = ip
+    try:
+        path.write_text(json.dumps(snap, indent=1), encoding="utf-8")
+    except OSError as e:
+        logger.warning(f"LIGHTS: couldn't save the new IP ({e})")
 
 
 def load_devices(folder: Path = DIR) -> list[dict]:

@@ -757,6 +757,7 @@ ARG_FILLERS["message_reply"] = _messages.fill_reply
 ACTION_TOOLS |= {"message_reply"}
 EXACT_TOOLS |= {"messages_check", "message_reply"}
 CONFIRM_TOOLS = dict(_messages.CONFIRM)
+ASK_TOOLS = dict(_messages.ASKS)            # "What should I tell Mom, sir?"
 
 # ---------------------------------------------------------------- places (Nov 23)
 from core import places as _places  # noqa: E402

@@ -136,3 +136,42 @@ def test_wizard_output_is_read_with_ips_and_only_lights(tmp_path):
                                             encoding="utf-8")
     assert load_devices(tmp_path) == [{"id": "a", "key": "k1", "name": "Desk strip", "version": "3.3",
                                        "ip": "192.168.1.50"}]
+
+
+def test_an_unreachable_strip_is_found_at_its_new_address(monkeypatch, tmp_path):
+    """Nov 23: 'lights on' took 80 s. tinytuya returns errors instead of raising; she now notices, searches once
+    for the strip's new IP, and keeps it."""
+    import tinytuya
+
+    class Strip:
+        def __init__(self, ip):
+            self.ip, self.log = ip, []
+
+        def turn_on(self):
+            return {"Error": "Network Error: Unable to Connect", "Err": "901"} if self.ip == "10.0.0.5" else self.log.append("on")
+
+        def set_socketTimeout(self, s):
+            pass
+    made = []
+    monkeypatch.setattr(tinytuya, "BulbDevice", lambda dev_id, address, local_key, version: made.append(Strip(address)) or made[-1])
+    monkeypatch.setattr(tinytuya, "find_device", lambda dev_id=None, address=None: {"ip": "10.0.0.9", "version": "3.5"})
+    monkeypatch.setattr(cl, "DIR", tmp_path)
+    light = cl.Light({"id": "a", "key": "k", "name": "Led", "ip": "10.0.0.5"})
+    light.apply(on=True)
+    assert [s.ip for s in made] == ["10.0.0.5", "10.0.0.9"] and made[-1].log == ["on"]
+    assert json.loads((tmp_path / "snapshot.json").read_text(encoding="utf-8"))["devices"][0]["ip"] == "10.0.0.9"
+
+
+def test_still_unreachable_is_reported_as_failed(monkeypatch, tmp_path):
+    import tinytuya
+
+    class Dead:
+        def turn_on(self):
+            return {"Error": "Network Error", "Err": "901"}
+
+        def set_socketTimeout(self, s):
+            pass
+    monkeypatch.setattr(tinytuya, "BulbDevice", lambda **k: Dead())
+    monkeypatch.setattr(tinytuya, "find_device", lambda dev_id=None, address=None: {})
+    with pytest.raises(ConnectionError):
+        cl.Light({"id": "a", "key": "k", "name": "Led", "ip": "10.0.0.5"}).apply(on=True)

@@ -230,6 +230,17 @@ def reply_target(to: str = "", app: str = "") -> Optional[Message]:
     return box.latest()
 
 
+def _echoes_the_request(words: str, said: str) -> bool:
+    """The 'message' is the command itself ('reply to my mom', 'send her a message'), not what to say."""
+    w = re.sub(r"[^\w\s]", "", words.lower()).strip()
+    s = re.sub(r"[^\w\s]", "", (said or "").lower())
+    if not re.match(r"^(?:please\s+)?(?:reply|respond|answer|send|write|text|message|tell)\b", w):
+        return False
+    return w in s or bool(re.fullmatch(r"(?:please\s+)?(?:reply|respond|answer|send|write|text|message|tell)"
+                                        r"(?:\s+(?:a|an|the|my|her|him|them|to|back|message|text|reply|mom|mum|"
+                                        r"mama|dad))*", w))
+
+
 def fill_reply(args: dict, text: str) -> dict:
     """Before the confirmation: who exactly, which app, and the final words (Romanian for Mom). Runs once."""
     if args.get("final"):
@@ -244,6 +255,9 @@ def fill_reply(args: dict, text: str) -> dict:
     if out.get("app"):
         out["app"] = app_name(out["app"])                   # "whatsapp" -> "WhatsApp"
     words = (out.get("text") or "").strip()
+    if words and _echoes_the_request(words, text):        # Nov 23: text "Reply to my mom" became a love letter
+        out.pop("text", None)
+        words = ""
     if not words:
         return out
     ro = bool(re.search(r"\bin romanian\b|\bîn română\b|\bin romana\b", text or "", re.I)) or \
@@ -251,6 +265,9 @@ def fill_reply(args: dict, text: str) -> dict:
     if ro:
         from core import romanian
         got = romanian.translate(words, "ro", "family")
+        if got and len(got) > 2.2 * len(words) + 30:          # a translation adds nothing: this one invented
+            logger.warning("MESSAGES: the translation came back much longer than the message; not using it")
+            got = None
         if got:
             out["text"] = got
             out["language"] = "ro"
@@ -336,15 +353,16 @@ SCHEMAS = [
         "name": "message_reply",
         "description": "Send a WhatsApp or Instagram message: a reply to one the user received, or a new one ('reply "
                        "to Mom: I'll be home at 7', 'tell her I'm on my way', 'text Dan that I'm late', 'send my mom "
-                       "a message'). The user's words go in text, as they said them.",
+                       "a message'). The user's words go in text, as they said them. When they haven't said what "
+                       "to write ('send a message to my mom'), call it without text: she asks what to say.",
         "parameters": {"type": "object", "properties": {
             "to": {"type": "string", "description": "who to reply to; empty for the last message"},
             "text": {"type": "string", "description": "what to say, in the user's words"},
             "app": {"type": "string", "enum": ["whatsapp", "instagram"]},
-            "language": {"type": "string", "description": "'ro' only when the user asks for Romanian"}},
-            "required": ["text"]}}},
+            "language": {"type": "string", "description": "'ro' only when the user asks for Romanian"}}}}},
 ]
 FUNCTIONS = {"messages_check": tool_messages_check, "message_reply": tool_message_reply}
 GUARDS = {"messages_check": r"\b(messages?|texts?|whats ?app|insta(gram)?|dm'?s?|wrote|say|said|mesaje?)\b",
           "message_reply": r"\b(reply|respond|answer|tell|text|write|send|message|răspunde|raspunde|spune|trimite)\b"}
 CONFIRM = {"message_reply": describe_reply}
+ASKS = {"message_reply": ("text", "What should I tell {to}, sir?")}

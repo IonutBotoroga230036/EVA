@@ -137,7 +137,8 @@ def piper_audio(text: str, rate: int) -> Optional[np.ndarray]:
 
 # ------------------------------------------------------------ translation
 STYLES = {
-    "family": "a short, warm message from a son to his family (informal 'tu', natural, no greetings added)",
+    "family": ("a message from a son to his family, translated exactly: informal 'tu', natural, adding nothing "
+               "(no greetings, no extra sentences); if it isn't a message, return it unchanged"),
     "assistant": "E.V.A., a polite AI assistant, speaking to Ionut (call him 'domnule'); keep times, names and numbers",
 }
 

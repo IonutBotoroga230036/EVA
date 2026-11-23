@@ -400,3 +400,44 @@ def test_android_app_has_the_listener():
         assert a == b, name
     page = Path("interfaces/web/eva.html").read_text(encoding="utf-8")
     assert "caps: ['alarm', 'timer', 'reply'" in page
+
+
+# ---------------------------------------------------------------- Nov 23, 09:11 log
+@pytest.mark.parametrize("words,said,echo", [
+    ("Reply to my mom", "I would like you to reply to my mom", True),
+    ("send her a message", "send her a message", True),
+    ("I'm on my way", "tell mom I'm on my way", False),
+    ("reply soon please", "tell Dan reply soon please", True),       # rare; she then asks what to say
+    ("Ajung la 7", "reply to mom ajung la 7", False),
+])
+def test_the_command_is_not_the_message(words, said, echo):
+    assert messages._echoes_the_request(words, said) is echo
+
+
+def test_an_invented_translation_is_not_used(monkeypatch):
+    messages.get_inbox().add("com.whatsapp", "Mama", "?")
+    long = "Mulțumesc, mamă, că ești mereu lângă mine. Mi-e tare dor de voi și abia aștept să ne vedem. Te iubesc!"
+    monkeypatch.setattr(romanian, "translate", lambda *a, **k: long)
+    args = messages.fill_reply({"to": "Mom", "text": "ok"}, "tell mom ok")
+    assert args["text"] == "ok" and args["untranslated"]
+
+
+def test_send_a_message_to_mom_asks_what_to_say_then_changes_it(eva, monkeypatch):
+    o, ran = eva
+    messages.get_inbox().add("com.whatsapp", "Mama", "Unde ești?")
+    monkeypatch.setattr(romanian, "translate", lambda t, to="ro", style="": {"I'm on my way": "Sunt pe drum.",
+                                                                             "I'll call you later": "Te sun mai târziu."}[t])
+    decisions = iter([{"tool": "message_reply", "to": "my mom"}])
+
+    async def decide(*a, **k):
+        return {**next(decisions), "_by": "claude", "_trusted": True, "_args_done": True}
+    monkeypatch.setattr(orch_mod.understanding, "understand", decide)
+    monkeypatch.setattr(orch_mod.understanding, "cfg", lambda: {**orch_mod.understanding.DEFAULTS, "mode": "auto"})
+    assert turn(o, "can you send a message to my mom")[0] == "What should I tell Mom, sir?"
+    text, _ = turn(o, "I'm on my way")
+    assert text == "Just to confirm, sir: reply to Mom on WhatsApp: „Sunt pe drum.”. Shall I go ahead?" and ran == []
+    assert turn(o, "no, change the message")[0] == "What should I tell Mom, sir?" and ran == []
+    text, _ = turn(o, "I'll call you later")
+    assert text.endswith("„Te sun mai târziu.”. Shall I go ahead?")
+    turn(o, "yes")
+    assert ran[-1][1]["text"] == "Te sun mai târziu."

@@ -421,6 +421,7 @@ async def phone_message(body: dict):
         return out
     line = messages.announcement(m)
     m.read = True                                     # said once; "any messages?" doesn't repeat it
+    logger.info(f"MESSAGES: telling you about {m.who}'s message ({m.why})")
     if messages.cfg().get("pc", True):
         await broadcast(line)
     tts = get_tts()

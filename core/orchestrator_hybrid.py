@@ -51,6 +51,7 @@ from core.tools_native import ACTION_TOOLS as BUILTIN_ACTIONS
 from core.tools_native import ARG_FILLERS as BUILTIN_FILLERS
 from core.tools_native import CONFIRM_TOOLS as BUILTIN_CONFIRM
 from core.tools_native import SLOW_FILLERS as BUILTIN_SLOW_FILL
+from core.tools_native import ASK_TOOLS as BUILTIN_ASKS
 from core.tools_native import EXACT_TOOLS as BUILTIN_EXACT
 from core.tools_native import GUARDS as BUILTIN_GUARDS
 from core.tools_native import REGISTRY as BUILTIN_FUNCS
@@ -239,6 +240,7 @@ _NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forge
 # sentence gets "Yes, sir?" and she listens for the rest.
 _DANGLING = re.compile(r"(?:(?:hey\s+)?eva[,.!]?\s*)?(?:(?:can|could|would|will) you(?: please)?|please|so|and|um+|uh+|"
                        r"hmm+|i (?:want|need|would like) (?:you )?to|can i|let'?s|okay,? so|could i)[\s.,?!…]*", re.I)
+_CHANGE = re.compile(r"\b(?:change|different|instead|rewrite|re-?word|edit|something else|other (?:text|words))\b", re.I)
 _PHONE_WORD = re.compile(r"\b(?:i ?|my |the )?phone'?s?\b", re.I)      # Whisper hears "iPhone" for "my phone"
 _WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+)?(?:eva\b|e\.v\.a\.?)[\s,:!.-]*", re.I)
 
@@ -319,7 +321,7 @@ class ToolBelt:
         self.actions: set[str] = set(BUILTIN_ACTIONS) | (registry.actions() if registry else set())
         self.exact: set[str] = set(BUILTIN_EXACT)
         self.fillers: dict[str, Callable] = {**BUILTIN_FILLERS, **(registry.fillers() if registry else {})}
-        self.asks: dict[str, tuple] = registry.asks() if registry and hasattr(registry, "asks") else {}
+        self.asks: dict = {**BUILTIN_ASKS, **(registry.asks() if registry and hasattr(registry, "asks") else {})}
         schemas = list(BUILTIN_SCHEMAS)
         taken = {t["function"]["name"] for t in schemas}
         # built-ins first, then skills, then MCP: nothing can shadow a trusted tool
@@ -1545,6 +1547,16 @@ class HybridOrchestrator:
                         yield ev
                     self._finish(user_input, answer, used)
                     return
+                spec = self.belt.asks.get(p["tool"])
+                if fresh and not callable(spec) and spec and _CHANGE.search(user_input):
+                    # Nov 23: "no, change the message" read the message out again instead of asking for a new one
+                    field, question = spec
+                    args = {k: v for k, v in p["args"].items() if k not in (field, "final", "language", "untranslated")}
+                    self.awaiting = {"tool": p["tool"], "args": args, "field": field, "ts": time.time()}
+                    text = question.format_map(_Blank({k: v for k, v in args.items() if v}))
+                    self._finish(user_input, text, used)
+                    yield {"type": "final", "text": text}
+                    return
                 if fresh and _NO.search(user_input):
                     audit.log("confirm_denied", "orchestrator", {"tool": p["tool"]})
                     rest = _NO.sub("", user_input, count=1).lstrip(" ,.!")
@@ -1569,6 +1581,8 @@ class HybridOrchestrator:
                         yield {"type": "final", "text": text}
                         return
                     args = {**a["args"], a["field"]: user_input.strip()}
+                    if a["tool"] in getattr(self.belt, "slow_fill", ()):     # the message, now in Romanian for Mom
+                        args = await self._fill(a["tool"], {**args, "final": False}, user_input)
                     if self.belt.needs_confirm(a["tool"]):
                         for ev in self._ask_confirmation(a["tool"], args, user_input, used):
                             yield ev
