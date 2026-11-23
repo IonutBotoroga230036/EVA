@@ -229,15 +229,28 @@ def test_reply_goes_through_the_phone(monkeypatch):
     assert asked == [("reply", "reply_message", {"conversation": "Mama", "sender": "Mama", "app": "com.whatsapp",
                                                  "text": "Ajung acasă la 7."})]
     monkeypatch.setattr(dev, "_ask", lambda *a: {"ok": False, "error": "the notification is gone"})
-    assert "Open the chat and reply there" in messages.tool_message_reply(to="Mom", text="x")["say"]
+    assert "Open the chat and send it there" in messages.tool_message_reply(to="Mom", text="x")["say"]
     monkeypatch.setattr(dev, "_ask", lambda *a: {"ok": False, "error": "no phone"})
     assert messages.tool_message_reply(to="Mom", text="x")["say"] == dev.NO_PHONE
 
 
-def test_no_message_no_reply():
-    out = messages.tool_message_reply(to="Dan", text="hi")
-    assert "don't have a recent message from Dan" in out["say"]
+def test_a_new_message_when_there_is_nothing_to_reply_to(monkeypatch):
+    import core.device as dev
+    asked = []
+    monkeypatch.setattr(messages, "cfg", lambda: {**messages.DEFAULTS, "numbers": {"Mom": "+40 712 345 678"}})
+    monkeypatch.setattr(dev, "_ask", lambda cap, action, args: asked.append((action, args)) or {"ok": True})
+    assert messages.tool_message_reply(to="my mom", text="Sunt pe drum.")["say"] == "Sent to Mom, sir."
+    assert asked == [("send_message", {"to": "Mom", "names": ["Mom", "Mama", "Mami", "Mum"], "number": "40712345678",
+                                       "app": "WhatsApp", "text": "Sunt pe drum."})]
+    monkeypatch.setattr(dev, "_ask", lambda *a: {"ok": True, "opened": True})
+    assert messages.tool_message_reply(to="Mom", text="x")["say"] == "It's written in your chat with Mom, sir. Tap send."
+    monkeypatch.setattr(messages, "cfg", lambda: dict(messages.DEFAULTS))
+    monkeypatch.setattr(dev, "_ask", lambda *a: {"ok": False, "error": "no chat"})
+    assert "I don't have their number" in messages.tool_message_reply(to="Dan", text="hi")["say"]
     assert messages.tool_message_reply(to="Dan", text="")["say"] == "What should I say, sir?"
+    assert messages.tool_message_reply(to="", text="hi")["say"] == "Who should I send it to, sir?"
+    assert messages.describe_reply({"to": "Mom", "app": "WhatsApp", "text": "hi"}) == "send Mom on WhatsApp: „hi”"
+    assert messages.fill_reply({"to": "mom", "text": "hi", "app": "whatsapp"}, "tell my mom hi")["app"] == "WhatsApp"
 
 
 @pytest.fixture
@@ -295,7 +308,7 @@ def test_tools_are_registered_with_a_confirmation():
     assert belt.needs_confirm("message_reply") and not belt.needs_confirm("messages_check")
     assert "message_reply" in belt.slow_fill
     assert belt.describe("message_reply", {"to": "Dan", "text": "hi", "app": "Instagram"}) == \
-        "reply to Dan on Instagram: „hi”"
+        "send Dan on Instagram: „hi”"                                 # nothing from Dan to reply to
 
 
 # ---------------------------------------------------------------- Romanian conversations

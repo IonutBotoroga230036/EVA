@@ -165,9 +165,9 @@ _FACTS = {
                             r"class(?:es)?|appointments?|lectures?)\b|\bnothing (?:on|scheduled|planned)\b|\byour "
                             r"(?:calendar|schedule) (?:is|looks)\b", re.I), ("calendar_",)),
     "email": (re.compile(r"\byou have (?:\d+|no|a|an|two|three|several) (?:new |unread )?(?:e-?mails?|messages?)\b|"
-                         r"\bno new (?:e-?mails?|messages?)\b|\binbox is\b", re.I), ("email_",)),
-    "weather": (re.compile(r"\b(?:it'?s|it is|it will be|expect|high of|low of|currently)\b[^.]{0,25}?-?\d+ ?(?:°|"
-                           r"degrees)|\b(?:sunny|rainy|cloudy|overcast|snow(?:y|ing)?|rain(?:ing)?) (?:today|tomorrow|"
+                         r"\bno new (?:e-?mails?|messages?)\b|\binbox is\b", re.I), ("email_", "messages_")),
+    "weather": (re.compile(r"\b(?:it'?s|it is|it will be|expect|high of|low of|currently|temperature)\b[^.]{0,30}?-?\d+ ?"
+                           r"(?:°|degrees)|\b(?:sunny|rainy|cloudy|overcast|snow(?:y|ing)?|rain(?:ing)?) (?:today|tomorrow|"
                            r"tonight|this (?:morning|afternoon|evening))\b", re.I), ("get_weather",)),
     "music": (re.compile(r"\b(?:music|song|playback|spotify)\b[^.]{0,25}\b(?:stopped|paused|resumed|will stop|"
                          r"will pause)\b|\b(?:lights?|music)\b[^.]{0,30}\bat \d{1,2}[:.]\d{2}\b", re.I),
@@ -238,6 +238,7 @@ _NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forge
 # sentence gets "Yes, sir?" and she listens for the rest.
 _DANGLING = re.compile(r"(?:(?:hey\s+)?eva[,.!]?\s*)?(?:(?:can|could|would|will) you(?: please)?|please|so|and|um+|uh+|"
                        r"hmm+|i (?:want|need|would like) (?:you )?to|can i|let'?s|okay,? so|could i)[\s.,?!…]*", re.I)
+_PHONE_WORD = re.compile(r"\b(?:i ?|my |the )?phone'?s?\b", re.I)      # Whisper hears "iPhone" for "my phone"
 _WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+)?(?:eva\b|e\.v\.a\.?)[\s,:!.-]*", re.I)
 
 
@@ -472,7 +473,9 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     if m and belt.has("shopping_add"):
         return "shopping_add", {"items": m.group(1)}
     m = re.search(r"(?:set |turn |change )?(?:the )?volume (?:to |at )?(\d{1,3})\s*%?", t, re.I)
-    if m and re.search(r"\b(spotify|phone)\b", t, re.I):   # "the Spotify volume": never the PC's volume
+    if m and _PHONE_WORD.search(t) and belt.has("phone_volume"):   # Nov 23: "my iPhone volume" changed the PC
+        return "phone_volume", {"level": volume_level(int(m.group(1)))}
+    if m and re.search(r"\bspotify\b", t, re.I):   # "the Spotify volume": never the PC's volume
         if belt.has("spotify_volume"):
             return "spotify_volume", {"level": volume_level(int(m.group(1)))}
         m = None
@@ -734,7 +737,9 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
             re.findall(r"\bvolume(?: up| down)?(?: to| at)? (\d{1,3})\b", t, re.I)
         if nums:
             level = volume_level(int(nums[-1]))
-            if re.search(r"\b(spotify|phone)\b", t, re.I):
+            if _PHONE_WORD.search(t) and belt.has("phone_volume"):
+                return "phone_volume", {"level": level}
+            if re.search(r"\bspotify\b", t, re.I):
                 if belt.has("spotify_volume"):
                     return "spotify_volume", {"level": level}
             elif belt.has("set_volume"):
@@ -1411,7 +1416,8 @@ class HybridOrchestrator:
         self.cortex.log_turn(self.session_id, "assistant", answer)
         self.bus.publish("turn.completed", {"session": self.session_id})
         memory_ops = {"remember_fact", "forget_memory", "forget_recent_facts", "add_instruction", "recall_memory"}
-        if self.mem_cfg.get("extract_facts", True) and not (used and used & memory_ops) and not conv:
+        if self.mem_cfg.get("extract_facts", True) and not (used and used & memory_ops) and not conv \
+                and not self.pending:                    # Nov 23: "Sent a message to Dan" was learned from a question
             task = asyncio.create_task(self._extract(user_input))
             self._bg.add(task)
             task.add_done_callback(self._bg.discard)
@@ -1670,6 +1676,8 @@ class HybridOrchestrator:
                         succeeded.add(tool)
                     if self.belt.is_action(tool) and ok:
                         break                      # an action is the whole job; don't chain more
+                    if ok and out.get("say") and (tool in self.belt.exact or out.get("exact")):
+                        break                      # Nov 23: "any messages?" then 27 s deciding what else to do
                     if self.belt.is_action(tool) and not ok and out.get("say"):
                         break                      # it failed and said why honestly: don't retry blindly
 

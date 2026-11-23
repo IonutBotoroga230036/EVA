@@ -208,8 +208,8 @@ class Spotify:
         for p in self.my_playlists():
             pk = key(p.get("name", ""))
             s = 1.0 if pk == k else SequenceMatcher(None, k, pk).ratio()
-            if k in pk and len(k) >= 5:
-                s = max(s, 0.85)
+            if k in pk and len(k) >= 5 and len(k) >= 0.4 * len(pk):
+                s = max(s, 0.85)          # "chill" is your "Chill Vibes"; "two feet" is not a 90-letter playlist
             if s > score:
                 best, score = p, s
         return best if score >= threshold else None

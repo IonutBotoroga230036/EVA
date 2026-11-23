@@ -201,6 +201,8 @@ messages:
   contacts:                            # one person, the names the apps may show (match ignores case)
     Mom: ["Mom", "Mama", "Mami", "Mum"]
   romanian: ["Mom"]                    # replies to these go out in Romanian
+  numbers: {}                          # for NEW messages when they haven't written lately; put yours in
+                                       # config/settings.local.yaml, e.g. numbers: {Mom: "+40 7xx xxx xxx"}
   keywords: ["urgent", "asap", "call me", "emergency", "sună-mă", "suna-ma", "urgent!"]
   my_names: ["Ionut", "Ionuț"]         # a group message that names you counts as important
   when_locked: true                    # read and reply with the phone locked (a reply still needs your spoken yes)

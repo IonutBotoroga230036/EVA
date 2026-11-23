@@ -250,3 +250,78 @@ def test_your_own_radio_playlist_still_wins():
     fake = FakeSpotify({}, mine={"uri": "spotify:playlist:mine", "name": "Chill Radio"})
     fake._radio = lambda seed: pytest.fail("your playlist first")
     assert resolve(fake, "chill radio")["context_uri"] == "spotify:playlist:mine"
+
+
+# ---------------------------------------------------------------- Nov 23, 01:00 log
+def test_the_window_you_talk_to_gets_the_alarm_not_the_sleeping_app():
+    sleeping, overlay = Phone(("alarm",), 5.0), Phone(("alarm",), 1.0)    # the app page announced last
+    device.CONNECTIONS.update({sleeping, overlay})
+
+    async def go():
+        device.LOOP = asyncio.get_running_loop()
+        device.CURRENT.set(overlay)
+        return await asyncio.to_thread(device.tool_phone_alarm, time="7 in the morning")
+    try:
+        out = asyncio.run(go())
+    finally:
+        device.LOOP = None
+    assert out["say"].startswith("Alarm set") and overlay.asked and not sleeping.asked
+
+
+def test_a_silent_window_is_skipped_for_the_next_one():
+    class Asleep(Phone):
+        async def request_device(self, action, args, timeout=12.0):
+            return {"ok": False, "error": "the phone didn't answer in time"}
+    asleep, awake = Asleep(("alarm",), 5.0), Phone(("alarm",), 1.0)
+    device.CONNECTIONS.update({asleep, awake})
+
+    async def go():
+        device.LOOP = asyncio.get_running_loop()
+        return await asyncio.to_thread(device._ask, "alarm", "set_alarm", {"hour": 7, "minute": 0})
+    try:
+        assert asyncio.run(go())["ok"] and awake.asked
+    finally:
+        device.LOOP = None
+
+
+def test_the_overlay_can_act_before_it_announces():
+    import interfaces.web.server_stream as srv
+    c = srv.Connection.__new__(srv.Connection)
+    c.device_caps, c.orch = (), type("O", (), {"locked": False, "after_unlock": None})()
+    asyncio.run(c.on_device_state(True))
+    assert "alarm" in c.device_caps and c.orch.locked
+
+
+@pytest.mark.parametrize("said,tool", [
+    ("set my iPhone volume to 50%", "phone_volume"), ("phone volume to 30", "phone_volume"),
+    ("set the Spotify volume to 40", "spotify_volume"), ("volume to 60", "set_volume"),
+])
+def test_volume_words(eva, said, tool):
+    o, _ = eva
+    assert orch_mod.fast_path(said, o.belt)[0] == tool
+
+
+def test_two_feet_is_not_a_long_playlist_that_mentions_them():
+    from core.spotify import Spotify
+    fake = type("S", (), {})()
+    fake.my_playlists = lambda: [{"name": "Sex Playlist (Isabel LaRosa, Montell Fish, Two feet, The Neighbourhood)",
+                                  "uri": "x"}, {"name": "Chill Vibes", "uri": "c"}]
+    assert Spotify.match_mine(fake, "two feet") is None
+    assert Spotify.match_mine(fake, "chill vibes")["uri"] == "c"
+
+
+def test_no_fact_is_learned_from_a_confirmation_question(eva, monkeypatch):
+    o, _ = eva
+    learned = []
+
+    async def extract(text):
+        learned.append(text)
+    monkeypatch.setattr(o, "_extract", extract)
+    o.pending = {"tool": "message_reply", "args": {}, "desc": "x", "ts": time.time()}
+    o._finish("tell Dan I'm on my way", "Just to confirm, sir: ... Shall I go ahead?", set())
+    assert learned == []
+
+
+def test_messages_and_temperature_count_as_facts():
+    assert orch_mod.unchecked_fact("No new messages, sir.", ["messages_check"]) is None
+    assert orch_mod.unchecked_fact("Certainly, sir: the temperature in Breda is 12°C.", []) == "weather"

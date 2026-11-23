@@ -163,14 +163,50 @@ class MessageListener : NotificationListenerService() {
             if (text.isEmpty()) return mapOf("ok" to false, "error" to "no text")
             val sbn = (if (app in APPS) replyTargets[key(app, conversation)] else null)
                 ?: replyTargets.entries.firstOrNull { it.key.endsWith("|" + conversation.lowercase()) }?.value
-                ?: return mapOf("ok" to false, "error" to "the notification is gone")
-            val still = instance?.let { svc ->
-                try { svc.activeNotifications.any { it.key == sbn.key } } catch (e: Exception) { true }
-            } ?: true
-            if (!still) {
-                replyTargets.values.remove(sbn)
-                return mapOf("ok" to false, "error" to "the notification is gone")
+                ?: return mapOf("ok" to false, "error" to "no chat")
+            return sendThrough(ctx, sbn, text)
+        }
+
+        /**
+         * Nov 23: a NEW message ({"to", "names", "number", "app", "text"}), not only replies.
+         * 1. A chat whose notification came since the phone started: its Reply button. It often still works after
+         *    the notification is gone (the app keeps the button's intent); if it doesn't, step 2.
+         * 2. With a number: WhatsApp opens on that chat with the text written; you tap send.
+         */
+        fun send(ctx: Context, args: Map<String, Any?>): Map<String, Any> {
+            val text = args["text"]?.toString()?.trim() ?: ""
+            if (text.isEmpty()) return mapOf("ok" to false, "error" to "no text")
+            val raw = args["names"]                     // a JSONArray (overlay, screen off) or a List (the app)
+            val given = when (raw) {
+                is org.json.JSONArray -> (0 until raw.length()).map { raw.optString(it) }
+                is List<*> -> raw.map { it.toString() }
+                else -> emptyList()
             }
+            val names = (given + listOf(args["to"]?.toString() ?: "")).map { it.lowercase().trim() }.filter { it.isNotEmpty() }
+            if (enabled(ctx) && accessGranted(ctx)) {
+                val hit = replyTargets.entries.firstOrNull { e ->
+                    val chat = e.key.substringAfter("|")
+                    e.key.startsWith("com.whatsapp") && names.any { n -> chat == n || chat.split(" ").contains(n) }
+                }?.value
+                if (hit != null) {
+                    val out = sendThrough(ctx, hit, text)
+                    if (out["ok"] == true) return out
+                }
+            }
+            val number = (args["number"]?.toString() ?: "").filter { it.isDigit() }
+            if (number.isEmpty()) return mapOf("ok" to false, "error" to "no chat")
+            return try {
+                val uri = android.net.Uri.parse("https://api.whatsapp.com/send?phone=$number&text=" +
+                    android.net.Uri.encode(text))
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage("com.whatsapp")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                mapOf("ok" to true, "opened" to true)
+            } catch (e: Exception) {
+                mapOf("ok" to false, "error" to "WhatsApp didn't open (${e.javaClass.simpleName})")
+            }
+        }
+
+        private fun sendThrough(ctx: Context, sbn: StatusBarNotification, text: String): Map<String, Any> {
             val action = sbn.notification.actions?.firstOrNull { a ->
                 a.remoteInputs?.any { it.allowFreeFormInput } == true
             } ?: return mapOf("ok" to false, "error" to "that notification has no reply button")
@@ -181,9 +217,10 @@ class MessageListener : NotificationListenerService() {
             if (Build.VERSION.SDK_INT >= 28) RemoteInput.setResultsSource(fill, RemoteInput.SOURCE_FREE_FORM_INPUT)
             return try {
                 action.actionIntent.send(ctx, 0, fill)
-                Log.i(TAG, "reply sent")
+                Log.i(TAG, "message sent")
                 mapOf("ok" to true)
             } catch (e: Exception) {
+                replyTargets.values.remove(sbn)                         // that button is dead: don't try it again
                 mapOf("ok" to false, "error" to "the notification is gone (${e.javaClass.simpleName})")
             }
         }

@@ -10,6 +10,7 @@ If no phone app is open, she says that plainly.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import re
 from datetime import datetime
@@ -20,6 +21,10 @@ TIMEOUT_S = 12.0
 # Every open E.V.A. window (the server adds and removes them). It lives here, not in the server module: run as
 # `python -m interfaces.web.server_stream`, that module exists twice, and a second empty copy found no phone.
 CONNECTIONS: set = set()
+# The window this turn came from (set by the server for each turn; worker threads inherit it). Nov 23: an alarm
+# asked from the overlay went to the app page sleeping in the background, which never answered.
+CURRENT: contextvars.ContextVar = contextvars.ContextVar("eva_window", default=None)
+PHONE_CAPS = ("alarm", "timer", "reply", "volume", "send", "location", "record")
 
 
 def phones(cap: str) -> list:
@@ -33,11 +38,18 @@ def _ask(cap: str, action: str, args: dict) -> dict:
     targets = phones(cap)
     if not targets or LOOP is None:
         return {"ok": False, "error": "no phone"}
-    fut = asyncio.run_coroutine_threadsafe(targets[-1].request_device(action, args, TIMEOUT_S), LOOP)
-    try:
-        return fut.result(TIMEOUT_S + 2)
-    except Exception as e:
-        return {"ok": False, "error": f"the phone didn't answer ({e.__class__.__name__})"}
+    here = CURRENT.get()
+    order = ([here] if here in targets else []) + [t for t in reversed(targets) if t is not here]
+    out: dict = {}
+    for target in order[:2]:              # the window you're talking to first, then the newest other one
+        fut = asyncio.run_coroutine_threadsafe(target.request_device(action, args, TIMEOUT_S), LOOP)
+        try:
+            out = fut.result(TIMEOUT_S + 2)
+        except Exception as e:
+            out = {"ok": False, "error": f"the phone didn't answer ({e.__class__.__name__})"}
+        if out.get("ok") or "didn't answer" not in str(out.get("error", "")):
+            return out
+    return out
 
 
 NO_PHONE = ("Your phone app isn't open, sir, so I can't reach your phone right now. Open E.V.A. on it and ask me "
@@ -187,4 +199,4 @@ FUNCTIONS = {"phone_alarm": tool_phone_alarm, "phone_timer": tool_phone_timer, "
              "phone_ask_unlock": tool_phone_ask_unlock, "phone_volume": tool_phone_volume}
 GUARDS = {"phone_alarm": r"\b(alarm|wake me)\b", "phone_timer": r"\btimer\b",
           "phone_stay_dark": r"\b(dark|screen)\b", "phone_ask_unlock": r"\b(unlock|locked)\b",
-          "phone_volume": r"\bphone\b.*\b(volume|louder|quieter)\b|\b(volume|louder|quieter)\b.*\bphone\b"}
+          "phone_volume": r"phone\b.*\b(volume|louder|quieter)\b|\b(volume|louder|quieter)\b.*phone\b"}

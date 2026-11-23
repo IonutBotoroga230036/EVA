@@ -239,6 +239,10 @@ def fill_reply(args: dict, text: str) -> dict:
     if m:
         out["to"] = m.who
         out.setdefault("app", app_name(m.app))
+    elif out.get("to"):
+        out["to"] = person(out["to"]) or out["to"]          # "mom" -> "Mom"
+    if out.get("app"):
+        out["app"] = app_name(out["app"])                   # "whatsapp" -> "WhatsApp"
     words = (out.get("text") or "").strip()
     if not words:
         return out
@@ -259,34 +263,65 @@ def fill_reply(args: dict, text: str) -> dict:
 def describe_reply(args: dict) -> str:
     to, app = args.get("to") or "them", args.get("app") or ""
     where = f" on {app}" if app else ""
+    if not reply_target(args.get("to", ""), args.get("app", "")):
+        note = " (I couldn't translate it, so it's in English)" if args.get("untranslated") else ""
+        return f"send {to}{where or ' on WhatsApp'}{note}: „{(args.get('text') or '').strip()}”"
     note = " (I couldn't translate it, so it's in English)" if args.get("untranslated") else ""
     return f"reply to {to}{where}{note}: „{(args.get('text') or '').strip()}”"
 
 
+def aliases(who: str, c: Optional[dict] = None) -> list[str]:
+    """Every name a chat with this person may have on the phone ('Mom' -> Mom, Mama, Mami, Mum)."""
+    c = c or cfg()
+    p = person(who, c)
+    return list(dict.fromkeys([p, *((c.get("contacts") or {}).get(p) or [])])) if p else []
+
+
+def number_of(who: str, c: Optional[dict] = None) -> str:
+    """A WhatsApp number from settings messages.numbers (in config/settings.local.yaml), digits only."""
+    c = c or cfg()
+    p = person(who, c)
+    raw = next((v for k, v in (c.get("numbers") or {}).items() if same_person(k, p, c)), "")
+    return re.sub(r"\D", "", str(raw or ""))
+
+
 def tool_message_reply(to: str = "", text: str = "", app: str = "", **_):
+    """Reply, or (Nov 23) send a new message: 'tell Mom I'm on my way' with no message from her to answer.
+    1. a chat whose notification arrived since the phone started: its own Reply button (works locked, invisible);
+    2. otherwise WhatsApp opens on that chat with the text written, and you tap send (needs their number in
+       settings messages.numbers and an unlocked phone)."""
     import json
     from core import device
     words = (text or "").strip()
     if not words:
         return {"result": json.dumps({"error": "no text"}), "say": "What should I say, sir?"}
     m = reply_target(to, app)
-    if not m:
-        who = person(to) if to else "them"
-        return {"result": json.dumps({"error": "no recent message"}),
-                "say": (f"I don't have a recent message from {who} to reply to, sir. I can only reply while their "
-                        f"notification is still on your phone."), "exact": True}
-    out = device._ask("reply", "reply_message", {"conversation": m.conversation, "sender": m.sender,
-                                                  "app": m.app, "text": words})
+    who = m.who if m else (person(to) if to else "")
+    if not who:
+        return {"result": json.dumps({"error": "no one"}), "say": "Who should I send it to, sir?", "exact": True}
+    if m:
+        out = device._ask("reply", "reply_message", {"conversation": m.conversation, "sender": m.sender,
+                                                      "app": m.app, "text": words})
+    else:
+        out = device._ask("reply", "send_message", {"to": who, "names": aliases(who), "number": number_of(who),
+                                                     "app": app_name(app or "whatsapp"), "text": words})
     if out.get("error") == "no phone":
         return {"result": json.dumps({"error": "no phone"}), "say": device.NO_PHONE, "exact": True}
+    if out.get("ok") and out.get("opened"):
+        logger.info(f"MESSAGES: chat with {who} opened with the text ready")
+        return {"result": json.dumps({"opened": True, "to": who}),
+                "say": f"It's written in your chat with {who}, sir. Tap send.", "exact": True}
     if not out.get("ok"):
         reason = out.get("error") or "no reason given"
-        if "notification" in reason:
-            reason = "the notification is gone, so there's no reply button to use. Open the chat and reply there"
-        return {"result": json.dumps({"error": reason}),
-                "say": f"I couldn't send it, sir: {reason}.", "exact": True}
-    logger.info(f"MESSAGES: replied to {m.who} on {app_name(m.app)}")
-    return {"result": json.dumps({"sent": True, "to": m.who}), "say": f"Sent to {m.who}, sir.", "exact": True}
+        if reason == "no chat":
+            reason = (f"{who} hasn't written since your phone started, and I don't have their number. Add it under "
+                      f"messages, numbers in your settings, and I'll open the chat with the text ready"
+                      if not number_of(who) else "WhatsApp didn't open")
+        elif "notification" in reason:
+            reason = "that chat's reply button doesn't work anymore. Open the chat and send it there"
+        return {"result": json.dumps({"error": reason}), "say": f"I couldn't send it, sir: {reason}.", "exact": True}
+    logger.info(f"MESSAGES: sent to {who}")
+    return {"result": json.dumps({"sent": True, "to": who}), "say": f"Sent to {who}, sir.", "exact": True}
 
 
 SCHEMAS = [
@@ -299,8 +334,9 @@ SCHEMAS = [
             "app": {"type": "string", "enum": ["whatsapp", "instagram"]}}}}},
     {"type": "function", "function": {
         "name": "message_reply",
-        "description": "Reply to a WhatsApp or Instagram message the user received ('reply to Mom: I'll be home at "
-                       "7', 'tell her I'm on my way'). The user's words go in text, as they said them.",
+        "description": "Send a WhatsApp or Instagram message: a reply to one the user received, or a new one ('reply "
+                       "to Mom: I'll be home at 7', 'tell her I'm on my way', 'text Dan that I'm late', 'send my mom "
+                       "a message'). The user's words go in text, as they said them.",
         "parameters": {"type": "object", "properties": {
             "to": {"type": "string", "description": "who to reply to; empty for the last message"},
             "text": {"type": "string", "description": "what to say, in the user's words"},
@@ -310,5 +346,5 @@ SCHEMAS = [
 ]
 FUNCTIONS = {"messages_check": tool_messages_check, "message_reply": tool_message_reply}
 GUARDS = {"messages_check": r"\b(messages?|texts?|whats ?app|insta(gram)?|dm'?s?|wrote|say|said|mesaje?)\b",
-          "message_reply": r"\b(reply|respond|answer|tell|text|write|send|message|răspunde|raspunde|spune)\b"}
+          "message_reply": r"\b(reply|respond|answer|tell|text|write|send|message|răspunde|raspunde|spune|trimite)\b"}
 CONFIRM = {"message_reply": describe_reply}

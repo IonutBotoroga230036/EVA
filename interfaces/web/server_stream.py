@@ -432,10 +432,11 @@ async def phone_message(body: dict):
 class _DarkPhone:
     """Stands in for the phone app during a screen-off conversation, so alarms and timers still work: the actions
     go back to the phone in the answer and it runs them (it says so if it can't, on the next wake)."""
-    device_caps = ("alarm", "timer", "reply", "volume")
+    device_caps = ("alarm", "timer", "reply", "volume", "send")
 
     def __init__(self):
         self.actions: list[dict] = []
+        self.connected_at = time.time()
 
     async def request_device(self, action: str, args: dict, timeout: float = 12.0) -> dict:
         self.actions.append({"action": action, "args": args})
@@ -481,6 +482,8 @@ async def phone_turn(body: dict):
     _romanian_hint(orch)
     phone = _DarkPhone()
     CONNECTIONS.add(phone)
+    from core import device as _device
+    _device.CURRENT.set(phone)                       # this turn's alarms go back with this answer
     try:
         logger.info(f"USER (phone, screen off): {text}")
         final = ""
@@ -736,6 +739,8 @@ class Connection:
         await self.send({"type": "stt", **self.stt})
 
     async def reply(self, text: str, turn: int) -> None:
+        from core import device as _device
+        _device.CURRENT.set(self)                    # device actions go to the window you're talking to
         await self.send({"type": "turn_start", "turn": turn})
         speaker = TurnSpeaker(self.tts, self.send, turn) if self.tts else None
         chunker, streamed = SentenceChunker(), False
@@ -898,6 +903,10 @@ class Connection:
         await self.interrupt()
 
     async def on_device_state(self, locked: bool) -> None:
+        if not self.device_caps:                   # only the phone sends this: it can act before it announces
+            from core.device import PHONE_CAPS
+            self.device_caps = PHONE_CAPS[:4]
+            self.connected_at = time.time()
         was = getattr(self.orch, "locked", False)
         self.orch.locked = locked
         logger.info(f"DEVICE: phone {'locked: private things wait for an unlock' if locked else 'unlocked'}")
