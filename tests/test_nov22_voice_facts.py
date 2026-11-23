@@ -316,7 +316,7 @@ def test_android_pieces_are_wired():
     root = Path("apps/eva_android")
     for base in ("android_overlay/app/src/main", "android/app/src/main"):
         man = (root / base / "AndroidManifest.xml").read_text(encoding="utf-8")
-        assert 'android:foregroundServiceType="microphone"' in man and "FOREGROUND_SERVICE_MICROPHONE" in man
+        assert 'android:foregroundServiceType="microphone|location"' in man and "FOREGROUND_SERVICE_MICROPHONE" in man
         assert ".OverlayActivity" in man and 'android:showWhenLocked="true"' in man and "SYSTEM_ALERT_WINDOW" in man
         kt = root / base / "kotlin/nl/ionut/eva_android"
         for f in ("WakeService.kt", "WakeEngine.kt", "OverlayActivity.kt", "MainActivity.kt"):

@@ -168,6 +168,9 @@ def no_real_romanian_or_messages(tmp_path, monkeypatch):
     monkeypatch.setattr(places, "PATH", tmp_path / "places.json")
     monkeypatch.setattr(places, "HISTORY", tmp_path / "location_history.jsonl")
     monkeypatch.setattr(places, "_places", None)
+    import core.meetings as meetings                  # never your real recordings
+    monkeypatch.setattr(meetings, "DIR", tmp_path / "meetings")
+    monkeypatch.setattr(meetings, "_recorder", None)
     import core.device as device                      # no windows left over from another test
     device.CONNECTIONS.clear()
     yield

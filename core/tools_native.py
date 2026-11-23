@@ -766,4 +766,13 @@ REGISTRY.update(_places.FUNCTIONS)
 GUARDS.update(_places.GUARDS)
 ACTION_TOOLS |= _places.ACTIONS
 EXACT_TOOLS |= _places.EXACT
+
+# ---------------------------------------------------------------- meetings (Nov 23)
+from core import meetings as _meetings  # noqa: E402
+
+TOOL_SCHEMAS += _meetings.SCHEMAS
+REGISTRY.update(_meetings.FUNCTIONS)
+GUARDS.update(_meetings.GUARDS)
+ACTION_TOOLS |= _meetings.ACTIONS
+EXACT_TOOLS |= _meetings.EXACT
 SLOW_FILLERS = {"message_reply"}

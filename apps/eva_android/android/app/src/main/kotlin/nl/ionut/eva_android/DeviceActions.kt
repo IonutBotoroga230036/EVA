@@ -31,6 +31,8 @@ object DeviceActions {
             }
             "reply_message" -> MessageListener.reply(ctx, args)        // v0.3.2: after your spoken yes
             "send_message" -> MessageListener.send(ctx, args)          // Nov 23: a new message, after your yes
+            "record_start" -> WakeService.startMeeting(args["id"]?.toString() ?: "")
+            "record_stop" -> WakeService.stopMeeting()
             "set_volume" -> {                                          // the phone's own media volume, 0-100
                 val am = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
                 val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)

@@ -208,7 +208,7 @@ LOCKED_OK = {"get_datetime", "get_weather", "calculate", "convert_currency", "cr
              "lights_power", "lights_set", "set_mood", "list_moods", "phone_alarm", "phone_timer",
              "later_list", "later_cancel", "keep_listening", "calendar_add", "set_reminder", "shopping_add",
              "phone_stay_dark", "phone_volume", "spotify_volume", "set_brain_mode", "set_conversation_mode",
-             "place_remember", "place_reminder", "where_am_i"}
+             "place_remember", "place_reminder", "where_am_i", "meeting_record"}
 LOCKED_SAY = "Unlock your phone for that, sir, and I'll carry on."
 
 

@@ -63,6 +63,21 @@ try again). Then:
   phone. If you already opened or swiped it away, she says so.
 - After a phone restart, open E.V.A. once so the messages know where your PC is (kept in memory only).
 
+## New on Nov 23: location, meeting recording, Share > E.V.A.
+
+- Menu > **Location: on** (needs Hands-free on; Android asks for location once, "while using the app" is
+  enough). The phone tells your PC where it is every few minutes, in the same notification as hands-free. Then:
+  "remember this place as home", "remind me to buy milk when I leave work", "when I get home, turn on the
+  lights", "remember where I parked" / "where did I park?". "Track my location" keeps a 30-day trail on the PC
+  (off by default; "stop tracking my location" deletes it).
+- **"Eva, record this meeting"** (Hands-free on): the phone records and sends the audio to your PC every 15 s.
+  "Eva" still works meanwhile, answering by voice. "Eva, stop recording": notes (summary, decisions, to-dos,
+  the transcript) a few minutes later.
+- **Share > E.V.A.** from Pixel Recorder (a recording or its transcript) or any audio app: the same notes.
+- "Tell Mom I'm on my way" works without a message to reply to: through her chat's reply button if she wrote
+  since the phone started, otherwise WhatsApp opens with the text written (add her number under
+  messages.numbers in config/settings.local.yaml) and you tap send.
+
 ## Build (after unzipping, once)
 ```powershell
 cd "D:\Project E.V.A\eva\apps\eva_android"

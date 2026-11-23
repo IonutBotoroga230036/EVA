@@ -217,6 +217,13 @@ messages:
   my_names: ["Ionut", "Ionuț"]         # a group message that names you counts as important
   when_locked: true                    # read and reply with the phone locked (a reply still needs your spoken yes)
 
+meetings:
+  # Nov 23: "Eva, record this meeting" -> transcript, summary, decisions, to-dos (core/meetings.py)
+  whisper_model: "large-v3-turbo"      # transcription on your GPU, loaded only while it works (~1.6 GB VRAM)
+  device: "cuda"
+  compute_type: "int8_float16"
+  notes_folder: "Meetings"             # inside your Obsidian vault (obsidian.vault_path), if set
+
 # legacy: only used by the v0.1 Redis bus. PULSE v0.2 runs in-process, no Redis needed.
 redis:
   host: "localhost"

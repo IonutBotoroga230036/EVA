@@ -243,3 +243,23 @@ phone, menu > Messages: on, then allow Notification access.
 | 18.18 | "Play Two Faced radio" | Two Faced by Linkin Park, then similar songs (Spotify's Autoplay on). |
 | 18.19 | "Set my phone volume to 50%" | The phone's media volume changes, locked too. |
 
+## 19. New messages, places, meetings, FORGE (Nov 23)
+
+| # | Do / say | Expect |
+|---|---|---|
+| 19.1 | Phone locked, overlay: "Eva, set an alarm for 7 in the morning" | Set (the overlay gets it, not the app page in the background). |
+| 19.2 | "Set my phone volume to 50%" | The phone's volume, not the PC's. |
+| 19.3 | "Play Two Feet" | The artist, not a long playlist that mentions them. |
+| 19.4 | "Tell Mom I'm on my way" when she hasn't written since the phone started | With messages.numbers set: WhatsApp opens with "Sunt pe drum." written; tap send. |
+| 19.5 | Same after Mom wrote earlier (notification swiped away) | Sent straight away, if WhatsApp still accepts that chat's reply button. |
+| 19.6 | Menu > Location: on (Hands-free on). At home: "Eva, remember this place as home" | "Got it, sir: this is home now." |
+| 19.7 | "Remind me to buy milk when I leave home"; walk ~300 m | "Reminder, sir: buy milk." on the phone. |
+| 19.8 | "When I get home, turn on the lights" | Lights on when you arrive. |
+| 19.9 | Park: "Remember where I parked"; later "Where did I park?" | Time, distance, map link. |
+| 19.10 | "Track my location"; later "Where was I at 3?"; "Stop tracking my location" | Answered from the trail; stopping deletes it. |
+| 19.11 | Phone: "Eva, record this meeting" ... talk ... "Eva, stop recording" | Notes announced a few minutes later; "What were the to-dos?" reads them. |
+| 19.12 | PC: same | Uses the PC microphone (pip install sounddevice). |
+| 19.13 | Pixel Recorder: a recording > Share > E.V.A. | "E.V.A. is making the notes"; notes in data/meetings and your vault's Meetings folder. |
+| 19.14 | "Build me a skill that tells the moon phase" | The ready message says its real-world answers were checked against sources. |
+| 19.15 | Install it (with github.pull_requests: true and GITHUB_TOKEN) | "I've opened pull request N on GitHub ... with you as co-author." |
+

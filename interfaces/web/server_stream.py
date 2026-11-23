@@ -462,10 +462,41 @@ async def phone_location(body: dict):
     return {"ok": True, "say": text, "audio": base64.b64encode(wav).decode() if wav else ""}
 
 
+_MEETING_ID = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{4}$")
+
+
+@app.post("/api/meetings/{mid}/audio")
+async def meeting_audio(mid: str, request: Request):
+    """Nov 23: 15 s of a phone recording (PCM16, 16 kHz, mono)."""
+    from core import meetings
+    if not _MEETING_ID.match(mid):
+        return JSONResponse({"detail": "bad id"}, status_code=400)
+    body = await request.body()
+    if len(body) > 4 * 1024 * 1024:
+        return JSONResponse({"detail": "too big"}, status_code=413)
+    ok = await asyncio.to_thread(meetings.get_recorder().append, mid, body)
+    return {"ok": ok}
+
+
+@app.post("/api/meetings/upload")
+async def meeting_upload(request: Request):
+    """Nov 23: a recording or a transcript shared to E.V.A. (Pixel Recorder, any audio app). Header X-Filename."""
+    from core import meetings
+    from core.events.bus import get_bus
+    body = await request.body()
+    if not body or len(body) > 300 * 1024 * 1024:
+        return JSONResponse({"detail": "empty or over 300 MB"}, status_code=413)
+    name = re.sub(r"[^\w. -]", "", request.headers.get("x-filename", "") or "recording.m4a")[:80] or "recording.m4a"
+    meta = await asyncio.to_thread(meetings.add_file, name, body, request.headers.get("x-title", ""))
+    meetings.process_in_background(meta["id"], lambda text: get_bus().publish("forge.done", {"message": {"say": text}}))
+    logger.info(f"MEETING: {name} shared ({len(body) // 1024} KB), making notes")
+    return {"id": meta["id"], "say": "Got it, sir. I'll tell you when the notes are ready."}
+
+
 class _DarkPhone:
     """Stands in for the phone app during a screen-off conversation, so alarms and timers still work: the actions
     go back to the phone in the answer and it runs them (it says so if it can't, on the next wake)."""
-    device_caps = ("alarm", "timer", "reply", "volume", "send")
+    device_caps = ("alarm", "timer", "reply", "volume", "send", "record")
 
     def __init__(self):
         self.actions: list[dict] = []

@@ -26,6 +26,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         launchedByAssist = isAssist(intent)
+        handleShare(intent)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "eva/assistant").also { ch ->
             ch.setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -121,8 +122,66 @@ class MainActivity : FlutterActivity() {
         return "on"
     }
 
+    /** Nov 23: Share > E.V.A. from Pixel Recorder (or any app): a recording or a transcript becomes meeting notes. */
+    private fun handleShare(i: Intent?) {
+        if (i?.action != Intent.ACTION_SEND) return
+        val text = i.getStringExtra(Intent.EXTRA_TEXT)
+        @Suppress("DEPRECATION") val uri = i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        if (uri == null && text.isNullOrBlank()) return
+        val ctx = applicationContext
+        android.widget.Toast.makeText(ctx, "Sending to E.V.A. for notes...", android.widget.Toast.LENGTH_SHORT).show()
+        Thread {
+            var waited = 0
+            while ((EvaLink.address == null || EvaLink.token == null) && waited < 20_000) {   // the page sets the link
+                Thread.sleep(500)
+                waited += 500
+            }
+            val ok = try {
+                val name: String
+                val bytes: ByteArray
+                if (uri != null) {
+                    name = contentResolver.query(uri, null, null, null, null)?.use { c ->
+                        val col = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (col >= 0 && c.moveToFirst()) c.getString(col) else null
+                    } ?: "recording.m4a"
+                    bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+                } else {
+                    name = "transcript.txt"
+                    bytes = text!!.toByteArray(Charsets.UTF_8)
+                }
+                uploadShared(name, bytes)
+            } catch (e: Exception) {
+                false
+            }
+            runOnUiThread {
+                android.widget.Toast.makeText(ctx, if (ok) "E.V.A. is making the notes. She'll tell you when they're ready."
+                    else "Couldn't reach E.V.A. Is the PC on?", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }.start()
+    }
+
+    private fun uploadShared(name: String, bytes: ByteArray): Boolean {
+        val address = EvaLink.address ?: return false
+        val c = java.net.URL("$address/api/meetings/upload").openConnection() as java.net.HttpURLConnection
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Authorization", "Bearer ${EvaLink.token}")
+        c.setRequestProperty("Content-Type", "application/octet-stream")
+        c.setRequestProperty("X-Filename", name.replace(Regex("[^\\w. -]"), "_"))
+        c.setFixedLengthStreamingMode(bytes.size)
+        c.connectTimeout = 8000
+        c.readTimeout = 120_000
+        return try {
+            c.outputStream.use { it.write(bytes) }
+            c.responseCode == 200
+        } finally {
+            c.disconnect()
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        handleShare(intent)
         if (isAssist(intent)) channel?.invokeMethod("assist", null)
     }
 

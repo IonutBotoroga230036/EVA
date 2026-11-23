@@ -56,3 +56,4 @@ piper-tts==1.8.0   # v0.3.2 Romanian voice (ro_RO-mihai-medium, local); latest o
 
 # v0.3 9b: wake-word training exports ONNX (the feature models ship in assets/wakeword)
 onnx
+sounddevice==0.5.6  # Nov 23: recording meetings with the PC's microphone (optional; the phone also records)

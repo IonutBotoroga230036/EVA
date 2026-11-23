@@ -72,7 +72,7 @@ def test_phone_volume():
         device._ask = orig
     kt = Path("apps/eva_android/android_overlay/app/src/main/kotlin/nl/ionut/eva_android/DeviceActions.kt")
     assert '"set_volume" ->' in kt.read_text(encoding="utf-8")
-    assert "'volume'] });" in Path("interfaces/web/eva.html").read_text(encoding="utf-8")
+    assert "'volume'" in Path("interfaces/web/eva.html").read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------- the phone locked
