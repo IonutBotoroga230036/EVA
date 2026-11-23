@@ -249,7 +249,7 @@ def test_a_new_message_when_there_is_nothing_to_reply_to(monkeypatch):
     assert "I don't have their number" in messages.tool_message_reply(to="Dan", text="hi")["say"]
     assert messages.tool_message_reply(to="Dan", text="")["say"] == "What should I say, sir?"
     assert messages.tool_message_reply(to="", text="hi")["say"] == "Who should I send it to, sir?"
-    assert messages.describe_reply({"to": "Mom", "app": "WhatsApp", "text": "hi"}) == "send Mom on WhatsApp: „hi”"
+    assert messages.describe_reply({"to": "Mom", "app": "WhatsApp", "text": "hi"}) == "message Mom on WhatsApp: „hi”"
     assert messages.fill_reply({"to": "mom", "text": "hi", "app": "whatsapp"}, "tell my mom hi")["app"] == "WhatsApp"
 
 
@@ -308,7 +308,7 @@ def test_tools_are_registered_with_a_confirmation():
     assert belt.needs_confirm("message_reply") and not belt.needs_confirm("messages_check")
     assert "message_reply" in belt.slow_fill
     assert belt.describe("message_reply", {"to": "Dan", "text": "hi", "app": "Instagram"}) == \
-        "send Dan on Instagram: „hi”"                                 # nothing from Dan to reply to
+        "message Dan on Instagram: „hi”"                                 # nothing from Dan to reply to
 
 
 # ---------------------------------------------------------------- Romanian conversations
@@ -441,3 +441,20 @@ def test_send_a_message_to_mom_asks_what_to_say_then_changes_it(eva, monkeypatch
     assert text.endswith("„Te sun mai târziu.”. Shall I go ahead?")
     turn(o, "yes")
     assert ran[-1][1]["text"] == "Te sun mai târziu."
+
+
+@pytest.mark.parametrize("said,yes", [
+    ("reply to my mum", False), ("can you send a message to my mom on WhatsApp please", False),
+    ("I would like you to reply to my mom", False), ("tell Mom I'm on my way", True),
+    ("reply to mom ajung la 7", True), ("I'm on my way", True),
+])
+def test_is_there_a_message_in_what_you_said(said, yes):
+    assert messages.said_a_message(said, "Mom") is yes
+
+
+def test_a_message_from_earlier_in_the_conversation_is_not_reused():
+    """Nov 23 11:34: 'reply to my mum' came back with the whole invented message from earlier."""
+    args = messages.fill_reply({"to": "Mom", "app": "whatsapp", "language": "ro",
+                                "text": "Mulțumesc, mamă, că ești mereu lângă mine."}, "reply to my mum")
+    assert "text" not in args
+

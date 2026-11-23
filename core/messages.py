@@ -241,6 +241,20 @@ def _echoes_the_request(words: str, said: str) -> bool:
                                         r"mama|dad))*", w))
 
 
+_COMMAND_WORDS = set("""can could would will you please eva hey i i'd id want would like to reply respond answer send
+write text message messages msg tell let know a an the my her him them back on in via whatsapp instagram insta dm
+reply say saying that this it now quickly just and so""".split())
+
+
+def said_a_message(said: str, who: str = "") -> bool:
+    """Is there anything to send in this sentence, once the command and the person are taken out?
+    'reply to my mum' -> no; 'tell Mom I'm on my way' -> yes."""
+    names = {n.lower() for n in aliases(who)} if who else set()
+    names |= {"mom", "mum", "mama", "mami", "mother", "dad", "tata"}
+    words = re.findall(r"[\wăâîșşțţ']+", (said or "").lower())
+    return any(w not in _COMMAND_WORDS and w not in names for w in words)
+
+
 def fill_reply(args: dict, text: str) -> dict:
     """Before the confirmation: who exactly, which app, and the final words (Romanian for Mom). Runs once."""
     if args.get("final"):
@@ -255,7 +269,9 @@ def fill_reply(args: dict, text: str) -> dict:
     if out.get("app"):
         out["app"] = app_name(out["app"])                   # "whatsapp" -> "WhatsApp"
     words = (out.get("text") or "").strip()
-    if words and _echoes_the_request(words, text):        # Nov 23: text "Reply to my mom" became a love letter
+    if words and (_echoes_the_request(words, text) or not said_a_message(text, out.get("to", ""))):
+        # Nov 23: "reply to my mum" came with a whole message the model took from earlier in the conversation.
+        # The words to send must be in what you said now; otherwise she asks.
         out.pop("text", None)
         words = ""
     if not words:
@@ -282,7 +298,7 @@ def describe_reply(args: dict) -> str:
     where = f" on {app}" if app else ""
     if not reply_target(args.get("to", ""), args.get("app", "")):
         note = " (I couldn't translate it, so it's in English)" if args.get("untranslated") else ""
-        return f"send {to}{where or ' on WhatsApp'}{note}: „{(args.get('text') or '').strip()}”"
+        return f"message {to}{where or ' on WhatsApp'}{note}: „{(args.get('text') or '').strip()}”"
     note = " (I couldn't translate it, so it's in English)" if args.get("untranslated") else ""
     return f"reply to {to}{where}{note}: „{(args.get('text') or '').strip()}”"
 
