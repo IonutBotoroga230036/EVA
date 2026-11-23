@@ -108,7 +108,15 @@ class BudgetTracker:
 
     def can_spend(self, amount_eur: float = 0.0) -> bool:
         today = self._ensure_today()["total_euros"]
-        return (today + amount_eur < self.daily_limit) and (self.month_spent() + amount_eur < self.monthly_limit)
+        if (today + amount_eur >= self.daily_limit) or (self.month_spent() + amount_eur >= self.monthly_limit):
+            return False
+        try:
+            from core import testmode                    # Nov 23: "test mode on" caps spending at a few cents
+            if testmode.blocks(amount_eur):
+                return False
+        except Exception:
+            pass
+        return True
 
     def remaining_euros(self) -> float:
         return max(0.0, min(self.daily_limit - self._ensure_today()["total_euros"],

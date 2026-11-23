@@ -24,7 +24,13 @@ CONNECTIONS: set = set()
 # The window this turn came from (set by the server for each turn; worker threads inherit it). Nov 23: an alarm
 # asked from the overlay went to the app page sleeping in the background, which never answered.
 CURRENT: contextvars.ContextVar = contextvars.ContextVar("eva_window", default=None)
-PHONE_CAPS = ("alarm", "timer", "reply", "volume", "send", "location", "record")
+PHONE_CAPS = ("alarm", "timer", "reply", "volume", "send", "location", "record", "ring")
+# Nov 23: actions for the phone when no E.V.A. window is open on it. The hands-free service asks for them every
+# 20 s (GET /api/phone/poll); they expire after 2 minutes so a stale "ring" never goes off an hour later.
+PENDING: list = []
+PENDING_TTL_S = 120.0
+LAST_POLL: dict = {"ts": 0.0}
+POLL_S = 20
 
 
 def phones(cap: str) -> list:
@@ -172,6 +178,60 @@ def tool_phone_volume(level: int = 50, **_):
     return {"result": json.dumps({"phone_volume": level}), "say": f"Phone volume at {level} percent, sir."}
 
 
+# ------------------------------------------------------------ find my phone (Nov 23)
+RINGING: dict = {"ts": 0.0}           # when she last rang it: "found it" means "stop" for 2 minutes after
+RING_S = 45
+
+
+def queue_for_phone(action: str, args: dict) -> None:
+    """For the hands-free service's next check-in (GET /api/phone/poll)."""
+    import time as _t
+    PENDING[:] = [p for p in PENDING if p["action"] != action] + [{"action": action, "args": args, "ts": _t.time()}]
+
+
+def take_pending() -> list[dict]:
+    import time as _t
+    now = _t.time()
+    out = [{"action": p["action"], "args": p["args"]} for p in PENDING if now - p["ts"] <= PENDING_TTL_S]
+    PENDING.clear()
+    return out
+
+
+def ringing() -> bool:
+    import time as _t
+    return _t.time() - RINGING["ts"] < 120
+
+
+def tool_phone_ring(on: bool = True, **_):
+    """'Find my phone': it rings at full alarm volume for 45 s (even on silent), until 'found it'."""
+    import time as _t
+    if not on:
+        RINGING["ts"] = 0.0
+        PENDING[:] = [p for p in PENDING if p["action"] != "ring_phone"]
+        if phones("ring") and LOOP is not None:
+            _ask("ring", "stop_ring", {})
+        else:
+            queue_for_phone("stop_ring", {})
+        return {"result": json.dumps({"ringing": False}), "say": "Good, sir. It's stopped.", "exact": True}
+    RINGING["ts"] = _t.time()
+    if phones("ring") and LOOP is not None:
+        out = _ask("ring", "ring_phone", {"seconds": RING_S})
+        if out.get("ok"):
+            return {"result": json.dumps({"ringing": True}), "exact": True,
+                    "say": "Ringing your phone at full volume, sir. Say 'found it' to stop it."}
+    queue_for_phone("ring_phone", {"seconds": RING_S})
+    ago = _t.time() - LAST_POLL["ts"]
+    if ago <= POLL_S * 3:
+        return {"result": json.dumps({"ringing": "queued"}), "exact": True,
+                "say": f"The E.V.A. app isn't open on your phone, so the hands-free service will ring it within about "
+                       f"{POLL_S} seconds, sir. Say 'found it' to stop it."}
+    since = f" for {round(ago / 60)} minutes" if LAST_POLL["ts"] and ago < 86400 else ""
+    return {"result": json.dumps({"ringing": False, "error": "unreachable"}), "exact": True,
+            "say": f"I can't reach your phone right now, sir: the app isn't open and hands-free hasn't checked in"
+                   f"{since}, so it may be off or offline. If it checks in within 2 minutes it will ring. Google's "
+                   f"Find My Device also works: google.com/android/find."}
+
+
 SCHEMAS = [
     {"type": "function", "function": {"name": "phone_alarm", "description": "Set an alarm on the user's phone.",
      "parameters": {"type": "object", "properties": {"time": {"type": "string", "description": "e.g. 7:30 am"},
@@ -195,8 +255,14 @@ SCHEMAS.append({"type": "function", "function": {
     "description": "Set the volume of the user's PHONE itself, 0 to 100 ('my phone volume to 50%'). Not Spotify's "
                    "and not the computer's volume.",
     "parameters": {"type": "object", "properties": {"level": {"type": "integer"}}, "required": ["level"]}}})
+SCHEMAS.append({"type": "function", "function": {
+    "name": "phone_ring",
+    "description": "Find the user's phone: make it ring at full volume, even on silent ('find my phone', 'where's my "
+                   "phone', 'ring my phone'); on=false stops it ('found it', 'stop ringing').",
+    "parameters": {"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]}}})
 FUNCTIONS = {"phone_alarm": tool_phone_alarm, "phone_timer": tool_phone_timer, "phone_stay_dark": tool_phone_stay_dark,
-             "phone_ask_unlock": tool_phone_ask_unlock, "phone_volume": tool_phone_volume}
+             "phone_ask_unlock": tool_phone_ask_unlock, "phone_volume": tool_phone_volume, "phone_ring": tool_phone_ring}
 GUARDS = {"phone_alarm": r"\b(alarm|wake me)\b", "phone_timer": r"\btimer\b",
           "phone_stay_dark": r"\b(dark|screen)\b", "phone_ask_unlock": r"\b(unlock|locked)\b",
-          "phone_volume": r"phone\b.*\b(volume|louder|quieter)\b|\b(volume|louder|quieter)\b.*phone\b"}
+          "phone_volume": r"phone\b.*\b(volume|louder|quieter)\b|\b(volume|louder|quieter)\b.*phone\b",
+          "phone_ring": r"\b(phone|mobile|pixel|ring|ringing|found)\b"}

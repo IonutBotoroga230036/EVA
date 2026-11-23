@@ -32,6 +32,7 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 | 9b | **Android, hands-free** (built v0.3.1, awaiting phone test: on-device wake service, Core overlay over apps and the lock screen, locked-phone tiers, "Eva" interrupts her in media mode) | On-device "Hey Eva" in a foreground service (screen off), a VoiceInteractionService overlay above the current app, push notifications. |
 | 9c | **Your phone as E.V.A.'s hands** (alarms, timers, WhatsApp and Instagram messages built in v0.3.2; SMS, calls, navigation next) | While the app is connected, the phone offers E.V.A. tools she can call: set alarms and timers, open apps, navigate, and (with your one-time permission) read incoming WhatsApp, Instagram and SMS notifications so she can tell you which new messages matter. Replies and calls only after your yes. Uses Android's own intents and the notification listener, never screen-scraping. |
 | 9e+ | **Places, meetings, new messages, FORGE facts, her PRs** (Nov 23) | Arrive/leave reminders and actions, "where did I park", opt-in location history; meeting recording (phone, PC, shared files) with Whisper large-v3-turbo and Claude notes; new WhatsApp messages; FORGE checks real-world facts in its tests against the web; installed skills open a GitHub pull request with you as co-author. |
+| 9f | **Commute, focus, find my phone, cheaper testing** (Nov 23 afternoon) | NS trains Breda-Nijmegen with delays and "leave in 10 minutes" from your calendar; focus mode holds announcements during events (Mom and urgent still come); find my phone rings it at full volume from the PC; meeting to-dos into reminders or the calendar; speaker labels; the understanding cache and test mode so testing costs cents. |
 | 9d | **Romanian mode** (built in v0.3.2: Romanian voice per sentence, Whisper hears Romanian, Romanian answers, Mom's replies in Romanian) | Piper's Romanian voice next to Kokoro (chosen per sentence), Whisper in Romanian when you switch ("Eva, hai să vorbim în română") or when you dictate to a contact marked Romanian (Mom). |
 | 10b | **Actions later** (built, awaiting hardware test) | "Turn the lights off in 5 minutes, stop the music in 10": ORACLE runs the tool at that time, with the same confirmation rules at the moment it runs. |
 | 13a | **FORGE Code: E.V.A. edits her own projects** | "Eva, make the orb bigger in the phone app": she reads apps/eva_android, proposes a diff, runs `flutter analyze` and the tests, shows you the change, and applies it on a git branch only after your yes. Never on main, never unattended. |
@@ -47,7 +48,9 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 | 16 | **Location automations** | Arriving home sets your "home" mood; at the store she texts your shopping list. Uses Android geofencing (the phone wakes only when you cross a boundary), not constant GPS, so the battery lasts. |
 | 17 | **Smart home expansion** | More devices, and a Home Assistant bridge. |
 
-Anytime: travel skills like NS train times make good FORGE tests.
+Next: v0.4 "Agent" (agreed Nov 23): a task lane for long jobs with a plan, steps and files (the guitar stand
+test), consent tiers with standing permissions, the PC as a device like the phone (so the brain can move to the
+cloud later), and a sandbox before she installs programs.
 
 ## What the phone app needs first
 The voice pipeline (1) so the app just streams audio to E.V.A., network safety (2) and private remote access (8)

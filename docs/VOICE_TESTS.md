@@ -263,3 +263,28 @@ phone, menu > Messages: on, then allow Notification access.
 | 19.14 | "Build me a skill that tells the moon phase" | The ready message says its real-world answers were checked against sources. |
 | 19.15 | Install it (with github.pull_requests: true and GITHUB_TOKEN) | "I've opened pull request N on GitHub ... with you as co-author." |
 
+
+## 20. Commute, focus, find my phone, meeting to-dos, test mode (Nov 23 afternoon)
+
+Setup: `NS_API_KEY=...` in config/secrets.env (apiportal.ns.nl, the Reisinformatie API key). Optional speaker
+labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-community-1 on Hugging Face,
+`HF_TOKEN=...` in config/secrets.env. Phone: install the new app build (find my phone).
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 20.1 | "Test mode on" | "Test mode on, sir. Cloud calls can spend 10 cents..." | `COST turn: free` |
+| 20.2 | Run a few lines from 16.x twice | The second time: no Claude call | `UNDERSTAND cache -> ...` |
+| 20.3 | "Test mode off" | What the session cost, in cents | |
+| 20.4 | "When's the next train to Nijmegen?" | Time, platform, delay, arrival, changes, then the next one | `COMMUTE: N trips BD -> NM` |
+| 20.5 | "Next train home" | Nijmegen to Breda | `NM -> BD` |
+| 20.6 | "When should I leave for uni tomorrow?" | "For X at 10:45 tomorrow, leave home at ... for the ... from Breda" | |
+| 20.7 | A lecture day, at home | About 10 minutes before you must leave: "Sir, leave in 10 minutes for the 08:22..." | `ORACLE: Sir, leave in` |
+| 20.8 | During a 30+ minute calendar event, a friend messages you | Nothing said | `FOCUS: ...'s message waits` |
+| 20.9 | Same, Mom messages | Announced as usual | |
+| 20.10 | When the event ends | "Sir, while you were in X: a message from ..." | |
+| 20.11 | "Focus mode off" / "am I in focus mode?" / "focus mode on" | Switches; the status says if you're in an event now | |
+| 20.12 | Phone app open: "Find my phone" | Rings at full volume, even on silent; "found it" stops it | |
+| 20.13 | App closed, Hands-free on: "Find my phone" (from the PC) | Rings within about 20 seconds; the notification's "Found it" stops it | `the PC asked: ring_phone` (phone logcat) |
+| 20.14 | After a recorded meeting: "Put the to-dos in my reminders" | Lists yours with times, asks first; "yes" adds them | |
+| 20.15 | "Add the to-dos to my calendar" | 30-minute "To-do: ..." events after your yes | |
+| 20.16 | Record a 2-person conversation (with pyannote set up) | Notes say "Speaker 1/2" or names | `MEETING: 2 speakers` |

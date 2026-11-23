@@ -6,20 +6,34 @@ Until now one small local model (qwen2.5 3B) chose among all 76 tools at once, a
 a word pattern was added in front of it. That pile of patterns is why she felt rigid. This step replaces the
 choice itself, and keeps the patterns only as fast shortcuts and as safety rails.
 
-## How a sentence is understood
+## How a sentence is understood (auto, the default since Nov 22)
 
-1. **Jev** (TypeSafe) reads the sentence and the two turns before it and picks ONE of her tools, or "no tool",
-   or "nothing fits". It answers in a fraction of a second with a real probability.
-2. If Jev is sure (0.8 or more, `understanding.jev.sure`), the **local model** fills in the details for that one
-   tool only: the day, the playlist, the person. One tool's details is an easy job even for a small model.
-3. If Jev isn't sure, **Claude Haiku 5.5** decides and fills in the details in one call (a forced tool call, so it
-   answers without thinking first: about a second).
+1. **Said before?** The same sentence in the same situation reuses its decision, free (see "Cache" below).
+2. **Claude Haiku 5.5** decides and fills in the details in one call (a forced tool call, so it answers without
+   thinking first: about 0.7 s). Nov 22: Jev chose well, but the small local model filled in details badly
+   ("empty slots for tomorrow" became day='morning'), so Claude went first.
+3. If Claude is slow, down or out of budget, **Jev** (TypeSafe) picks ONE tool with a real probability, and the
+   **local model** fills in that one tool's details. Unsure Jev decisions still pass the word guards.
 4. No key, no internet, no budget, or you said "local only": the **local model** decides, as before.
+
+Mode `jev` keeps the original order (Jev first, local details, Claude never).
 
 A sure decision (Jev sure, or Claude) skips the word guards, so "check my calendar for any empty slots" reaches
 free time without the word "free". Nothing else is skipped: sending, deleting and spending still ask for your yes.
 Skills FORGE builds become choices automatically, from their name and description: no patterns to write.
 When the answer is a sure "nothing fits", she offers to build the skill.
+
+## Cache and test mode (Nov 23)
+
+- **Cache** (`core/understand/cache.py`): the decision is kept for 7 days, keyed on the sentence (without "Hey
+  Eva", punctuation or case), on the two turns before it for follow-ups ("and tomorrow?", "turn it up"), and on
+  the tools she has (a new or changed skill starts fresh). A second VOICE_TESTS run costs nothing for
+  understanding. Decisions carrying personal text (a message, a note, a reminder's words) stay in memory only;
+  a decision with a written-out date is never reused. "Local only" never reads it.
+  Off: `understanding.cache.enabled: false`.
+- **Test mode**: "Eva, test mode on" caps cloud spending at 10 cents ("test mode on with 50 cents"); past it,
+  everything falls back to local. Every turn logs `COST turn: ...` (free turns too). "Test mode off" says what
+  the session cost. Ends at midnight by itself.
 
 ## Privacy
 
@@ -61,7 +75,7 @@ two turns before it, never your files, memories or emails. Jev's listing says ze
 | local | `local_model`, all tools at once | same | always |
 | jev | Jev | local model | only when Jev isn't sure |
 | claude | Claude Haiku | Claude | never (Claude is trusted) |
-| auto | Jev, then Claude if unsure | local / Claude | only for the local fallback |
+| auto | Claude; Jev if Claude fails; then local | Claude / local | only when Jev is unsure or local decides |
 
 ## Costs
 

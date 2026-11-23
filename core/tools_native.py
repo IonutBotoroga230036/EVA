@@ -701,9 +701,10 @@ REGISTRY.update({"later_list": tool_later_list, "later_cancel": tool_later_cance
 GUARDS.update(_device.GUARDS)
 GUARDS.update({"later_list": r"\b(later|planned|scheduled)\b",
                "later_cancel": r"\b(cancel|don'?t|never mind)\b.*\b(later|planned|scheduled)\b|\bcancel\b"})
-ACTION_TOOLS |= {"phone_alarm", "phone_timer", "later_cancel", "phone_stay_dark", "phone_ask_unlock", "phone_volume"}
+ACTION_TOOLS |= {"phone_alarm", "phone_timer", "later_cancel", "phone_stay_dark", "phone_ask_unlock", "phone_volume",
+                 "phone_ring"}
 EXACT_TOOLS |= {"phone_alarm", "phone_timer", "later_list", "later_cancel", "phone_stay_dark", "phone_ask_unlock",
-                "phone_volume"}
+                "phone_volume", "phone_ring"}
 ARG_FILLERS["phone_volume"] = _fill_level
 
 
@@ -776,4 +777,33 @@ REGISTRY.update(_meetings.FUNCTIONS)
 GUARDS.update(_meetings.GUARDS)
 ACTION_TOOLS |= _meetings.ACTIONS
 EXACT_TOOLS |= _meetings.EXACT
+CONFIRM_TOOLS.update(_meetings.CONFIRM)          # Nov 23: to-dos go into reminders/calendar only after your yes
+PRECHECK_TOOLS = dict(_meetings.PRECHECK)        # before "shall I go ahead?": nothing to do means no question
 SLOW_FILLERS = {"message_reply"}
+
+# ---------------------------------------------------------------- test mode (Nov 23 afternoon)
+from core import testmode as _testmode  # noqa: E402
+
+TOOL_SCHEMAS += _testmode.SCHEMAS
+REGISTRY.update(_testmode.FUNCTIONS)
+GUARDS.update(_testmode.GUARDS)
+ACTION_TOOLS |= _testmode.ACTIONS
+EXACT_TOOLS |= _testmode.EXACT
+
+# ---------------------------------------------------------------- commute: NS trains and when to leave (Nov 23)
+from core import commute as _commute  # noqa: E402
+
+TOOL_SCHEMAS += _commute.SCHEMAS
+REGISTRY.update(_commute.FUNCTIONS)
+GUARDS.update(_commute.GUARDS)
+EXACT_TOOLS |= _commute.EXACT
+ARG_FILLERS.update(_commute.FILLERS)
+
+# ---------------------------------------------------------------- focus mode during calendar events (Nov 23)
+from core import focus as _focus  # noqa: E402
+
+TOOL_SCHEMAS += _focus.SCHEMAS
+REGISTRY.update(_focus.FUNCTIONS)
+GUARDS.update(_focus.GUARDS)
+ACTION_TOOLS |= _focus.ACTIONS
+EXACT_TOOLS |= _focus.EXACT

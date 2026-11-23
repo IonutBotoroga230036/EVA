@@ -6,6 +6,7 @@ Modes (settings: understanding.mode)
   jev     Jev picks the skill (fast, with a real confidence), the local model fills in its details
   claude  Claude Haiku picks the skill and fills in the details in one call
   auto    Claude first (picks and fills in details); if Claude fails, Jev + local details; then local
+A sentence said before in the same situation reuses its cloud decision for free (core/understand/cache.py).
 
 Every decision comes back in the shape the orchestrator already uses: {"tool": name | "none" | "unavailable",
 ...args}, plus "_by", "_conf" and "_trusted". A trusted decision (Jev sure, or Claude) skips the word guards, so
@@ -200,6 +201,12 @@ async def understand(messages: list[dict], schemas: list[dict], legacy, fill, mo
     if mode in ("legacy", "local"):
         return {**await legacy(), "_by": mode}
 
+    # Nov 23: said before in the same situation? The decision it got then, free (core/understand/cache.py)
+    from core.understand import cache
+    hit = cache.lookup(messages, schemas)
+    if hit is not None:
+        return hit
+
     # auto: Claude first. Nov 22 on your phone: Jev chose well but the small local model filled in the details
     # badly ('empty slots for tomorrow' became day='morning'); Claude picks AND fills in one call, ~0.7 s.
     # Jev (+ local details) is the fallback when Claude is slow, down or out of budget.
@@ -207,6 +214,7 @@ async def understand(messages: list[dict], schemas: list[dict], legacy, fill, mo
         try:
             d = await asyncio.wait_for(claude_pick(messages, schemas, claude), timeout=float(c["timeout_s"]))
             d["_trusted"] = True
+            cache.remember(messages, schemas, d)
             return d
         except Exception as e:                          # no key, budget, offline, timeout: never stay silent
             logger.warning(f"UNDERSTAND claude failed ({e.__class__.__name__}: {str(e)[:120]}); "
@@ -222,6 +230,7 @@ async def understand(messages: list[dict], schemas: list[dict], legacy, fill, mo
                 tool = d["tool"]
                 if tool in names and names[tool]["function"].get("parameters", {}).get("properties"):
                     d.update(await fill(tool))
+                cache.remember(messages, schemas, d)
                 return d                                  # unsure: the word guards still check it
             except (JevError, asyncio.TimeoutError) as e:
                 logger.warning(f"UNDERSTAND jev failed ({e.__class__.__name__}: {e}); falling back")

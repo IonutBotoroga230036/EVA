@@ -256,6 +256,17 @@ class Oracle:
     def in_dnd(self, now: Optional[float] = None) -> bool:
         return (now or time.time()) < self.dnd_until
 
+    async def _focus_tick(self, now: datetime) -> None:
+        """Nov 23: when an event you were focused in ends, what came in meanwhile (core/focus.py)."""
+        try:
+            from core import focus
+            line = focus.tick(self._events, now)
+        except Exception as e:
+            logger.warning(f"ORACLE: focus check failed: {e}")
+            return
+        if line:
+            await self._say(line, {"kind": "note", "title": "While you were busy", "text": line})
+
     def in_quiet_hours(self, now: Optional[datetime] = None) -> bool:
         h = (now or datetime.now()).hour
         start, end = self.quiet
@@ -311,10 +322,13 @@ class Oracle:
         for r in ([] if dnd else self.routines.due(now)):          # scheduled routines
             await self._say(*await asyncio.to_thread(run_routine, r, self))
 
-        if dnd or self.in_quiet_hours(now):
+        if dnd:
             return
+        quiet = self.in_quiet_hours(now)
         google = None
-        if ts - self._last_cal >= self.poll or ts - self._last_mail >= self.poll:
+        # Nov 23: the calendar is read in quiet hours too (reading isn't chatter): the 07:58 "leave for your train"
+        # needs today's lectures, and focus mode needs to know you're in one
+        if ts - self._last_cal >= self.poll or (not quiet and ts - self._last_mail >= self.poll):
             try:
                 google = await asyncio.to_thread(self._google)
             except Exception:
@@ -322,9 +336,18 @@ class Oracle:
         if google and ts - self._last_cal >= self.poll:          # refresh upcoming events
             self._last_cal = ts
             try:
-                self._events = await asyncio.to_thread(google.list_events, now, now + timedelta(hours=3))
+                self._events = await asyncio.to_thread(google.list_events, now, now + timedelta(hours=4))
             except Exception as e:
                 logger.warning(f"ORACLE: calendar check failed: {e}")
+        try:                                                     # "leave in 10 minutes for the 08:22" (Nov 23)
+            from core import commute
+            for line in await asyncio.to_thread(commute.leave_alerts, self._events, now):
+                await self._say(line, {"kind": "note", "title": "Time to leave", "text": line})
+        except Exception as e:
+            logger.warning(f"ORACLE: commute check failed: {e}")
+        await self._focus_tick(now)
+        if quiet:
+            return
         for e in self._events:                                   # meeting heads-up
             if e.get("all_day") or not e.get("start") or e["id"] in self._announced:
                 continue
@@ -352,6 +375,13 @@ class Oracle:
                     if new and self.email_filter == "important":
                         from core.triage import classify
                         new = [m for m in await asyncio.to_thread(classify, new, google) if m["important"]]
+                    from core import focus
+                    if new and focus.current(self._events, now):         # Nov 23: in a lecture, it waits
+                        from core.scribe import who as _who
+                        for x in new:
+                            focus.note_held("email", _who(x["from"]))
+                        logger.info(f"FOCUS: {len(new)} email alert(s) held")
+                        new = []
                     if new:
                         from core.scribe import who
                         m = new[0]

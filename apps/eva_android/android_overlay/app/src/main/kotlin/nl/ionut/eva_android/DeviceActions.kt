@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
 
-/** Alarms and timers through Android's own clock app, the phone's volume, and message replies (MessageListener): used by the app,
+/** Alarms and timers through Android's own clock app, the phone's volume, ringing it (PhoneRinger), and message replies (MessageListener): used by the app,
  *  the overlay and the screen-off mode. */
 object DeviceActions {
     fun run(ctx: Context, action: String, args: Map<String, Any?>): Map<String, Any> = try {
@@ -40,6 +40,8 @@ object DeviceActions {
                 am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, Math.round(level * max / 100f), 0)
                 mapOf("ok" to true)
             }
+            "ring_phone" -> PhoneRinger.start(ctx, (args["seconds"] as? Number)?.toInt() ?: 45)   // Nov 23: find my phone
+            "stop_ring" -> PhoneRinger.stop(ctx)
             else -> mapOf("ok" to false, "error" to "unknown action $action")
         }
     } catch (e: ActivityNotFoundException) {

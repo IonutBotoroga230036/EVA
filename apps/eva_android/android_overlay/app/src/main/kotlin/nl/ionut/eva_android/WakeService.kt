@@ -90,8 +90,34 @@ class WakeService : Service() {
         if (!running) {
             running = true
             worker = Thread({ loop() }, "eva-wake").also { it.start() }
+            poller = Thread({ pollLoop() }, "eva-poll").also { it.start() }
         }
         return START_NOT_STICKY            // a microphone service can't restart itself from the background anyway
+    }
+
+    // ------------------------------------------------------------------ the PC's requests (Nov 23)
+    private var poller: Thread? = null
+
+    /** Every 20 s: does the PC want something while no E.V.A. window is open ("find my phone")? A tiny GET. */
+    private fun pollLoop() {
+        var every = 20
+        while (running) {
+            try {
+                val res = JSONObject(get("/api/phone/poll").toString(Charsets.UTF_8))
+                every = res.optInt("every_s", 20).coerceIn(10, 300)
+                val actions = res.optJSONArray("actions")
+                if (actions != null) for (i in 0 until actions.length()) {
+                    val a = actions.getJSONObject(i)
+                    Log.i(TAG, "the PC asked: ${a.optString("action")}")
+                    DeviceActions.run(this, a.optString("action"), DeviceActions.args(a.optJSONObject("args")))
+                }
+            } catch (e: InterruptedException) {
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "poll failed: ${e.message}")
+            }
+            try { Thread.sleep(every * 1000L) } catch (_: InterruptedException) { return }
+        }
     }
 
     // ------------------------------------------------------------------ meeting recording (Nov 23)
@@ -140,6 +166,7 @@ class WakeService : Service() {
         EvaLocation.stop(this)
         running = false
         worker?.interrupt()
+        poller?.interrupt()
         releaseRecorder()
         engine?.close()
         engine = null

@@ -83,6 +83,9 @@ understanding:
     provider: "typesafe"    # typesafe (TYPESAFE_API_KEY) | openrouter (OPENROUTER_API_KEY), in config/secrets.env
     model: ""               # empty = the provider's default Jev
     sure: 0.8               # Jev at least this sure: act on it. Below: ask Claude (auto) or act anyway (jev)
+  cache:                    # Nov 23: the same sentence in the same situation reuses its cloud decision, free
+    enabled: true
+    days: 7                 # personal text (messages, notes) is kept in memory only, never in data/
 
 budget:
   daily_limit_euros: 1.50
@@ -223,6 +226,28 @@ meetings:
   device: "cuda"
   compute_type: "int8_float16"
   notes_folder: "Meetings"             # inside your Obsidian vault (obsidian.vault_path), if set
+  speakers: "auto"                     # Nov 23: "Speaker 1/2" labels when pyannote.audio + HF_TOKEN are set up | off
+  todo_hour: 9                         # "put the to-dos in my reminders": their due day at 9, else tomorrow at 9
+  todo_minutes: 30                     # length of a to-do in the calendar
+
+# Nov 23: NS trains and when to leave (core/commute.py). Needs NS_API_KEY in config/secrets.env (apiportal.ns.nl)
+commute:
+  home_station: "Breda"
+  uni_station: "Nijmegen"              # or "Nijmegen Heyendaal" (the campus stop) if you take that train
+  walk_min: 15                         # from your door to the platform
+  arrive_early_min: 10                 # be at uni this long before the lecture starts
+  alert_min: 10                        # "Sir, leave in 10 minutes for the 08:22"
+  alerts: true
+  away_km: 2.0                         # no leave alert when your phone says you're further than this from home
+  uni_words: ["Radboud", "Nijmegen", "Huygens", "Heyendaal", "Donders", "Grotius", "Lecture hall"]
+  stations: {}                         # extra station codes, e.g. {"Elst": "EST"}
+
+# Nov 23: focus mode (core/focus.py): during events she holds announcements except Mom and urgent ones
+focus:
+  enabled: true                        # "focus mode off" by voice wins over this
+  min_minutes: 30                      # shorter events (your 5-minute reminders) never count
+  only_words: []                       # e.g. ["Lecture", "Meeting"]: only events with these words in the title
+  skip_words: []                       # events with these words never count
 
 # legacy: only used by the v0.1 Redis bus. PULSE v0.2 runs in-process, no Redis needed.
 redis:

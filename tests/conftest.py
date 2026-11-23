@@ -171,6 +171,7 @@ def no_real_romanian_or_messages(tmp_path, monkeypatch):
     import core.meetings as meetings                  # never your real recordings
     monkeypatch.setattr(meetings, "DIR", tmp_path / "meetings")
     monkeypatch.setattr(meetings, "_recorder", None)
+    monkeypatch.setattr(meetings, "_hf_token", lambda: None)        # never your Hugging Face token (speaker labels)
     import core.device as device                      # no windows left over from another test
     device.CONNECTIONS.clear()
     yield
@@ -183,6 +184,34 @@ def no_real_tailscale(monkeypatch):
     import core.tailnet as tn
     monkeypatch.setattr(tn, "_run", lambda args: None)
     tn._cache.update(t=0.0, v=None)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_nov23_afternoon(tmp_path, monkeypatch):
+    """Never your real understanding cache, test mode, NS key, focus switch or phone queue; a fresh one per test."""
+    import core.testmode as testmode
+    import core.understand.cache as ucache
+    monkeypatch.setattr(ucache, "PATH", tmp_path / "understand_cache.json")
+    monkeypatch.setattr(ucache, "_cache", None)
+    monkeypatch.setattr(testmode, "PATH", tmp_path / "test_mode.json")
+    try:
+        import core.commute as commute
+        monkeypatch.setattr(commute, "_key", lambda: None)          # never your real NS key
+        monkeypatch.setattr(commute, "FETCH", None)
+        commute._plans.clear()
+    except ImportError:
+        pass
+    try:
+        import core.focus as focus
+        monkeypatch.setattr(focus, "PATH", tmp_path / "focus.json")
+        focus.reset()
+    except ImportError:
+        pass
+    import core.device as device
+    device.PENDING.clear()
+    device.LAST_POLL["ts"] = 0.0
+    device.RINGING["ts"] = 0.0
     yield
 
 

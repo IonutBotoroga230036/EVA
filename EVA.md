@@ -24,6 +24,7 @@ Used only to fix speech recognition, never shown to the model.
 Format: "- Correct term: misheard phrase, another misheard phrase".
 - Radboud University: roundabout university, read about university, rad bout university, radboat university
 - Nijmegen: neymar can, nay megan, nai megan, nymegen, nijmagen
+- Heyendaal: hey and dal, high and dahl, heyendal
 - Breda
 - Tilburg
 - Deloitte

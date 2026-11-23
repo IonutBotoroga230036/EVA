@@ -419,6 +419,11 @@ async def phone_message(body: dict):
     if oracle.in_quiet_hours() or oracle.in_dnd():
         logger.info("MESSAGES: quiet hours or do-not-disturb; kept for 'any messages?'")
         return out
+    from core import focus
+    if focus.holds(m):                                # Nov 23: in a lecture, only Mom and urgent ones get through
+        focus.note_held("message", m.who)
+        logger.info(f"FOCUS: {m.who}'s message waits until your event ends")
+        return out
     line = messages.announcement(m)
     m.read = True                                     # said once; "any messages?" doesn't repeat it
     logger.info(f"MESSAGES: telling you about {m.who}'s message ({m.why})")
@@ -428,6 +433,15 @@ async def phone_message(body: dict):
     wav = await asyncio.to_thread(tts.synth, line) if tts else None
     out.update(announce=line, audio=base64.b64encode(wav).decode() if wav else "")
     return out
+
+
+@app.get("/api/phone/poll")
+async def phone_poll():
+    """Nov 23: the hands-free service asks every 20 s whether the PC has something for it ("find my phone" while
+    no E.V.A. window is open on the phone). Actions older than 2 minutes are dropped, never run late."""
+    from core import device
+    device.LAST_POLL["ts"] = time.time()
+    return {"actions": device.take_pending(), "every_s": device.POLL_S}
 
 
 @app.post("/api/phone/location")
@@ -497,7 +511,7 @@ async def meeting_upload(request: Request):
 class _DarkPhone:
     """Stands in for the phone app during a screen-off conversation, so alarms and timers still work: the actions
     go back to the phone in the answer and it runs them (it says so if it can't, on the next wake)."""
-    device_caps = ("alarm", "timer", "reply", "volume", "send", "record")
+    device_caps = ("alarm", "timer", "reply", "volume", "send", "record", "ring")
 
     def __init__(self):
         self.actions: list[dict] = []

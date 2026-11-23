@@ -129,6 +129,29 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - Share a Pixel Recorder recording or transcript to E.V.A.
 - "What were the to-dos?" / "what did we decide?" / "summarize the meeting"
 - Whisper large-v3-turbo on your GPU; notes by Claude when the cloud is allowed, otherwise locally.
+- "Put the to-dos in my reminders" / "add the to-dos to my calendar" / "add all the to-dos": yours only unless
+  you say all, on their due day at 9 (else tomorrow at 9), **asks first**, never twice.
+- Speaker labels ("Speaker 1: ...", names when they're said) when pyannote.audio and HF_TOKEN are set up.
+
+## Trains and commute (Nov 23, NS_API_KEY in config/secrets.env)
+- "When's the next train to Nijmegen?" / "next train home" / "is my train delayed?" / "trains to Utrecht at 8"
+- "When should I leave for uni tomorrow?": from your first Nijmegen event and live NS trains
+- She says "Sir, leave in 10 minutes for the 08:22 to Nijmegen" on lecture days (not when your phone says
+  you're away from home). Settings `commute:` (stations, walk time, how early you want to be there).
+
+## Focus mode (Nov 23)
+- During calendar events of 30 minutes or longer she holds WhatsApp/Instagram and email announcements, except
+  Mom and urgent ones, and afterwards tells you what came in. "Focus mode off" / "focus mode on" / "am I in
+  focus mode?". Reminders and "leave for your train" still come.
+
+## Find my phone (Nov 23)
+- "Find my phone" / "where's my phone?" / "ring my phone": it rings at full alarm volume, even on silent, for
+  45 seconds. "Found it" stops it, or the notification's button. Works with only Hands-free on (it checks in
+  every 20 seconds).
+
+## Testing cheaply (Nov 23)
+- "Test mode on" (or "test mode on with 50 cents"): cloud spending capped at 10 cents, each turn's cost in the
+  log. "Test mode off" says what the session cost. A sentence you said before costs nothing the second time.
 
 ## Memory and notes
 - "Remember that I prefer tea over coffee" / "What do you know about me?"

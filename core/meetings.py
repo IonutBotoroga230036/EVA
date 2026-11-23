@@ -22,6 +22,7 @@ import threading
 import time
 import uuid
 import wave
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -32,7 +33,8 @@ SR = 16000
 MAX_S = 3 * 3600
 LATE_S = 20.0
 DEFAULTS = {"whisper_model": "large-v3-turbo", "device": "cuda", "compute_type": "int8_float16",
-            "notes_folder": "Meetings", "keep_audio_days": 30}
+            "notes_folder": "Meetings", "keep_audio_days": 30, "speakers": "auto",
+            "diarization_model": "pyannote/speaker-diarization-community-1", "todo_hour": 9, "todo_minutes": 30}
 NOTES_SCHEMA = {"type": "object", "properties": {
     "title": {"type": "string"}, "summary": {"type": "string"},
     "key_points": {"type": "array", "items": {"type": "string"}},
@@ -42,8 +44,10 @@ NOTES_SCHEMA = {"type": "object", "properties": {
     "open_questions": {"type": "array", "items": {"type": "string"}}},
     "required": ["title", "summary", "key_points", "decisions", "action_items"]}
 NOTES_PROMPT = """You turn a meeting transcript into notes for Ionut (the person who recorded it). The transcript
-comes from speech recognition: names and words may be misheard, and speakers aren't labelled; infer who said
-what only when it's clear. Be faithful: nothing that wasn't said. Write in the transcript's language.
+comes from speech recognition: names and words may be misheard. Lines may start with a speaker label ("Speaker 1:");
+when someone's name becomes clear (they introduce themselves, or are addressed by name), use the name instead of
+the label; otherwise keep "Speaker 1". Without labels, infer who said what only when it's clear. Be faithful:
+nothing that wasn't said. Write in the transcript's language.
 title: 3-7 words. summary: 3-5 sentences. key_points: the important things said. decisions: what was agreed.
 action_items: concrete tasks, with owner and due date only if they were said. open_questions: what stayed open."""
 
@@ -209,8 +213,71 @@ def transcribe(path: Path, model_factory: Optional[Callable] = None) -> list[dic
         gc.collect()
 
 
+def _hf_token() -> Optional[str]:
+    import os
+    if os.environ.get("HF_TOKEN"):
+        return os.environ["HF_TOKEN"]
+    try:
+        from core.security.vault import Vault
+        v = Vault()
+        v.load()
+        return v.get_optional("HF_TOKEN")
+    except Exception:
+        return None
+
+
+def diarize(path) -> Optional[list[tuple[float, float, str]]]:
+    """Who spoke when, with pyannote.audio 4 (speaker-diarization-community-1) on the GPU, or None when it isn't
+    set up: pip install pyannote.audio, accept the model's conditions on Hugging Face, HF_TOKEN in
+    config/secrets.env. meetings.speakers: auto (when set up) | off."""
+    c = cfg()
+    if str(c.get("speakers", "auto")).lower() in ("off", "false", "no"):
+        return None
+    token = _hf_token()
+    if not token:
+        return None
+    try:
+        from pyannote.audio import Pipeline
+    except Exception:
+        logger.info("MEETING: speaker labels need pyannote.audio (pip install pyannote.audio)")
+        return None
+    try:
+        pipe = Pipeline.from_pretrained(c["diarization_model"], token=token)
+        try:
+            import torch
+            if c.get("device", "cuda") == "cuda" and torch.cuda.is_available():
+                pipe.to(torch.device("cuda"))
+        except Exception:
+            pass
+        out = pipe(str(path))
+        turns = [(float(t.start), float(t.end), str(spk)) for t, spk in out.speaker_diarization]
+        logger.info(f"MEETING: {len({s for _, _, s in turns})} speakers in {len(turns)} turns")
+        return turns
+    except Exception as e:
+        logger.warning(f"MEETING: speaker labels failed ({str(e)[:120]}); notes without them")
+        return None
+
+
+def label_speakers(segments: list[dict], turns: Optional[list[tuple[float, float, str]]]) -> list[dict]:
+    """Each segment gets the speaker who overlaps it most, named Speaker 1, 2... in order of first appearance."""
+    if not turns:
+        return segments
+    names: dict[str, str] = {}
+    for s in segments:
+        best, most = None, 0.0
+        for a, b, spk in turns:
+            o = min(b, s["end"]) - max(a, s["start"])
+            if o > most:
+                best, most = spk, o
+        if best is not None:
+            names.setdefault(best, f"Speaker {len(names) + 1}")
+            s["speaker"] = names[best]
+    return segments
+
+
 def transcript_text(segments: list[dict]) -> str:
-    return "\n".join(f"[{int(s['start'] // 60):02d}:{int(s['start'] % 60):02d}] {s['text']}" for s in segments)
+    return "\n".join(f"[{int(s['start'] // 60):02d}:{int(s['start'] % 60):02d}] "
+                     + (f"{s['speaker']}: " if s.get("speaker") else "") + s["text"] for s in segments)
 
 
 def make_notes(transcript: str, title_hint: str = "") -> dict:
@@ -273,8 +340,9 @@ def _vault_copy(meta: dict, md: str) -> Optional[Path]:
         return None
 
 
-def process(mid: str, model_factory: Optional[Callable] = None, notes_fn: Optional[Callable] = None) -> dict:
-    """Transcribe (unless a transcript was given) and write the notes. The finished meta."""
+def process(mid: str, model_factory: Optional[Callable] = None, notes_fn: Optional[Callable] = None,
+            diarizer: Optional[Callable] = None) -> dict:
+    """Transcribe (unless a transcript was given), label speakers when possible, write the notes. The finished meta."""
     meta = read_meta(mid)
     try:
         tpath = folder(mid) / "transcript.txt"
@@ -284,7 +352,10 @@ def process(mid: str, model_factory: Optional[Callable] = None, notes_fn: Option
             audio = next((p for p in folder(mid).iterdir() if p.name.startswith("audio") and p.suffix != ".pcm"), None)
             if audio is None:
                 raise FileNotFoundError("no audio")
-            tpath.write_text(transcript_text(transcribe(audio, model_factory)), encoding="utf-8")
+            segments = transcribe(audio, model_factory)
+            if segments:
+                segments = label_speakers(segments, (diarizer or diarize)(audio))
+            tpath.write_text(transcript_text(segments), encoding="utf-8")
         transcript = tpath.read_text(encoding="utf-8")
         if not transcript.strip():
             return write_meta(mid, status="empty")
@@ -308,8 +379,9 @@ def process_in_background(mid: str, tell: Callable[[str], None], wait: float = 0
         meta = process(mid)
         if meta.get("status") == "done":
             n = meta.get("todos", 0)
+            offer = (" Say 'put the to-dos in my reminders' or 'in my calendar' and I'll add yours." if n else "")
             tell(f"Your notes from {meta.get('title') or 'the meeting'} are ready, sir: "
-                 f"{n} to-do{'s' if n != 1 else ''}. Ask me 'what were the to-dos?' or find them in your notes.")
+                 f"{n} to-do{'s' if n != 1 else ''}. Ask me 'what were the to-dos?' or find them in your notes.{offer}")
         elif meta.get("status") == "empty":
             tell("I couldn't hear any speech in that recording, sir.")
         else:
@@ -398,6 +470,139 @@ def tool_meeting_notes(what: str = "summary", **_):
             "widget": {"kind": "note", "title": notes.get("title", "Meeting"), "text": notes.get("summary", "")[:400]}}
 
 
+# ------------------------------------------------------------ to-dos into reminders or the calendar (Nov 23)
+_ME = {"", "ionut", "ionuț", "me", "i", "myself", "you", "sir"}
+
+
+def _latest_done() -> Optional[tuple[dict, dict]]:
+    done = [m for m in all_meetings() if m.get("status") == "done"]
+    if not done:
+        return None
+    m = done[-1]
+    try:
+        return m, json.loads((folder(m["id"]) / "notes.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _mine(item: dict) -> bool:
+    owner = (item.get("owner") or "").strip().lower()
+    try:
+        from core.messages import cfg as mcfg
+        names = {n.lower() for n in (mcfg().get("my_names") or [])}
+    except Exception:
+        names = set()
+    return owner in _ME or owner in names or any(owner.startswith(n + " ") for n in names | {"ionut"})
+
+
+def todo_time(item: dict, now: Optional[datetime] = None) -> tuple[datetime, bool]:
+    """(when, whether a date was said): its due day at todo_hour, or tomorrow morning."""
+    now = now or datetime.now()
+    c = cfg()
+    from core.timeparse import parse_when
+    due = parse_when(item.get("due") or "", now) if item.get("due") else None
+    if due and due > now:
+        if due.hour == 9 and due.minute == 0 and not re.search(r"\d|noon|morning|evening|afternoon",
+                                                              item.get("due") or "", re.I):
+            due = due.replace(hour=int(c["todo_hour"]), minute=0)
+        return due, True
+    t = (now + timedelta(days=1)).replace(hour=int(c["todo_hour"]), minute=0, second=0, microsecond=0)
+    return t, False
+
+
+def when_label(dt: datetime, now: Optional[datetime] = None) -> str:
+    now = now or datetime.now()
+    days = (dt.date() - now.date()).days
+    day = "today" if days == 0 else "tomorrow" if days == 1 else dt.strftime("%A") if 1 < days < 7 else \
+        dt.strftime("%a %d %b")
+    return f"{day} {dt:%H:%M}"
+
+
+def _pick(which: str = "mine") -> Optional[tuple[dict, dict, list[dict], list[dict]]]:
+    got = _latest_done()
+    if not got:
+        return None
+    meta, notes = got
+    items = [i for i in (notes.get("action_items") or []) if (i.get("task") or "").strip()]
+    if str(which or "mine").lower() == "all":
+        return meta, notes, items, []
+    return meta, notes, [i for i in items if _mine(i)], [i for i in items if not _mine(i)]
+
+
+def describe_todos(args: dict) -> str:
+    got = _pick(args.get("which") or "mine")
+    where = "calendar" if args.get("where") == "calendar" else "reminders"
+    if not got or not got[2]:
+        return f"add the meeting to-dos to your {where}"
+    meta, notes, mine, _ = got
+    listed = "; ".join(f"{i['task']} ({when_label(todo_time(i)[0])})" for i in mine[:6])
+    n = len(mine)
+    return f"put {n} to-do{'s' if n != 1 else ''} from {notes.get('title') or 'the meeting'} in your {where}: {listed}"
+
+
+def _plan_todos(where: str, which: str) -> tuple[Optional[str], dict]:
+    """(why it can't go ahead, or None; what it would add). No side effects: also used before asking for a yes."""
+    got = _pick(which)
+    if not got:
+        return "I don't have any meeting notes yet, sir.", {}
+    meta, notes, mine, others = got
+    title = notes.get("title") or "the meeting"
+    if not mine:
+        whose = ", ".join(sorted({(i.get("owner") or "someone").strip() for i in others}))
+        return (f"No to-dos came out of {title}, sir." if not others else
+                f"None of the to-dos from {title} are yours, sir. Say 'add all the to-dos' to add {whose}'s too."), {}
+    done_before = set((meta.get("todos_added") or {}).get(where) or [])
+    fresh = [i for i in mine if i["task"] not in done_before]
+    if not fresh:
+        return f"Those to-dos are already in your {where}, sir.", {}
+    if where == "calendar":
+        from core.google_api import connected
+        if not connected():
+            return "Your Google Calendar isn't connected, sir. I can put them in your reminders instead.", {}
+    return None, {"meta": meta, "title": title, "fresh": fresh, "others": others, "done_before": done_before}
+
+
+def _where(where: str) -> str:
+    return "calendar" if (where or "").lower().startswith(("cal", "agenda", "sched")) else "reminders"
+
+
+def precheck_todos(args: dict) -> Optional[str]:
+    return _plan_todos(_where(args.get("where", "")), args.get("which") or "mine")[0]
+
+
+def tool_meeting_todos_add(where: str = "reminders", which: str = "mine", **_):
+    where = _where(where)
+    why, plan = _plan_todos(where, which)
+    if why:
+        return {"result": json.dumps({"added": 0, "why": why}), "exact": True, "say": why}
+    meta, title, fresh, others, done_before = (plan["meta"], plan["title"], plan["fresh"], plan["others"],
+                                              plan["done_before"])
+    google = None
+    if where == "calendar":
+        from core.google_api import get_google
+        google = get_google()
+    added = []
+    for i in fresh:
+        when, said = todo_time(i)
+        if google is not None:
+            google.insert_event(f"To-do: {i['task']}", when, when + timedelta(minutes=int(cfg()["todo_minutes"])),
+                                f"From the meeting notes: {title}")
+        else:
+            from core.oracle import get_oracle
+            get_oracle().store.add(i["task"], when)
+        day = when_label(when).split(" ")[0]
+        added.append(f"{i['task']} {'on ' if day not in ('today', 'tomorrow') else ''}{day} at {when:%H:%M}")
+    write_meta(meta["id"], todos_added={**(meta.get("todos_added") or {}), where: sorted(done_before | {
+        i["task"] for i in fresh})})
+    n = len(added)
+    say = f"Added {n} to-do{'s' if n != 1 else ''} from {title} to your {where}, sir: " + "; ".join(added) + "."
+    if others:
+        names = sorted({(i.get("owner") or "someone").strip() for i in others})
+        say += (f" I left out 1 that's {names[0]}'s." if len(others) == 1 else
+                f" I left out {len(others)} that belong to others ({', '.join(names)}).")
+    return {"result": json.dumps({"added": n, "where": where}), "say": say, "exact": True}
+
+
 SCHEMAS = [
     {"type": "function", "function": {"name": "meeting_record",
      "description": "Start (on) or stop (off) recording a meeting or conversation to get a transcript, summary and "
@@ -409,8 +614,18 @@ SCHEMAS = [
      "parameters": {"type": "object", "properties": {
          "what": {"type": "string", "enum": ["summary", "todos", "decisions"]}}}}},
 ]
-FUNCTIONS = {"meeting_record": tool_meeting_record, "meeting_notes": tool_meeting_notes}
+SCHEMAS.append({"type": "function", "function": {"name": "meeting_todos_add",
+    "description": "Put the user's to-dos from the last recorded meeting into their reminders or Google Calendar "
+                   "('put the to-dos in my reminders', 'add the action items to my calendar'). Asks first.",
+    "parameters": {"type": "object", "properties": {
+        "where": {"type": "string", "enum": ["reminders", "calendar"]},
+        "which": {"type": "string", "enum": ["mine", "all"], "description": "'all' only when the user says all."}}}}})
+FUNCTIONS = {"meeting_record": tool_meeting_record, "meeting_notes": tool_meeting_notes,
+             "meeting_todos_add": tool_meeting_todos_add}
 GUARDS = {"meeting_record": r"\b(record|recording|transcribe|transcription)\b",
-          "meeting_notes": r"\b(meeting|to-?dos?|decid|notes|summary|action items?)\b"}
-ACTIONS = {"meeting_record"}
+          "meeting_notes": r"\b(meeting|to-?dos?|decid|notes|summary|action items?)\b",
+          "meeting_todos_add": r"\b(to-?dos?|todos|action items?|tasks)\b"}
+ACTIONS = {"meeting_record", "meeting_todos_add"}
+CONFIRM = {"meeting_todos_add": describe_todos}
+PRECHECK = {"meeting_todos_add": precheck_todos}         # nothing to add: say why instead of asking for a yes
 EXACT = set(FUNCTIONS)

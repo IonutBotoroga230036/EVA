@@ -51,6 +51,7 @@ from core.tools_native import ACTION_TOOLS as BUILTIN_ACTIONS
 from core.tools_native import ARG_FILLERS as BUILTIN_FILLERS
 from core.tools_native import CONFIRM_TOOLS as BUILTIN_CONFIRM
 from core.tools_native import SLOW_FILLERS as BUILTIN_SLOW_FILL
+from core.tools_native import PRECHECK_TOOLS as BUILTIN_PRECHECK
 from core.tools_native import ASK_TOOLS as BUILTIN_ASKS
 from core.tools_native import EXACT_TOOLS as BUILTIN_EXACT
 from core.tools_native import GUARDS as BUILTIN_GUARDS
@@ -209,7 +210,8 @@ LOCKED_OK = {"get_datetime", "get_weather", "calculate", "convert_currency", "cr
              "lights_power", "lights_set", "set_mood", "list_moods", "phone_alarm", "phone_timer",
              "later_list", "later_cancel", "keep_listening", "calendar_add", "set_reminder", "shopping_add",
              "phone_stay_dark", "phone_volume", "spotify_volume", "set_brain_mode", "set_conversation_mode",
-             "place_remember", "place_reminder", "where_am_i", "meeting_record"}
+             "place_remember", "place_reminder", "where_am_i", "meeting_record",
+             "train_times", "commute_plan", "phone_ring", "focus_mode", "test_mode"}     # Nov 23 afternoon
 LOCKED_SAY = "Unlock your phone for that, sir, and I'll carry on."
 
 
@@ -276,6 +278,25 @@ def ungrounded_numbers(answer: str, data: str) -> list[str]:
     return bad
 
 
+def cost_snapshot(budget) -> tuple[float, int]:
+    """(euros spent today, cloud calls today) before a turn."""
+    day = budget._ensure_today()
+    return float(day["total_euros"]), len(day["calls"])
+
+
+def turn_cost(budget, before: tuple[float, int]) -> str:
+    """Nov 23: the log line for what one turn cost, or '' when it was free (test mode: free turns say so too)."""
+    day = budget._ensure_today()
+    eur = float(day["total_euros"]) - before[0]
+    calls = day["calls"][before[1]:]
+    if not calls or eur <= 0:
+        from core import testmode
+        return "COST turn: free" if testmode.is_on() else ""
+    purposes = sorted({c.get("purpose") or c.get("model") or "?" for c in calls})
+    return (f"COST turn: EUR {eur:.5f}, {len(calls)} cloud call{'s' if len(calls) != 1 else ''} "
+            f"({', '.join(purposes)})")
+
+
 def load_persona(name: str = "eva") -> str:
     try:
         return yaml.safe_load(Path(f"personas/{name}.yaml").read_text(encoding="utf-8"))["personality"]
@@ -322,6 +343,7 @@ class ToolBelt:
         self.exact: set[str] = set(BUILTIN_EXACT)
         self.fillers: dict[str, Callable] = {**BUILTIN_FILLERS, **(registry.fillers() if registry else {})}
         self.asks: dict = {**BUILTIN_ASKS, **(registry.asks() if registry and hasattr(registry, "asks") else {})}
+        self.prechecks: dict = dict(BUILTIN_PRECHECK)
         schemas = list(BUILTIN_SCHEMAS)
         taken = {t["function"]["name"] for t in schemas}
         # built-ins first, then skills, then MCP: nothing can shadow a trusted tool
@@ -471,6 +493,51 @@ def args_for(schema: dict, decision: dict, tool_names: list[str] | None = None) 
 def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     t = _WAKE_PREFIX.sub("", text).strip()
     polite = r"(?:(?:i want you to|i need you to|can you|could you|would you|please|and|also|now|don't forget|i)\s+)*"
+
+    if belt.has("test_mode"):                                   # Nov 23: never needs a cloud call to switch
+        from core.testmode import from_words as test_words
+        on = test_words(text)
+        if on is not None:
+            return "test_mode", {"on": on}
+    if belt.has("focus_mode"):
+        from core.focus import from_words as focus_words
+        on = focus_words(text)
+        if on is not None:
+            return "focus_mode", {"on": on}
+    if belt.has("phone_ring"):                                  # Nov 23: find my phone
+        if re.search(r"\b(?:find|ring|locate|call)\s+my\s+(?:phone|mobile|pixel)\b|\bwhere(?:'s| is| did i put)\s+my\s+"
+                     r"(?:phone|mobile|pixel)\b|\b(?:can'?t|cannot) find my (?:phone|mobile|pixel)\b|"
+                     r"\b(?:lost|misplaced) my (?:phone|mobile|pixel)\b", t, re.I):
+            return "phone_ring", {"on": True}
+        from core.device import ringing
+        if re.fullmatch(r"(?:(?:ok(?:ay)?|good|great|thanks)[,.!]?\s*)?(?:stop (?:the )?ringing|i found (?:it|my phone)|"
+                        r"found my phone|(?:i )?got my phone)(?:,? thanks?(?: you)?)?[.!]*", t.strip(), re.I) or \
+                (ringing() and re.fullmatch(r"(?:(?:ok(?:ay)?|good|great|thanks)[,.!]?\s*)?(?:found it|got it|"
+                                            r"(?:that'?s|it'?s) (?:fine|ok(?:ay)?)|you can stop|stop)(?:,? thanks?(?: you)?)?"
+                                            r"[.!]*", t.strip(), re.I)):
+            return "phone_ring", {"on": False}
+    if belt.has("meeting_todos_add") and re.search(r"\b(?:put|add|turn|move|schedule|save|copy)\b", t, re.I) and \
+            re.search(r"\b(?:to-?dos?|todos|action items?)\b", t, re.I) and \
+            not re.search(r"\b(?:what|which|read|tell me)\b", t, re.I):       # Nov 23: meeting to-dos, after a yes
+        where = "calendar" if re.search(r"\b(?:calendar|agenda|schedule)\b", t, re.I) else "reminders"
+        args = {"where": where}
+        if re.search(r"\ball\b", t, re.I):
+            args["which"] = "all"
+        return "meeting_todos_add", args
+    if belt.has("commute_plan"):                                # Nov 23: NS and your lectures
+        m = re.search(r"\b(?:when|what time) (?:should|do|must|would) i (?:need to |have to )?leave(?: home| the house)?"
+                      r"(?: (?:for|to) (?:uni|university|radboud|nijmegen|class|campus|my (?:lectures?|class(?:es)?)))?"
+                      r"(?: (today|tomorrow|on \w+day|\w+day))?\s*[?.!]*$", t, re.I)
+        if m:
+            return "commute_plan", {"day": (m.group(1) or "").replace("on ", "")}
+    if belt.has("train_times"):
+        m = re.search(r"\b(?:next|first|last) trains?\b|\btrains? (?:to|towards|home|from|back)\b|\btrain times\b|"
+                      r"\bis (?:my|the) train (?:delayed|late|on time|cancelled|running)\b|"
+                      r"\bwhen(?:'s| is| does) (?:the|my) (?:next )?train\b", t, re.I)
+        if m:
+            to = re.search(r"\btrains? (?:to|towards) ((?!home\b)[a-z'][\w' -]{1,30}?)(?: at | tomorrow| today|[?.!]|$)",
+                           t, re.I)
+            return "train_times", ({"to_station": to.group(1).strip()} if to else {})
 
     m = re.search(r"\b(?:add|put)\s+(.+?)\s+(?:to|on)\s+(?:my |the )?(?:shopping|grocery)\s+list\b", t, re.I)
     if m and belt.has("shopping_add"):
@@ -1081,6 +1148,11 @@ class HybridOrchestrator:
         return self.belt.fill(name, args, text)
 
     def _ask_confirmation(self, tool: str, args: dict, user_input: str, used: set) -> list[dict]:
+        check = getattr(self.belt, "prechecks", {}).get(tool)
+        stop = check(args) if check else None
+        if stop:                                         # Nov 23: nothing to do, so no "shall I go ahead?"
+            self._finish(user_input, stop, used)
+            return [{"type": "final", "text": stop}]
         q = self._question(tool, args)
         if q:                                            # first what, then "shall I go ahead?"
             self._finish(user_input, q, used)
@@ -1455,7 +1527,20 @@ class HybridOrchestrator:
 
     # ------------------------------------------------------------ main loop
     async def process_stream(self, user_input: str) -> AsyncIterator[dict]:
-        """One turn. Spoken to in Romanian (v0.3.2, 9d): she understands it as usual and answers in Romanian, read
+        """One turn, and what it cost in the log (Nov 23: 'COST turn: ...', free turns too in test mode)."""
+        from core.budget import get_budget
+        budget = get_budget()
+        snap = cost_snapshot(budget)
+        try:
+            async for ev in self._process_language(user_input):
+                yield ev
+        finally:
+            line = turn_cost(budget, snap)
+            if line:
+                logger.info(line)
+
+    async def _process_language(self, user_input: str) -> AsyncIterator[dict]:
+        """Spoken to in Romanian (v0.3.2, 9d): she understands it as usual and answers in Romanian, read
         by the Romanian voice. Her streamed English words are held back and the finished answer is translated."""
         from core import romanian
         hint, self.reply_language = getattr(self, "reply_language", None), None
