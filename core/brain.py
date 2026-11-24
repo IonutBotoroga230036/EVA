@@ -22,6 +22,7 @@ Pull them once:  ollama pull qwen2.5-coder:7b   and   ollama pull qwen3:4b
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 import re
@@ -48,6 +49,7 @@ class Brain:
     def __init__(self, claude=None, http: Optional[httpx.Client] = None):
         self._claude = claude
         self.http = http or httpx.Client(timeout=900)
+        self._override: dict = {}
 
     # ------------------------------------------------------------ settings
     @property
@@ -93,8 +95,19 @@ class Brain:
         self._save(st)
         return mode
 
+    @contextlib.contextmanager
+    def override(self, feature: str, mode: str):
+        """Nov 25: one job in another mode ("can you do it locally?"), without changing your settings."""
+        self._override[feature] = mode
+        try:
+            yield
+        finally:
+            self._override.pop(feature, None)
+
     def feature_mode(self, feature: str) -> Optional[str]:
         """The feature's own mode, or None when it follows the default."""
+        if feature in self._override:
+            return self._override[feature]
         m = (self._state().get("features") or {}).get(feature)
         if m in MODES:
             return m

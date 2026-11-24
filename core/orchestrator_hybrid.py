@@ -242,6 +242,15 @@ _NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forge
 # sentence gets "Yes, sir?" and she listens for the rest.
 _DANGLING = re.compile(r"(?:(?:hey\s+)?eva[,.!]?\s*)?(?:(?:can|could|would|will) you(?: please)?|please|so|and|um+|uh+|"
                        r"hmm+|i (?:want|need|would like) (?:you )?to|can i|let'?s|okay,? so|could i)[\s.,?!…]*", re.I)
+_LOCAL = re.compile(r"\b(?:locally|local(?:ly)?|offline|on (?:my|the|your) (?:pc|computer|gpu|laptop)|without "
+                    r"(?:claude|the cloud|paying)|for free|free of charge)\b", re.I)
+
+
+def local_answer(text: str) -> bool:
+    """Nov 25: 'can you do it locally' to 'shall I go ahead?' meant: yes, but not with Claude."""
+    return bool(_LOCAL.search(text or "")) and not _NO.match(text or "")
+
+
 _CHANGE = re.compile(r"\b(?:change|different|instead|rewrite|re-?word|edit|something else|other (?:text|words))\b", re.I)
 _PHONE_WORD = re.compile(r"\b(?:i ?|my |the )?phone'?s?\b", re.I)      # Whisper hears "iPhone" for "my phone"
 _WAKE_PREFIX = re.compile(r"^\s*(?:hey\s+)?(?:eva\b|e\.v\.a\.?)[\s,:!.-]*", re.I)
@@ -1613,6 +1622,9 @@ class HybridOrchestrator:
                 fresh = time.time() - p["ts"] < CONFIRM_TTL_S
                 loose_yes = (re.search(r"\b(yes|yeah|yep|sure|go ahead|do it|please do|correct|right)\b", user_input, re.I)
                              and len(user_input.split()) <= 10 and not _NO.search(user_input))
+                if fresh and p["tool"] == "forge_build" and local_answer(user_input):
+                    p["args"] = {**p["args"], "where": "local"}                         # build it, but locally
+                    loose_yes = True
                 if fresh and (_YES.search(user_input) or loose_yes):
                     extra = await self._fill(p["tool"], dict(p["args"]), user_input)      # "At 3 o'clock, yes"
                     p["args"] = {**p["args"], **{k: extra[k] for k in ("day", "time", "when", "hour", "level")

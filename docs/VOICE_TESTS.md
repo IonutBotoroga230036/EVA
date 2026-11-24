@@ -300,3 +300,12 @@ labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-commun
 | 21.5 | "Test mode on" late in the evening, past midnight "test mode off" | The session's cost, not "already off" | |
 | 21.6 | "Build me a skill that ..." | The quote matches what your last builds cost | |
 | 21.7 | "Hey Eva, when's the next" (pause) "train to Nijmegen" | One question about trains to Nijmegen | `WAKE (phone): cut off after` then `joined the cut-off start` |
+
+## 22. FORGE live check, currency, local builds (25 Nov)
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 22.1 | "Convert 100 euro in lei" / "how much is 50 dollars in euro" / "euro to lei rate" | A real number, with the ECB date | |
+| 22.2 | "Build me a skill that tells the weather in Bucharest" | A stage "trying it for real" before she offers it | `FORGE live: ... worked against the real service` |
+| 22.3 | "Build me a skill that ..." then "can you do it locally?" | "I'm building it in the background locally, on your GPU, free" | no `CLAUDE claude-sonnet` lines |
+| 22.4 | Nothing playing: "kill my music" | "Nothing is playing on Spotify, sir." and it stays quiet | `SPOTIFY: nothing playing` |

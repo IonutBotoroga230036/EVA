@@ -19,13 +19,13 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
 ## How to work with him (rules that always hold)
 
 1. Check current library versions with a web search before building on them.
-2. Tests first, then the full suite (`python -m pytest -q`, about 1090 tests), plus a run with
+2. Tests first, then the full suite (`python -m pytest -q`, about 1100 tests), plus a run with
    `PYTHONUTF8=0 PYTHONIOENCODING=cp1252` for his Windows console.
 3. Tests never touch his real accounts or files: no real Claude/Jev keys, Google, Spotify, Telegram, Ollama,
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v034b_log_fixes.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v034c_live_check.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,17 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 25 Nov 2026 (01:00)
+
+Second run: commute planning from his "Train To Nijmegen" event and "no more trains tonight" worked. FORGE built
+currency_converter; its tests passed against a fake service, it was installed, and every real call failed
+(api.frankfurter.app moved to api.frankfurter.dev/v1). Fixed (zip `eva_v034c_live_check.zip`): FORGE now calls a
+network skill once for real before offering it (`forge_engine.live_check`: own process, network only to the
+declared hosts, a probe of the service URL with status/redirect/body for the fixer, a redirect to a sister host
+is allowed; "trying it for real" stage); `skills/currency_converter` rewritten by hand (frankfurter.dev/v1,
+euro/lei/dollars names); "can you do it locally" to the build question now builds locally (`Brain.override`,
+`Job.where`) instead of counting as yes for Claude; Spotify "no active device" no longer presses play/pause.
 
 ## State on 25 Nov 2026 (00:30)
 

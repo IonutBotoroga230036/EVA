@@ -213,6 +213,8 @@ def isolate_nov23_afternoon(tmp_path, monkeypatch):
     device.PENDING.clear()
     device.LAST_POLL["ts"] = 0.0
     device.RINGING["ts"] = 0.0
+    import core.forge_engine as _fe
+    monkeypatch.setattr(_fe, "live_check", lambda d, plan: None)  # never a real service from a test
     try:
         from interfaces.web import server_stream as _ss
         _ss._WAKE_PARTIAL.clear()                                  # a cut-off "Hey Eva, ..." never leaks

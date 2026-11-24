@@ -47,6 +47,7 @@ class Job:
     cancel_requested: bool = False
     stage: str = ""                            # planning | coding and writing tests | fixing, round 2 of 4 | reviewing
     cost_eur: float = 0.0                      # Nov 24: what it really cost, for honest quotes next time
+    where: str = ""                            # Nov 25: "local" when you asked for it to be built locally
 
 
 def price_words() -> str:
@@ -148,8 +149,9 @@ class JobManager:
         return get_forge()
 
     # ---------------------------------------------------------------- queue
-    def submit(self, request: str) -> Job:
-        job = Job(id=uuid.uuid4().hex[:8], request=" ".join((request or "").split())[:500])
+    def submit(self, request: str, where: str = "") -> Job:
+        job = Job(id=uuid.uuid4().hex[:8], request=" ".join((request or "").split())[:500],
+                  where="local" if where == "local" else "")
         with self._lock:
             self.jobs.append(job)
             self._save()
@@ -218,10 +220,14 @@ class JobManager:
                 job.stage = stage
                 logger.info(f"FORGE job {job.id}: {stage}")
             forge = self._forge()
-            try:
-                p = forge.build(job.request, progress=progress)
-            except TypeError:                   # an older or fake forge without progress reports
-                p = forge.build(job.request)
+            import contextlib
+            from core.brain import get_brain
+            mode = get_brain().override("forge", "local") if job.where == "local" else contextlib.nullcontext()
+            with mode:
+                try:
+                    p = forge.build(job.request, progress=progress)
+                except TypeError:               # an older or fake forge without progress reports
+                    p = forge.build(job.request)
             msg = result_message(p)
             job.result_name, job.result_status, job.say = p.name, p.status, msg["say"]
             job.cost_eur = float(getattr(p, "cost_eur", 0.0) or 0.0)

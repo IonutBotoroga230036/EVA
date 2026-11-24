@@ -31,6 +31,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from loguru import logger
 
 from core.security.audit import audit
@@ -290,6 +291,125 @@ def run_sandbox(skill_dir: Path, timeout: int = SANDBOX_TIMEOUT_S) -> dict:
             return {"contract": ["the sandbox produced no result: " + (proc.stderr or proc.stdout)[-400:]],
                     "passed": [], "failed": {}}
         return json.loads(line[len("FORGE_RESULT "):])
+
+
+# ================================================================== live check (Nov 25)
+# The sandbox has no network, so a skill's tests use a fake service. On Nov 25 the currency skill passed its tests,
+# was installed, and its first real call failed: api.frankfurter.app had moved to api.frankfurter.dev/v1. Now a
+# skill that uses the internet is called once for real (only its declared hosts) before she offers it.
+LIVE_RUNNER = r"""
+import builtins, json, os, socket, sys, traceback
+ROOT = os.path.abspath(os.getcwd())
+CFG = json.loads(open("_live.json", encoding="utf-8").read())
+HOSTS = set(CFG["hosts"])
+_gai = socket.getaddrinfo
+def _only_declared(host, *a, **k):
+    h = host.decode() if isinstance(host, bytes) else str(host)
+    if h not in HOSTS:
+        raise PermissionError(f"{h} isn't one of this skill's declared hosts")
+    return _gai(host, *a, **k)
+socket.getaddrinfo = _only_declared
+_open = builtins.open
+def _guarded_open(file, mode="r", *a, **k):
+    if isinstance(file, (str, bytes, os.PathLike)) and any(c in mode for c in "wax+"):
+        if not os.path.abspath(os.fspath(file)).startswith(ROOT):
+            raise PermissionError("writes outside the sandbox are blocked")
+    return _open(file, mode, *a, **k)
+builtins.open = _guarded_open
+sys.path.insert(0, ROOT)
+try:
+    import tools
+    fn = getattr(tools, "FUNCTIONS", {}).get(CFG["tool"]) or getattr(tools, CFG["tool"])
+    out = fn(**CFG["args"])
+    print("FORGE_LIVE " + json.dumps(out if isinstance(out, dict) else {"result": str(out)}))
+except Exception:
+    print("FORGE_LIVE " + json.dumps({"crash": traceback.format_exc(limit=2)[-400:]}))
+"""
+
+
+def run_live(skill_dir: Path, tool: str, args: dict, hosts: Optional[list] = None, timeout: int = 30) -> dict:
+    """One real call of a tool, in its own process: writes only inside it, network only to its declared hosts."""
+    with tempfile.TemporaryDirectory(prefix="eva_live_") as tmp:
+        work = Path(tmp)
+        shutil.copy2(Path(skill_dir) / "tools.py", work / "tools.py")
+        (work / "_live.py").write_text(LIVE_RUNNER, encoding="utf-8")
+        (work / "_live.json").write_text(json.dumps({"tool": tool, "args": args, "hosts": list(hosts or [])}),
+                                         encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k.upper() in (
+            "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "LANG", "HTTP_PROXY", "HTTPS_PROXY",
+            "NO_PROXY", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")}
+        env.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"})
+        try:
+            proc = subprocess.run([sys.executable, "-I", "_live.py"], cwd=work, env=env, capture_output=True,
+                                  text=True, encoding="utf-8", errors="replace", timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return {"crash": f"the real call took longer than {timeout}s"}
+        line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("FORGE_LIVE ")), None)
+        if not line:
+            return {"crash": (proc.stderr or proc.stdout)[-400:] or "no output"}
+        return json.loads(line[len("FORGE_LIVE "):])
+
+
+def _host(url: str) -> str:
+    m = re.match(r"https?://([^/:?#]+)", url or "")
+    return m.group(1).lower() if m else ""
+
+
+def follow_host(plan: dict, location: str) -> Optional[str]:
+    """A service that moved to a sister host (api.frankfurter.app -> api.frankfurter.dev): allow that host too."""
+    new = _host(location)
+    if not new or new in plan["network_hosts"]:
+        return new or None
+    names = lambda h: {p for p in h.split(".")[:-1] if p not in ("api", "www")}   # noqa: E731
+    if any(names(new) & names(h) for h in plan["network_hosts"]):
+        plan["network_hosts"].append(new)
+        return new
+    return None
+
+
+def probe(plan: dict) -> str:
+    """What the service's URL itself answers (status, redirect, the start of the body), for the fixer."""
+    m = re.search(r"https?://[^\s'\"]+", plan.get("method") or "")
+    if not m:
+        return ""
+    url = re.sub(r"\{[^}]*\}", "", m.group(0)).rstrip("?&")
+    if _host(url) not in plan["network_hosts"]:
+        return ""
+    try:
+        r = httpx.get(url, follow_redirects=False, timeout=8.0)
+    except Exception as e:
+        return f" GET {url} failed: {e.__class__.__name__}."
+    out = f" GET {url} answered {r.status_code}"
+    if r.headers.get("location"):
+        out += f", Location: {r.headers['location']}"
+        moved = follow_host(plan, r.headers["location"])
+        if moved and moved != _host(url):
+            out += f" (now allowed for this skill: {moved})"
+    return out + f", content-type {r.headers.get('content-type', '?')}, body starts: {r.text[:150]!r}."
+
+
+def live_check(skill_dir: Path, plan: dict) -> Optional[str]:
+    """None when the real service works; otherwise what went wrong, in words the fixer can act on."""
+    names = {t["name"] for t in plan.get("tools") or []}
+    cases = [c for c in plan.get("test_cases") or [] if c.get("tool") in names and "error" not in
+             str(c.get("expect", "")).lower()]
+    if not cases:
+        return None
+    c = cases[0]
+    out = run_live(skill_dir, c["tool"], dict(c.get("args") or {}), plan["network_hosts"])
+    err = out.get("crash")
+    if not err:
+        try:
+            res = json.loads(out.get("result") or "{}")
+        except (TypeError, ValueError):
+            res = {}
+        err = res.get("error") if isinstance(res, dict) else None
+    if not err:
+        logger.info(f"FORGE live: {c['tool']}({c.get('args')}) worked against the real service")
+        return None
+    logger.info(f"FORGE live: {c['tool']} failed for real: {str(err)[:200]}")
+    return (f"LIVE: {c['tool']}({c.get('args')}) against the real service returned: {str(err)[:300]}."
+            + probe(plan) + " Fix the code for the real service (its current URL and answer).")
 
 
 # ================================================================== engine

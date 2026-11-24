@@ -407,6 +407,11 @@ def tool_media_control(action: str = "playpause", **_):
                 logger.info(f"SPOTIFY: already {'paused' if action == 'pause' else 'playing'}; no media key")
                 return {"result": json.dumps({"done": action, "via": "spotify", "already": True}),
                         "say": "It's already paused, sir." if action == "pause" else "It's already playing, sir."}
+            if "no active" in str(e).lower() and action == "pause":
+                # Nov 25: nothing plays on Spotify; play/pause is one key and would START it
+                logger.info("SPOTIFY: nothing playing; no media key")
+                return {"result": json.dumps({"done": "pause", "via": "spotify", "already": True}),
+                        "say": "Nothing is playing on Spotify, sir."}
             logger.info(f"SPOTIFY: control via API failed ({e}); using media keys")
     if not PYAUTOGUI_OK:
         return {"result": json.dumps({"error": "media keys unavailable (pyautogui not installed)"})}

@@ -13,7 +13,9 @@ TOOLS = [
         "name": "forge_build",
         "description": "Draft a new skill (an ability you don't have yet) when the user asks you to build or learn one.",
         "parameters": {"type": "object", "properties": {
-            "request": {"type": "string", "description": "What the skill should do, in the user's words."}},
+            "request": {"type": "string", "description": "What the skill should do, in the user's words."},
+            "where": {"type": "string", "enum": ["", "local"],
+                      "description": "'local' only when the user asks for it to be built locally / offline / free."}},
             "required": ["request"]}}},
     {"type": "function", "function": {
         "name": "forge_install",
@@ -39,7 +41,7 @@ def _latest_ready_name() -> str:
     return ready[-1].name if ready else ""
 
 
-def forge_build(request: str = "", **_):
+def forge_build(request: str = "", where: str = "", **_):
     """v0.2.5: the build runs in the background; she tells you when it's done (here and on Telegram)."""
     from core import telegram_bridge
     from core.brain import get_brain
@@ -48,9 +50,11 @@ def forge_build(request: str = "", **_):
     if not request:
         return {"result": json.dumps({"error": "no request"}), "say": "What should the skill do, sir?"}
     jobs = get_jobs()
-    job = jobs.submit(request)
+    local = where == "local"                    # Nov 25: "can you do it locally?" to her question
+    job = jobs.submit(request, where="local") if local else jobs.submit(request)
     ahead = jobs.queued_before(job)
-    where = "with Claude" if get_brain().pick("forge") == "cloud" else "locally"
+    where = "locally, on your GPU, free; it can take a while" if local else \
+        ("with Claude" if get_brain().pick("forge") == "cloud" else "locally")
     also = " and on Telegram" if telegram_bridge.active() else ""
     queue = f" It's number {ahead + 1} in line." if ahead else ""
     say = (f"I'm building it in the background {where}, sir.{queue} I'll tell you here{also} when it's ready, "
@@ -149,6 +153,8 @@ GUARDS = {
 }
 def _build_confirm(args: dict) -> str:
     from core.brain import get_brain
+    if args.get("where") == "local":
+        return f"draft a new skill for: {args.get('request', '')}, locally on your GPU, free, it can take a while"
     return f"draft a new skill for: {args.get('request', '')}, {get_brain().describe('code')}"
 
 

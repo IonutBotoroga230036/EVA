@@ -302,6 +302,8 @@ class Crew:
         tests = lint_tests((code_blocks(test_reply) or [""])[0])
         findings, result, problems = [], {"passed": [], "failed": {}, "contract": []}, []
         previous, judged, notes = None, False, []
+        live_fails = 0
+        from core import forge_engine
         for rnd in range(self.max_fix + 1):
             tools_py = assemble(plan, impl)
             d = self.forge._write(name, {"skill_md": skill_md(plan), "tools_py": tools_py, "test_py": tests})
@@ -310,12 +312,23 @@ class Crew:
             missing = missing_functions(plan, impl)
             result = {"passed": [], "failed": {}, "contract": []} if (blocks or missing) else run_sandbox(d)
             problems = blocks + missing + result["contract"] + [f"{k}: {v}" for k, v in result["failed"].items()]
+            live = None
+            if not problems and plan["network_hosts"]:   # Nov 25: the tests used a fake service; try the real one
+                self.progress("trying it for real")
+                hosts_before = list(plan["network_hosts"])
+                live = forge_engine.live_check(d, plan)
+                if live:
+                    live_fails += 1
+                    problems = [live]
+                    if plan["network_hosts"] != hosts_before:   # the service moved to a sister host
+                        spec = json.dumps({k: plan[k] for k in ("name", "description", "method", "network_hosts",
+                                                                "tools", "test_cases") if k in plan}, indent=1)
             if not problems:
                 break
             if rnd == self.max_fix:
                 break
             failing = sorted(result["failed"])
-            signature = (tuple(failing), tuple(blocks + missing + result["contract"]))
+            signature = (tuple(failing), tuple(blocks + missing + result["contract"] + ([live] if live else [])))
             if signature == previous:                 # the fixer changed nothing that matters
                 if judged or not failing:
                     logger.info("FORGE crew: no progress; stopping instead of repeating the same round")
@@ -343,6 +356,9 @@ class Crew:
                 impl = blocks_out[0]
                 if len(blocks_out) > 1 and "def test_" in blocks_out[1]:
                     tests = lint_tests(blocks_out[1])
+        if live_fails and not problems:
+            notes.append({"level": "warn", "msg": f"its live check failed {'once' if live_fails == 1 else f'{live_fails} times'} "
+                                                  f"and was fixed against the real service"})
         findings = findings + notes + fact_notes
         status, reason = ("ready", "") if not problems else ("rejected", "; ".join(problems)[:600])
         if status == "ready":
