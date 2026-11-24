@@ -136,8 +136,10 @@ class Brain:
         """For confirmations: where the work will happen and what it costs."""
         where = self.pick("forge" if job == "code" else "thinking")
         if where == "cloud":
-            return ("in the background using Claude, roughly 10 to 20 cents" if job == "code"
-                    else "using Claude, about a cent")
+            if job == "code":
+                from core.forge_jobs import price_words
+                return f"in the background using Claude, {price_words()}"
+            return "using Claude, about a cent"
         model = self._cfg()["coder" if job == "code" else "thinker"]
         return (f"locally in the background with {model}, free, it can take a while" if job == "code"
                 else f"locally with {model}, free")

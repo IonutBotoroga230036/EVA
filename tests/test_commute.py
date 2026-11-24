@@ -43,6 +43,7 @@ class FakeNS:
 @pytest.fixture
 def ns(monkeypatch):
     monkeypatch.setattr(commute, "_key", lambda: "test-key")
+    monkeypatch.setattr(commute, "NOW", lambda: T0 - timedelta(minutes=10))
     fake = FakeNS([trip(T0, T0 + timedelta(minutes=112), late=4),
                    trip(T0 + timedelta(minutes=30), T0 + timedelta(minutes=142))])
     monkeypatch.setattr(commute, "FETCH", fake)
@@ -69,6 +70,7 @@ def test_next_trains_say_platform_delay_arrival_and_changes(ns):
 
 def test_a_cancelled_train_and_a_changed_platform_are_said_first(monkeypatch):
     monkeypatch.setattr(commute, "_key", lambda: "k")
+    monkeypatch.setattr(commute, "NOW", lambda: T0 - timedelta(minutes=10))
     monkeypatch.setattr(commute, "FETCH", FakeNS([
         trip(T0, T0 + timedelta(minutes=112), status="CANCELLED", cancelled=True),
         trip(T0 + timedelta(minutes=30), T0 + timedelta(minutes=142), track="3", new_track="5")]))
@@ -131,8 +133,9 @@ def test_when_to_leave_for_the_first_lecture(monkeypatch):
                     lecture(start), lecture(datetime(2026, 11, 24, 13, 30), "Lab")])
     out = commute.plan(g, "tomorrow", now=datetime(2026, 11, 23, 21, 0))
     p = fake.calls[0][1]
-    assert p["searchForArrival"] == "true" and p["dateTime"].startswith("2026-11-24T10:35")
-    assert out["say"] == ("For Neural Networks at 10:45 tomorrow, leave home at 08:07 for the 08:22 from Breda, "
+    # at the station 30 minutes early: 20 to get to campus (commute.campus_min) + 10 to spare
+    assert p["searchForArrival"] == "true" and p["dateTime"].startswith("2026-11-24T10:15")
+    assert out["say"] == ("For Neural Networks at 10:45 on Tuesday, leave home at 08:07 for the 08:22 from Breda, "
                           "platform 3. It arrives in Nijmegen at 10:14, sir.")
 
 
@@ -141,7 +144,7 @@ def test_no_uni_event_is_said_plainly(monkeypatch):
     monkeypatch.setattr(commute, "FETCH", FakeNS([]))
     g = FakeGoogle([lecture(datetime(2026, 11, 24, 11, 0), "Dentist", location="Breda")])
     assert commute.plan(g, "tomorrow", now=datetime(2026, 11, 23, 21, 0))["say"] == \
-        "I don't see anything in Nijmegen on your calendar tomorrow, sir."
+        "I don't see anything in Nijmegen on your calendar on Tuesday, sir."
 
 
 def test_too_late_says_the_next_option(monkeypatch):
@@ -158,17 +161,17 @@ def test_too_late_says_the_next_option(monkeypatch):
 
 def test_cutting_it_close_is_said(monkeypatch):
     monkeypatch.setattr(commute, "_key", lambda: "k")
-    fake = FakeNS([trip(datetime(2026, 11, 24, 8, 52), datetime(2026, 11, 24, 10, 41))])
+    fake = FakeNS([trip(datetime(2026, 11, 24, 8, 30), datetime(2026, 11, 24, 10, 20))])
     monkeypatch.setattr(commute, "FETCH", fake)
     g = FakeGoogle([lecture(datetime(2026, 11, 24, 10, 45))])
     say = commute.plan(g, "today", now=datetime(2026, 11, 24, 8, 0))["say"]
-    assert say == ("For Neural Networks at 10:45 today, leave home at 08:37 for the 08:52 from Breda, platform 3. "
-                   "It arrives in Nijmegen at 10:41, only 4 minutes before it starts, sir.")
+    assert say == ("For Neural Networks at 10:45 today, leave home at 08:15 for the 08:30 from Breda, platform 3. "
+                   "It arrives in Nijmegen at 10:20, which leaves 25 minutes to get there: tight, sir.")
 
 
 def test_leave_alert_ten_minutes_before(monkeypatch):
     monkeypatch.setattr(commute, "_key", lambda: "k")
-    monkeypatch.setattr(commute, "FETCH", FakeNS([trip(datetime(2026, 11, 24, 8, 22), datetime(2026, 11, 24, 10, 14),
+    monkeypatch.setattr(commute, "FETCH", FakeNS([trip(datetime(2026, 11, 24, 8, 22), datetime(2026, 11, 24, 10, 5),
                                                        late=3)]))
     events = [lecture(datetime(2026, 11, 24, 10, 45))]
     assert commute.leave_alerts(events, datetime(2026, 11, 24, 7, 30)) == []          # too early

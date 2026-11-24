@@ -19,13 +19,13 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
 ## How to work with him (rules that always hold)
 
 1. Check current library versions with a web search before building on them.
-2. Tests first, then the full suite (`python -m pytest -q`, about 1072 tests), plus a run with
+2. Tests first, then the full suite (`python -m pytest -q`, about 1090 tests), plus a run with
    `PYTHONUTF8=0 PYTHONIOENCODING=cp1252` for his Windows console.
 3. Tests never touch his real accounts or files: no real Claude/Jev keys, Google, Spotify, Telegram, Ollama,
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v034_commute_focus.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v034b_log_fixes.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,20 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 25 Nov 2026 (00:30)
+
+His first v034 run (log 24 Nov 23:57 to 00:10): NS works (field names confirmed against ns.nl), phone polling
+works, recording from the phone worked (first Whisper large-v3-turbo download), FORGE built and installed
+moon_phase (cost 40 cents). Fixed on the same branch (zip `eva_v034b_log_fixes.zip`): trains that already left
+were offered; his own "Train To Nijmegen" event was treated as a lecture (now it IS the plan; courses are
+found by code like SOW-BKI141 or the Radboud calendar; campus_min 20 for the bus to RU; trains elsewhere that
+day are mentioned); after midnight "tomorrow" = the day he wakes up to (commute only so far); Spotify
+'Restriction violated' made the media key START paused music; test mode ended at midnight (now 12 hours,
+spending counted across days); FORGE quoted 10 to 20 cents (now from real past job costs, `Job.cost_eur`);
+the phone's wake clip cut commands off ("when's the next...") so `wake_command` keeps a cut-off start and
+`merge_partial` joins it to what he says next; "Have you ever ..." at the start = "Hey Eva".
+Still open: CORTEX embedding timeouts (`ollama ps`), GitHub PRs need his token + `github.pull_requests: true`.
 
 ## State on 23 Nov 2026 (afternoon)
 

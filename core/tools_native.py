@@ -401,6 +401,12 @@ def tool_media_control(action: str = "playpause", **_):
                     "pause": "Paused, sir.", "play": "Playing, sir."}
             return {"result": json.dumps({"done": action, "via": "spotify"}), "say": says[action]}
         except Exception as e:
+            # Nov 24: 'Restriction violated' = it's already in that state. The media key is a toggle: pressing
+            # it then STARTED paused music ("kill my music" -> it played)
+            if "Restriction violated" in str(e) and action in ("pause", "play"):
+                logger.info(f"SPOTIFY: already {'paused' if action == 'pause' else 'playing'}; no media key")
+                return {"result": json.dumps({"done": action, "via": "spotify", "already": True}),
+                        "say": "It's already paused, sir." if action == "pause" else "It's already playing, sir."}
             logger.info(f"SPOTIFY: control via API failed ({e}); using media keys")
     if not PYAUTOGUI_OK:
         return {"result": json.dumps({"error": "media keys unavailable (pyautogui not installed)"})}

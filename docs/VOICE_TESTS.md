@@ -273,7 +273,7 @@ labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-commun
 | # | Do / say | Expect | Log |
 |---|---|---|---|
 | 20.1 | "Test mode on" | "Test mode on, sir. Cloud calls can spend 10 cents..." | `COST turn: free` |
-| 20.2 | Run a few lines from 16.x twice | The second time: no Claude call | `UNDERSTAND cache -> ...` |
+| 20.2 | Say the same sentence twice, e.g. "check my calendar for empty slots tomorrow" | The second time: no Claude call | `UNDERSTAND cache -> ...` |
 | 20.3 | "Test mode off" | What the session cost, in cents | |
 | 20.4 | "When's the next train to Nijmegen?" | Time, platform, delay, arrival, changes, then the next one | `COMMUTE: N trips BD -> NM` |
 | 20.5 | "Next train home" | Nijmegen to Breda | `NM -> BD` |
@@ -288,3 +288,15 @@ labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-commun
 | 20.14 | After a recorded meeting: "Put the to-dos in my reminders" | Lists yours with times, asks first; "yes" adds them | |
 | 20.15 | "Add the to-dos to my calendar" | 30-minute "To-do: ..." events after your yes | |
 | 20.16 | Record a 2-person conversation (with pyannote set up) | Notes say "Speaker 1/2" or names | `MEETING: 2 speakers` |
+
+## 21. Fixes from the 24 Nov log
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 21.1 | After 23:00: "next train to Nijmegen" | Never a train that already left; after the last one: "There are no more trains tonight" | |
+| 21.2 | "When should I leave for uni on Thursday?" (with "Train To Nijmegen 8:45" in the calendar) | "Your calendar has the train to Nijmegen at 08:45 on Thursday: that's the 08:49 ..., in time for Research Design ... at 10:30" | |
+| 21.3 | After midnight: "when should I leave for uni tomorrow?" | The day you wake up to, named ("on Wednesday") | |
+| 21.4 | Music already paused: "kill my music" | "It's already paused, sir." and the music stays off | `SPOTIFY: already paused` |
+| 21.5 | "Test mode on" late in the evening, past midnight "test mode off" | The session's cost, not "already off" | |
+| 21.6 | "Build me a skill that ..." | The quote matches what your last builds cost | |
+| 21.7 | "Hey Eva, when's the next" (pause) "train to Nijmegen" | One question about trains to Nijmegen | `WAKE (phone): cut off after` then `joined the cut-off start` |

@@ -2,20 +2,24 @@
 
 "Eva, test mode on": from now, cloud calls may spend at most a small cap (10 cents unless you say another amount,
 "test mode on with 50 cents"). Past the cap every cloud feature falls back to the local model, the same way it
-does when the daily budget is used up. Each turn's cost is written to the log ("COST turn: ..."), free turns
-too. "Test mode off" says what the session cost. It ends by itself at midnight. State: data/test_mode.json.
+does when the daily budget is used up; FORGE builds too (each Claude call checks first). Each turn's cost is
+written to the log ("COST turn: ..."), free turns too. "Test mode off" says what the session cost. It ends by
+itself 12 hours after you started it (Nov 24: it used to end at midnight, 3 minutes after you turned it on).
+State: data/test_mode.json.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from datetime import date
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 PATH = Path("data/test_mode.json")
 DEFAULT_CAP = 0.10
+HOURS = 12
 
 
 def _budget():
@@ -23,20 +27,33 @@ def _budget():
     return get_budget()
 
 
-def _day_total() -> tuple[float, int]:
-    day = _budget()._ensure_today()
-    return float(day["total_euros"]), len(day["calls"])
+def _raw() -> dict:
+    try:
+        return json.loads(PATH.read_text(encoding="utf-8")) if PATH.exists() else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _since_calls(since: float) -> tuple[float, int]:
+    """(euros, cloud calls) recorded since a moment, across midnight."""
+    eur, n = 0.0, 0
+    for day in _budget()._data["days"].values():
+        for c in day.get("calls", []):
+            try:
+                if datetime.fromisoformat(c["time"]).timestamp() >= since:
+                    eur += float(c.get("cost_eur", 0.0))
+                    n += 1
+            except (KeyError, ValueError):
+                continue
+    return eur, n
 
 
 def state() -> dict:
-    try:
-        st = json.loads(PATH.read_text(encoding="utf-8")) if PATH.exists() else {}
-    except (OSError, ValueError):
-        st = {}
-    if st.get("on") and st.get("day") != date.today().isoformat():
-        st = {}                                         # a new day: test mode ended at midnight
-    return {"on": bool(st.get("on")), "cap": float(st.get("cap", DEFAULT_CAP)), "day": st.get("day", ""),
-            "start_eur": float(st.get("start_eur", 0.0)), "start_calls": int(st.get("start_calls", 0))}
+    st = _raw()
+    since = float(st.get("since", 0.0))
+    expired = bool(st.get("on")) and time.time() - since > HOURS * 3600
+    return {"on": bool(st.get("on")) and not expired, "expired": expired, "cap": float(st.get("cap", DEFAULT_CAP)),
+            "since": since}
 
 
 def is_on() -> bool:
@@ -44,12 +61,11 @@ def is_on() -> bool:
 
 
 def spent() -> tuple[float, int]:
-    """(euros, cloud calls) since test mode started."""
+    """(euros, cloud calls) since test mode started (also once it ended by itself, until you switch it off)."""
     st = state()
-    if not st["on"]:
+    if not (st["on"] or st["expired"]):
         return 0.0, 0
-    eur, calls = _day_total()
-    return max(0.0, eur - st["start_eur"]), max(0, calls - st["start_calls"])
+    return _since_calls(st["since"])
 
 
 def blocks(amount: float = 0.0) -> bool:
@@ -62,12 +78,7 @@ def blocks(amount: float = 0.0) -> bool:
 
 def set_mode(on: bool, cap: Optional[float] = None) -> dict:
     PATH.parent.mkdir(parents=True, exist_ok=True)
-    if on:
-        eur, calls = _day_total()
-        st = {"on": True, "cap": float(cap if cap else DEFAULT_CAP), "day": date.today().isoformat(),
-              "start_eur": eur, "start_calls": calls}
-    else:
-        st = {"on": False}
+    st = {"on": True, "cap": float(cap if cap else DEFAULT_CAP), "since": time.time()} if on else {"on": False}
     PATH.write_text(json.dumps(st), encoding="utf-8")
     return state()
 
@@ -90,9 +101,13 @@ def tool_test_mode(on: bool = True, cap_euros: float = 0.0, **_):
                 "say": f"Test mode on, sir. Cloud calls can spend {money(st['cap'])} in total now; after that I "
                        f"use the local model. I'll write what each turn costs in the log."}
     eur, calls = spent()
-    was_on = is_on()
+    st = state()
     set_mode(False)
-    if not was_on:
+    if st["expired"]:
+        return {"result": json.dumps({"test_mode": False, "spent_eur": round(eur, 5), "calls": calls}), "exact": True,
+                "say": f"Test mode had already ended by itself after {HOURS} hours, sir. Since you started it: "
+                       f"{money(eur)} in {calls} cloud call{'s' if calls != 1 else ''}."}
+    if not st["on"]:
         return {"result": json.dumps({"test_mode": False}), "exact": True, "say": "Test mode was already off, sir."}
     return {"result": json.dumps({"test_mode": False, "spent_eur": round(eur, 5), "calls": calls}), "exact": True,
             "say": f"Test mode off, sir. The session cost {money(eur)} in {calls} cloud call{'s' if calls != 1 else ''}."}

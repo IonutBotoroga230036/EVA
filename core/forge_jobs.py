@@ -46,6 +46,20 @@ class Job:
     error: str = ""
     cancel_requested: bool = False
     stage: str = ""                            # planning | coding and writing tests | fixing, round 2 of 4 | reviewing
+    cost_eur: float = 0.0                      # Nov 24: what it really cost, for honest quotes next time
+
+
+def price_words() -> str:
+    """Nov 24: the quote before a build. "10 to 20 cents" was said; the moon phase build cost 40. So: what your
+    last cloud builds really cost, or an honest range until there are some."""
+    try:
+        costs = [j.cost_eur for j in get_jobs().jobs if j.status == "done" and getattr(j, "cost_eur", 0) > 0][-5:]
+    except Exception:
+        costs = []
+    if not costs:
+        return "roughly 20 to 50 cents"
+    avg = sum(costs) / len(costs)
+    return f"roughly {max(5, round(avg * 100 / 5) * 5)} cents, what your last builds cost"
 
 
 def pretty(name: str) -> str:
@@ -210,6 +224,7 @@ class JobManager:
                 p = forge.build(job.request)
             msg = result_message(p)
             job.result_name, job.result_status, job.say = p.name, p.status, msg["say"]
+            job.cost_eur = float(getattr(p, "cost_eur", 0.0) or 0.0)
             job.status = "done"
         except Exception as e:
             job.status, job.error = "failed", str(e)[:300]

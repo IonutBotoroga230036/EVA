@@ -353,12 +353,16 @@ def _romanian_hint(orch) -> None:
         pass
 
 
+_HEY_EVA_MISHEARD = re.compile(r"^\s*(?:have|hey|hay|hi)\s+you\s+ever\b|^\s*hey\s+ever\b", re.I)   # Nov 24 log
+
+
 def heard_wake(text: str) -> str | None:
     """The PC's double-check of a phone wake (Nov 22: dictating near the phone woke her). The command after "Eva"
     ("" for "Eva" alone), or None when Whisper heard no "Eva" at all. The phone sends ~1.2 s from before the
     trigger, so a word or two before her name is allowed."""
     from voice.listen import ListenConfig
     t = (text or "").replace("E.V.A.", "Eva").replace("E.V.A", "Eva")
+    t = _HEY_EVA_MISHEARD.sub("Hey Eva", t)               # "Have you ever recorded..." was "Hey Eva, record..."
     words = list(re.finditer(r"[A-Za-z']+", t))
     wake = set(ListenConfig.wake_words)
     for i, m in enumerate(words[:4]):
@@ -367,6 +371,44 @@ def heard_wake(text: str) -> str | None:
     if words and words[-1].group(0).lower() in wake:
         return t[:words[-1].start()].strip(" ,.!?")
     return None
+
+
+# Nov 24: the phone stops recording when you pause, so "Hey Eva, when's the next..." arrived without "train to
+# Nijmegen". A cut-off command isn't run: the phone listens on, and what you say next is joined to it.
+_WAKE_PARTIAL: dict = {}
+_CUT = re.compile(r"(?:\.\.\.|\u2026)\s*$|\b(?:the|a|an|to|for|my|your|of|and|or|but|next|is|are|what's|whats|"
+                  r"when's|whens|with|at|from|about|some)\s*[,]?\s*$", re.I)
+
+
+def wake_command(text: str) -> str | None:
+    """heard_wake, but a command that was cut off mid-sentence becomes "" (listen on) and is kept to join."""
+    cmd = heard_wake(text)
+    _WAKE_PARTIAL.clear()
+    if cmd and _CUT.search((text or "").strip()):
+        _WAKE_PARTIAL.update(text=cmd.rstrip(" .\u2026"), ts=time.time())
+        logger.info(f"WAKE (phone): cut off after {cmd!r}; listening for the rest")
+        return ""
+    return cmd
+
+
+def _norm_words(t: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", (t or "").lower())
+
+
+def merge_partial(text: str) -> str:
+    """The rest of a cut-off command: 'train to Nijmegen' -> "when's the next train to Nijmegen". If you said the
+    whole thing again, that's used as it is. Kept 20 seconds, used once."""
+    part = _WAKE_PARTIAL.get("text")
+    fresh = part and time.time() - _WAKE_PARTIAL.get("ts", 0) <= 20
+    _WAKE_PARTIAL.clear()
+    if not fresh or not text:
+        return text
+    p, t = _norm_words(part), _norm_words(text)
+    if t[:min(2, len(p))] == p[:min(2, len(p))]:
+        return text
+    joined = f"{part} {text}"
+    logger.info(f"WAKE (phone): joined the cut-off start: {joined!r}")
+    return joined
 
 
 @app.post("/api/wakeword/verify")
@@ -381,7 +423,7 @@ async def wakeword_verify(request: Request):
         return JSONResponse({"detail": "speech-to-text isn't loaded"}, status_code=503)
     audio = np.frombuffer(body[:len(body) // 2 * 2], dtype="<i2").astype(np.float32) / 32768.0
     text = (await asyncio.to_thread(engine.transcribe, audio)) or ""
-    cmd = heard_wake(text)
+    cmd = wake_command(text)
     logger.info(f"WAKE (phone): {'yes' if cmd is not None else 'no, ignored'}: {text!r}")
     from core import phone_prefs
     return {"wake": cmd is not None, "command": cmd or "", "heard": text, **phone_prefs.get()}
@@ -554,6 +596,7 @@ async def phone_turn(body: dict):
             {"text": "", "audio": "", "actions": [], "listen": False}
     if _END_TALK.match(text):
         return await speak("Alright, sir.", False)
+    text = merge_partial(text)
     orch = _dark_session.get("orch")
     if orch is None:
         orch = _dark_session["orch"] = HybridOrchestrator(session_id="phone-dark")
@@ -913,7 +956,7 @@ class Connection:
 
     async def submit(self, text: str, voice: bool = False, stt: bool = False) -> None:
         """Start a turn. Cancels any reply in progress. voice: fix names; stt: she heard it herself."""
-        text = (text or "").strip()
+        text = merge_partial((text or "").strip())         # Nov 24: the rest of a cut-off "Hey Eva, ..."
         if not text:
             return
         await self.interrupt()

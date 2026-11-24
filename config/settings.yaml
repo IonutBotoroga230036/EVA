@@ -235,7 +235,10 @@ commute:
   home_station: "Breda"
   uni_station: "Nijmegen"              # or "Nijmegen Heyendaal" (the campus stop) if you take that train
   walk_min: 15                         # from your door to the platform
-  arrive_early_min: 10                 # be at uni this long before the lecture starts
+  campus_min: 20                       # Nov 24: Nijmegen station to the lecture hall (bus to RU)
+  arrive_early_min: 10                 # on top of that, time to spare before the lecture starts
+  night_ends_hour: 4                   # before 04:00, "tomorrow" means the day you wake up to
+  course_codes: "\\b[A-Z]{2,4}-[A-Z]{2,4}\\d{2,4}\\b"   # SOW-BKI141 in a title = a course
   alert_min: 10                        # "Sir, leave in 10 minutes for the 08:22"
   alerts: true
   away_km: 2.0                         # no leave alert when your phone says you're further than this from home

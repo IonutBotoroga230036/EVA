@@ -2,9 +2,12 @@
 
 - "When's the next train to Nijmegen?" / "next train home" / "is my train delayed?": the next trips from the NS
   Reisinformatie API (trips v3), with platform, platform changes, delay, arrival, changes and cancellations.
-- "When should I leave for uni tomorrow?": the first event of that day in Nijmegen (its title or location names
-  Radboud, Nijmegen, Huygens...; settings commute.uni_words), the latest train that gets you there
-  commute.arrive_early_min before it starts, and when to leave home (commute.walk_min to the station).
+- "When should I leave for uni tomorrow?": your own "Train To Nijmegen" calendar event is the plan (she finds that
+  NS train, its platform and delay); without one, your first course that day (a course code like SOW-BKI141, the
+  Radboud calendar, or a uni word in title/place; commute.uni_words, commute.course_codes), and the latest train
+  that gets you to the station commute.campus_min + commute.arrive_early_min before it starts. Travel events
+  ("Bus To RU", "Train To Rotterdam") are never the lecture; a train elsewhere that day is mentioned. Before 04:00
+  "tomorrow" means the day you wake up to.
 - ORACLE: on such days, "Sir, leave in 10 minutes for the 08:22 to Nijmegen ..." about commute.alert_min before
   you have to leave, with the live delay. Not when your phone says you're away from home. Quiet hours don't stop
   it (you'd miss the train); do-not-disturb does.
@@ -28,6 +31,7 @@ from loguru import logger
 BASE = "https://gateway.apiportal.ns.nl/reisinformatie-api/api"
 TRIPS_URL = BASE + "/v3/trips"
 DEFAULTS = {"home_station": "Breda", "uni_station": "Nijmegen", "walk_min": 15, "arrive_early_min": 10,
+            "campus_min": 20, "night_ends_hour": 4, "course_codes": r"\b[A-Z]{2,4}-[A-Z]{2,4}\d{2,4}\b",
             "alert_min": 10, "alerts": True, "away_km": 2.0,
             "uni_words": ["Radboud", "Nijmegen", "Huygens", "Heyendaal", "Donders", "Grotius", "Lecture hall"],
             "stations": {}}
@@ -42,6 +46,11 @@ STATIONS = {"breda": "BD", "nijmegen": "NM", "nijmegen centraal": "NM", "nijmege
             "leiden": "LEDN", "leiden centraal": "LEDN", "delft": "DT", "groningen": "GN", "maastricht": "MT"}
 
 FETCH: Optional[Callable[[str, dict], dict]] = None          # tests answer here instead of NS
+NOW: Optional[Callable[[], datetime]] = None                  # tests set the clock here
+
+
+def _now() -> datetime:
+    return NOW() if NOW else datetime.now()
 _plans: dict = {}                                             # event -> {trip, fetched, said}
 
 
@@ -201,6 +210,9 @@ def tool_train_times(from_station: str = "", to_station: str = "", when: str = "
         found = trips(frm, to, at, bool(arrive_by and at))
     except NSError as e:
         return {"result": json.dumps({"error": str(e)}), "say": f"I couldn't reach NS, sir: {e}.", "exact": True}
+    if at is None:                                       # Nov 24: never the 23:54 that left at 23:55
+        now = _now()
+        found = [t for t in found if t["dep_now"] >= now]
     if not found:
         return {"result": json.dumps({"trips": []}), "exact": True,
                 "say": f"NS has no trains from {frm} to {to} for that time, sir."}
@@ -210,6 +222,8 @@ def tool_train_times(from_station: str = "", to_station: str = "", when: str = "
     if ok:
         first = ok[0]
         lead = "Then the next one leaves at" if parts else "The next train to " + (first["to"] or to) + " leaves at"
+        if at is None and not parts and (first["dep"] - _now()).total_seconds() > 3 * 3600:
+            lead = f"There are no more trains tonight, sir. The first one to {first['to'] or to} leaves at"
         parts.append(f"{lead} {describe(first)}, sir.")
         if len(ok) > 1:
             n = ok[1]
@@ -225,12 +239,35 @@ def tool_train_times(from_station: str = "", to_station: str = "", when: str = "
                                          for t in found[:4])}}
 
 
+_TRAVEL = re.compile(r"^\s*(?:take (?:the )?|catch (?:the )?)?(?:train|bus|bike|cycle|ride|drive|walk|go|travel|tram|"
+                     r"metro|taxi|uber|flight|fly)\b.*\b(?:to|back|home)\b", re.I)
+_TRAIN = re.compile(r"^\s*(?:take (?:the )?|catch (?:the )?)?train\b.*\bto\s+(.+?)\s*$", re.I)
+_COURSE = re.compile(r"^\s*[A-Z]{2,4}-[A-Z]{2,4}\d{2,4}\w*(?:\s+[A-Z]+\d+)?\s*-\s*")
+
+
+def is_travel(e: dict) -> bool:
+    """Your own travel plans ("Train To Nijmegen", "Bus To RU", "Bike To Breda Centraal"): never the lecture."""
+    return bool(_TRAVEL.match(e.get("title") or ""))
+
+
+def _uni_text(text: str, c: dict) -> bool:
+    t = (text or "").lower()
+    return any(w and w.lower() in t for w in (c.get("uni_words") or []))
+
+
 def is_uni(e: dict, c: Optional[dict] = None) -> bool:
+    """A lecture or meeting at uni: a course code (SOW-BKI141), the uni calendar, or a uni word in title/place."""
     c = c or cfg()
-    if e.get("all_day") or e.get("routine") or not e.get("start"):
+    if e.get("all_day") or e.get("routine") or not e.get("start") or is_travel(e):
         return False
-    hay = f"{e.get('title', '')} {e.get('location', '')}".lower()
-    return any(w and w.lower() in hay for w in (c.get("uni_words") or []))
+    if re.search(c.get("course_codes") or r"$^", e.get("title") or ""):
+        return True
+    return _uni_text(f"{e.get('title', '')} {e.get('location', '')} {e.get('calendar', '')}", c)
+
+
+def spoken_title(title: str) -> str:
+    """'SOW-BKI141 PER2 - Research Design & Scientific Method' -> 'Research Design & Scientific Method'."""
+    return _COURSE.sub("", title or "").strip() or (title or "your lecture")
 
 
 def first_uni_event(events: list[dict], after: Optional[datetime] = None) -> Optional[dict]:
@@ -238,6 +275,32 @@ def first_uni_event(events: list[dict], after: Optional[datetime] = None) -> Opt
     for e in sorted((e for e in events if is_uni(e, c)), key=lambda e: e["start"]):
         if after is None or e["start"] > after:
             return e
+    return None
+
+
+def day_target(events: list[dict], after: Optional[datetime] = None) -> Optional[dict]:
+    """How you get to uni that day. Your own "Train To Nijmegen" event wins (that's your plan); otherwise the first
+    course, arriving in time. 'elsewhere': the places your train events go instead."""
+    c = cfg()
+    evs = sorted((e for e in events if e.get("start") and not e.get("all_day") and (after is None or e["start"] > after)),
+                 key=lambda e: e["start"])
+    planned, elsewhere = None, []
+    for e in evs:
+        m = _TRAIN.match(e.get("title") or "")
+        if not m:
+            continue
+        dest = m.group(1)
+        if _uni_text(dest, c) or dest.lower().startswith(c["uni_station"].lower().split()[0]):
+            planned = planned or e
+        elif dest.lower() not in ("home", c["home_station"].lower()) and not _uni_text(dest, {"uni_words": [
+                c["home_station"]]}):
+            elsewhere.append(dest.strip())
+    if planned:
+        return {"kind": "planned", "event": planned,
+                "lecture": first_uni_event([e for e in evs if e["start"] >= planned["start"]]), "elsewhere": []}
+    lecture = first_uni_event(evs)
+    if lecture:
+        return {"kind": "arrive", "event": lecture, "lecture": lecture, "elsewhere": elsewhere}
     return None
 
 
@@ -250,42 +313,79 @@ def best_trip(found: list[dict], arrive_by: datetime, now: datetime, walk: int) 
     return best, first
 
 
+def planned_trip(found: list[dict], planned: datetime) -> Optional[dict]:
+    """The NS train that matches your calendar's 'Train To Nijmegen' time (leaving at it, or just after)."""
+    near = [t for t in found if not t["cancelled"] and t["dep"] >= planned - timedelta(minutes=5)
+            and t["dep"] <= planned + timedelta(minutes=30)]
+    return min(near, key=lambda t: t["dep"]) if near else None
+
+
+def _plat(t: dict) -> str:
+    plat = platform(t)
+    return f", {plat}" if plat else ""
+
+
 def plan(google, day: str = "today", now: Optional[datetime] = None) -> dict:
     now = now or datetime.now()
     c = cfg()
     from core.timeparse import day_window
-    start, end, label = day_window(day or "today", now.date())
+    base = now.date()
+    phrase = (day or "today").strip().lower()
+    if phrase == "tomorrow" and now.hour < int(c.get("night_ends_hour", 4)):
+        base = base - timedelta(days=1)                  # 00:03 "tomorrow": the day you wake up to
+    start, end, _ = day_window(phrase, base)
+    label = "today" if start.date() == now.date() and phrase in ("today", "") else f"on {start:%A}"
     events = google.list_events(max(start, now), end)
-    e = first_uni_event(events)
-    if not e:
+    target = day_target(events)
+    if not target:
         return {"say": f"I don't see anything in Nijmegen on your calendar {label}, sir."}
-    walk, early = int(c["walk_min"]), int(c["arrive_early_min"])
-    arrive_by = e["start"] - timedelta(minutes=early)
+    walk, early, campus = int(c["walk_min"]), int(c["arrive_early_min"]), int(c.get("campus_min", 20))
+    lec = target["lecture"]
+    if target["kind"] == "planned":
+        e = target["event"]
+        found = trips(c["home_station"], c["uni_station"], e["start"] - timedelta(minutes=5))
+        t = planned_trip(found, e["start"])
+        head = f"Your calendar has the train to {c['uni_station']} at {hm(e['start'])} {label}"
+        if not t:
+            return {"say": f"{head}, but NS has no train around then, sir. Ask me for the next trains to see what runs."}
+        leave = t["dep"] - timedelta(minutes=walk)
+        say = (f"{head}: that's the {hm(t['dep'])} from {t['from']}{_plat(t)}, "
+               f"{late_words(t['late']) + ' right now' if t['late'] else 'on time'}. Leave home at {hm(leave)}. "
+               f"It arrives in {t['to']} at {hm(t['arr_now'])}")
+        if lec:
+            what = f"{spoken_title(lec['title'])} at {hm(lec['start'])}"
+            ok = t["arr_now"] + timedelta(minutes=campus) <= lec["start"]
+            say += f", in time for {what}" if ok else f", which is tight for {what}"
+        return {"say": say + ", sir.", "leave": leave.isoformat(), "train": hm(t["dep"])}
+    e = lec
+    what = f"{spoken_title(e['title'])} at {hm(e['start'])}"
+    lead = ""
+    if target["elsewhere"]:
+        lead = (f"Your calendar has you going to {target['elsewhere'][0]} {label}, not {c['uni_station']}, sir. "
+                f"If you go to {what}: ")
+    arrive_by = e["start"] - timedelta(minutes=early + campus)
     found = trips(c["home_station"], c["uni_station"], arrive_by, arrive=True)
     best, first = best_trip(found, arrive_by, now, walk)
-    what = f"{e['title']} at {hm(e['start'])}"
     if best:
         leave = best["dep"] - timedelta(minutes=walk)
-        plat = platform(best)
         say = (f"For {what} {label}, leave home at {hm(leave)} for the {hm(best['dep'])} from {best['from']}"
-               + (f", {plat}" if plat else "") + f". It arrives in {best['to']} at {hm(best['arr_now'])}")
+               f"{_plat(best)}. It arrives in {best['to']} at {hm(best['arr_now'])}")
         if best["late"]:
             say += f" ({late_words(best['late'])} right now)"
-        return {"say": say + ", sir.", "leave": leave.isoformat(), "train": hm(best["dep"])}
-    if first and first["arr_now"] < e["start"]:
+        return {"say": lead + say + ", sir.", "leave": leave.isoformat(), "train": hm(best["dep"])}
+    if first and first["arr_now"] + timedelta(minutes=campus) <= e["start"]:
         leave = first["dep"] - timedelta(minutes=walk)
         mins = round((e["start"] - first["arr_now"]).total_seconds() / 60)
-        plat = platform(first)
-        return {"say": (f"For {what} {label}, leave home at {hm(leave)} for the {hm(first['dep'])} from "
-                        f"{first['from']}" + (f", {plat}" if plat else "") + f". It arrives in {first['to']} at "
-                        f"{hm(first['arr_now'])}, only {mins} minute{'s' if mins != 1 else ''} before it starts, sir."),
+        return {"say": lead + (f"For {what} {label}, leave home at {hm(leave)} for the {hm(first['dep'])} from "
+                               f"{first['from']}{_plat(first)}. It arrives in {first['to']} at {hm(first['arr_now'])}, "
+                               f"which leaves {mins} minutes to get there: tight, sir."),
                 "leave": leave.isoformat(), "train": hm(first["dep"])}
     if first:
         leave = first["dep"] - timedelta(minutes=walk)
-        return {"say": (f"You can't make it in time for {what}, sir. The first train you can still catch, the "
-                        f"{hm(first['dep'])} from {first['from']}, arrives in {first['to']} at {hm(first['arr_now'])}: "
-                        f"leave home at {hm(leave)}.")}
-    return {"say": f"NS has no train that still works for {what}, sir."}
+        return {"say": lead + (f"You can't make it in time for {what}, sir. The first train you can still catch, the "
+                               f"{hm(first['dep'])} from {first['from']}, arrives in {first['to']} at "
+                               f"{hm(first['arr_now'])}: leave home at {hm(leave)}.")}
+    return {"say": lead + f"NS has no train that still works for {what}, sir."}
 
 
 def tool_commute_plan(day: str = "", **_):
@@ -318,28 +418,36 @@ def away_from_home() -> bool:
 
 
 def leave_alerts(events: list[dict], now: Optional[datetime] = None) -> list[str]:
-    """Lines to say now: one per uni day, alert_min before you have to leave."""
+    """Lines to say now: one per uni day, alert_min before you have to leave (your planned train, or the one that
+    gets you to your first course in time)."""
     now = now or datetime.now()
     c = cfg()
     if not c.get("alerts", True) or not _key():
         return []
-    e = first_uni_event([x for x in events if x.get("start") and x["start"].date() == now.date()], after=now)
-    if not e:
+    target = day_target([x for x in events if x.get("start") and x["start"].date() == now.date()], after=now)
+    if not target:
         return []
+    e, lec = target["event"], target["lecture"]
     k = f"{e.get('id')}|{e['start'].isoformat()}"
     p = _plans.setdefault(k, {"trip": None, "fetched": 0.0, "said": False})
     if p["said"]:
         return []
     walk, early, alert = int(c["walk_min"]), int(c["arrive_early_min"]), int(c["alert_min"])
+    campus = int(c.get("campus_min", 20))
     if (e["start"] - now).total_seconds() > (4 * 3600):
         return []
     if now.timestamp() - p["fetched"] > 600:
         try:
-            found = trips(c["home_station"], c["uni_station"], e["start"] - timedelta(minutes=early), arrive=True)
+            if target["kind"] == "planned":
+                found = trips(c["home_station"], c["uni_station"], e["start"] - timedelta(minutes=5))
+                p["trip"] = planned_trip(found, e["start"])
+            else:
+                arrive_by = e["start"] - timedelta(minutes=early + campus)
+                found = trips(c["home_station"], c["uni_station"], arrive_by, arrive=True)
+                p["trip"], _ = best_trip(found, arrive_by, now - timedelta(minutes=alert), walk)
         except NSError as err:
             logger.warning(f"COMMUTE: NS check failed ({err})")
             return []
-        p["trip"], _ = best_trip(found, e["start"] - timedelta(minutes=early), now - timedelta(minutes=alert), walk)
         p["fetched"] = now.timestamp()
     t = p["trip"]
     if not t:
@@ -352,11 +460,10 @@ def leave_alerts(events: list[dict], now: Optional[datetime] = None) -> list[str
         logger.info("COMMUTE: you're away from home; no leave alert")
         return []
     p["said"] = True
-    plat = platform(t)
     lead = f"leave in {mins} minute{'s' if mins != 1 else ''}" if mins > 0 else "leave now"
-    return [f"Sir, {lead} for the {hm(t['dep'])} to {t['to'] or c['uni_station']}" + (f", {plat}" if plat else "")
-            + f". It's {'running ' + late_words(t['late']) if t['late'] else 'on time'}. "
-            f"That gets you to {e['title']} at {hm(e['start'])}."]
+    tail = f" That gets you to {spoken_title(lec['title'])} at {hm(lec['start'])}." if lec else ""
+    return [f"Sir, {lead} for the {hm(t['dep'])} to {t['to'] or c['uni_station']}{_plat(t)}. It's "
+            f"{'running ' + late_words(t['late']) if t['late'] else 'on time'}.{tail}"]
 
 
 SCHEMAS = [

@@ -199,6 +199,7 @@ def isolate_nov23_afternoon(tmp_path, monkeypatch):
         import core.commute as commute
         monkeypatch.setattr(commute, "_key", lambda: None)          # never your real NS key
         monkeypatch.setattr(commute, "FETCH", None)
+        monkeypatch.setattr(commute, "NOW", None)
         commute._plans.clear()
     except ImportError:
         pass
@@ -212,6 +213,11 @@ def isolate_nov23_afternoon(tmp_path, monkeypatch):
     device.PENDING.clear()
     device.LAST_POLL["ts"] = 0.0
     device.RINGING["ts"] = 0.0
+    try:
+        from interfaces.web import server_stream as _ss
+        _ss._WAKE_PARTIAL.clear()                                  # a cut-off "Hey Eva, ..." never leaks
+    except Exception:
+        pass
     yield
 
 
