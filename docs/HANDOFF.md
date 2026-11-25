@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v050_mind_bench.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v060_show_projects.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,23 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 25 Nov 2026 (23:00, v0.6 showing, projects, places)
+
+His 21:36 log: "much better", but no MIND line at all: understanding handed sentences over (work_it_out) and the
+mind refused them silently. His saved brain state is mode local with understanding on Claude; the mind (a feature
+he had never chosen) followed the stricter rule. Now `mind.why_off()` follows understanding's cloud permission
+unless the mind itself is set local, and logs the reason once. Also from the log: FORGE said "Your skill is ready"
+after he cancelled (job.say kept the ready line; now "I stopped the build of ...", and forge_status returns the
+request for a rebuild); task titles came from a regex ("prices online for a small"; now Haiku, `name_task`); the
+workbench pill showed empty because `.bench-pill{display:flex}` beat `[hidden]`. Built (zip
+`eva_v060_show_projects.zip`, docs/MIND.md v0.6 section): core/show.py, core/projects.py, core/nearby.py, cards
+gallery/media/project in eva.html (pictures in eva_classic), Task.project, project brief in the mind's situation
+and in task instructions, results back into the project. Not reachable from the build machine: the map servers
+(nearby is tested with recorded answers only). He also got an Excel file (outside the repo) with the full
+checklist (66 items, status), the JARVIS test (22 scenarios, 0 to 2 per version, totals and per-dimension
+scores) and 12 proposals; docs/JARVIS_TEST.md has the scenarios. Not done yet from his wishes: long stories
+(proposal), her own sandboxed browser (proposal), computer use (proposal, later), chats like Gemini (v0.7).
 
 ## State on 25 Nov 2026 (21:00, v0.5 one mind + the workbench)
 

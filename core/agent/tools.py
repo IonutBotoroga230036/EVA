@@ -28,11 +28,14 @@ def _ok(say: str, **data) -> dict:
     return {"result": json.dumps(data or {"ok": True}), "say": say, "exact": True}
 
 
-def tool_task_start(goal: str = "", budget_euros: float = 0.0, **_):
+def tool_task_start(goal: str = "", budget_euros: float = 0.0, project: str = "", **_):
     goal = " ".join((goal or "").split())
     if len(goal) < 8:
         return _ok("What should the task be, sir?", error="no goal")
-    t = _m().start(goal, float(budget_euros or 0))
+    from core.agent.tasks import name_task
+    from core.projects import get_store as projects
+    pr = projects().find(project) if project else None     # v0.6: part of a project (its brief goes along)
+    t = _m().start(goal, float(budget_euros or 0), name_task(goal), pr.id if pr else "")
     return _ok(f"On it, sir: the {t.title}. I'll work on it in the background with Claude, ask you when a choice "
                f"matters or before I install anything, and tell you when it's done. Ask me 'how's the {t.title} "
                f"going?' any time.", task=t.id, title=t.title)
@@ -194,7 +197,8 @@ SCHEMAS = [
                         "trip or a project, writing a document, building a small app. Not for one quick action."),
         "parameters": {"type": "object", "properties": {
             "goal": {"type": "string", "description": "The job in the user's words, with every detail they gave."},
-            "budget_euros": {"type": "number", "description": "Only if the user names a budget."}},
+            "budget_euros": {"type": "number", "description": "Only if the user names a budget."},
+            "project": {"type": "string", "description": "The project it's for, if any (its brief goes along)."}},
             "required": ["goal"]}}},
     {"type": "function", "function": {
         "name": "task_status", "description": "How a background task is going ('how's the guitar stand going?').",

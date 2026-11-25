@@ -346,3 +346,21 @@ labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-commun
 | 24.8 | Close the workbench | A pill at the top keeps showing what she's doing; tap it to reopen | |
 | 24.9 | Open `https://<pc>:8443/stage` on a second screen | The same, full screen | |
 | 24.10 | "Eva, local only", then 24.2 again | The old way, no Claude | no `MIND:` line |
+
+
+## 25. v0.6: the mind for real, pictures, projects, places
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 25.1 | Start E.V.A. | If the mind is off, one line says why | `MIND: off (...)` or nothing |
+| 25.2 | "How can I see the files you made?" | Now she really thinks: options, one question | `MIND: step 1: check_installed` |
+| 25.3 | "Show me pictures of transparent desk displays" | A numbered gallery; tap one to see it big | `TOOL show_images` |
+| 25.4 | "What is the third one?" | She looks at it and describes it | `MIND: step 1: look_at_shown` |
+| 25.5 | "Find me a video on building a Pepper's ghost display" / "play the first one on my PC" | Videos in the window (tap plays inside the card); the first opens in the PC browser | `TOOL find_videos`, `TOOL open_shown` |
+| 25.6 | "Start a project for a transparent screen on my desk" | A project card | `TOOL project_start` |
+| 25.7 | "Let's go with the glass version" / "add a Raspberry Pi 5 to the parts, about 80 euros" | Saved as a decision / a part | `TOOL project_note`, `TOOL project_add_part` |
+| 25.8 | "Research which screen to put under the glass" | A task for the project; when done, its result is in the project | `AGENT:` lines |
+| 25.9 | "What's still open on the desk screen?" / "put the parts list in a file" | The card / parts.csv and project.md in Documents\E.V.A.\projects | |
+| 25.10 | "Is the Jumbo still open?" / "a pharmacy open now" | Nearest with distance and closing time | `TOOL nearby` |
+| 25.11 | Start a task | Its name is a real name ("3d printer prices") | `AGENT: task ... '<name>'` |
+| 25.12 | Start a skill build, "stop it", then "how is the build going?" | "I stopped the build of ..." (not "ready") | |

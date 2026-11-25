@@ -220,6 +220,11 @@ def isolate_nov23_afternoon(tmp_path, monkeypatch):
     import core.agent.runner as _arun
     import core.agent.tasks as _atasks
     monkeypatch.setattr(_atasks, "_store", _atasks.Store(tmp_path / "tasks"))   # never your real tasks
+    import core.projects as _proj
+    monkeypatch.setattr(_proj, "_store", _proj.Store(tmp_path / "projects"))   # never your real projects
+    import core.show as _show
+    monkeypatch.setattr(_show, "_shown", {"kind": "", "query": "", "items": [], "ts": 0.0})
+    monkeypatch.setattr(_show.webbrowser, "open", lambda *a, **k: True)          # tests never open a browser
     monkeypatch.setattr(_consent, "PATH", tmp_path / "permissions.json")       # or your standing yeses
     monkeypatch.setattr(_apc, "AGENT_DIR", tmp_path / "agent")
     monkeypatch.setattr(_apc, "VENV", tmp_path / "agent" / "venv")

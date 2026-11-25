@@ -844,3 +844,26 @@ from core import mind as _mind  # noqa: E402
 
 TOOL_SCHEMAS.append(_mind.WORK_IT_OUT)
 REGISTRY["work_it_out"] = lambda **_: {"result": json.dumps({"note": "the mind answers this"})}
+
+# ---------------------------------------------------------------- v0.6: showing instead of guessing
+from core import show as _show  # noqa: E402
+
+TOOL_SCHEMAS += _show.SCHEMAS
+REGISTRY.update(_show.FUNCTIONS)
+GUARDS.update(_show.GUARDS)
+ACK_PHRASES.update(_show.ACKS)
+
+# ---------------------------------------------------------------- v0.6: projects
+from core import projects as _projects  # noqa: E402
+
+TOOL_SCHEMAS += _projects.SCHEMAS
+REGISTRY.update(_projects.FUNCTIONS)
+GUARDS.update(_projects.GUARDS)
+
+# ---------------------------------------------------------------- v0.6: places near you, with opening hours
+from core import nearby as _nearby  # noqa: E402
+
+TOOL_SCHEMAS += _nearby.SCHEMAS
+REGISTRY.update(_nearby.FUNCTIONS)
+GUARDS.update(_nearby.GUARDS)
+ACK_PHRASES.update(_nearby.ACKS)

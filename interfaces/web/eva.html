@@ -70,6 +70,38 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .icon-btn{width:44px;height:44px;border-radius:var(--r-md);display:grid;place-items:center;background:var(--tint);border:1px solid var(--line);color:var(--lilac);transition:background var(--dur-hover),box-shadow var(--dur-hover)}
 .icon-btn:hover{background:rgba(196,164,255,.12);box-shadow:0 0 18px rgba(168,85,247,.25)}
 
+/* ===== Projects (v0.6) ===== */
+.proj__sec{margin-top:var(--s3);display:flex;flex-direction:column;gap:6px}
+.proj__li{font-size:14px;line-height:1.45;color:var(--ice);padding-left:12px;border-left:2px solid var(--line)}
+.proj__li--q{border-left-color:var(--magenta)} .proj__li--q b{color:var(--magenta);font-weight:600}
+.proj__li--r{color:var(--dim-text);font-size:13px}
+.proj__part{display:grid;grid-template-columns:minmax(0,1fr) 34px 70px 64px;gap:8px;align-items:baseline;font-size:14px;padding:6px 0;border-bottom:1px solid var(--line-soft)}
+.proj__pname{display:flex;flex-direction:column;min-width:0} .proj__pname a{color:var(--ice)} .proj__pname small{color:var(--dim-text);font-size:12px}
+.proj__q{color:var(--dim-text);text-align:right} .proj__eur{text-align:right;font-variant-numeric:tabular-nums}
+.proj__st{font:600 10px var(--font-display);letter-spacing:.12em;text-transform:uppercase;color:var(--dim-text);text-align:center}
+.proj__st[data-s="chosen"]{color:var(--lilac)} .proj__st[data-s="ordered"]{color:var(--violet-bright)} .proj__st[data-s="have"]{color:#9fe3b8}
+.proj__total{border-bottom:0;font-weight:600}
+
+/* ===== Pictures and videos (v0.6) ===== */
+.gal{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:var(--s3)}
+.gal--v{grid-template-columns:repeat(2,minmax(0,1fr))}
+.gal__tile{position:relative;aspect-ratio:1;border-radius:var(--r-sm);overflow:hidden;border:1px solid var(--line-soft);background:rgba(10,8,24,.6);padding:0;cursor:pointer}
+.gal--v .gal__tile{aspect-ratio:16/9}
+.gal__tile img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .3s var(--ease-out)}
+.gal__tile:hover img{transform:scale(1.04)}
+.gal__tile.is-playing{aspect-ratio:16/9;grid-column:1/-1}
+.gal__tile iframe,.gal__big iframe{width:100%;height:100%;border:0;display:block}
+.gal__n{position:absolute;top:6px;left:6px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;display:grid;place-items:center;font:600 12px var(--font-display);
+  color:var(--ice);background:rgba(18,10,40,.8);border:1px solid var(--line-strong)}
+.gal__cap{position:absolute;left:0;right:0;bottom:0;padding:18px 8px 6px;font-size:12px;line-height:1.3;color:var(--ice);text-align:left;background:linear-gradient(transparent,rgba(8,5,20,.9));
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.gal__big{margin-top:var(--s3);border-radius:var(--r-md);overflow:hidden;background:rgba(10,8,24,.6);aspect-ratio:16/10}
+.gal__big img{width:100%;height:100%;object-fit:contain;display:block}
+.gal__open img{width:100%;height:100%;object-fit:cover}
+.lightbox{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;background:rgba(6,4,14,.92);backdrop-filter:blur(8px);cursor:zoom-out}
+.lightbox img{max-width:100%;max-height:82vh;border-radius:var(--r-md);box-shadow:var(--glow-card)}
+.lightbox__cap{color:var(--dim-text);font-size:14px;text-align:center}
+
 /* ===== Workbench (v0.5): a task's work, live ===== */
 .eva-bench{position:fixed;z-index:9;top:calc(var(--safe-t) + 84px);left:max(24px,var(--safe-l));right:max(24px,var(--safe-r));bottom:calc(var(--safe-b) + 128px);
   display:grid;grid-template-columns:minmax(240px,320px) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:14px;padding:18px;
@@ -121,7 +153,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   padding:8px 16px;border-radius:var(--r-pill);background:var(--glass-solid);border:1px solid var(--line);color:var(--ice);font-size:13px;box-shadow:var(--glow-btn)}
 .bench-pill span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bench-pill i{flex:none;width:7px;height:7px;border-radius:50%;background:var(--violet-bright);animation:benchPulse 1.2s ease-in-out infinite}
-.eva.bench-open .bench-pill{display:none}
+.eva.bench-open .bench-pill,.bench-pill[hidden]{display:none}
 @media (max-width:899px){
   .eva-bench{top:calc(var(--safe-t) + 70px);left:10px;right:10px;bottom:calc(var(--safe-b) + 150px);grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);padding:12px;gap:10px}
   .bench__side{max-height:30vh} .bench__feed{display:none} .bench__plan{max-height:none}
@@ -574,7 +606,8 @@ let cards = [], seq = 0;
 const META = {
   weather: ['cloud', 'Weather'], calendar: ['cal', 'Calendar'], email: ['mail', 'Email'], confirm: ['cal', 'Confirm'],
   nowplaying: ['music', 'Now playing'], note: ['note', 'Note'], vision: ['eye', 'Vision'], reminder: ['bell', 'Reminder'],
-  alert: ['bell', 'Alert'], forge: ['wrench', 'FORGE draft'], model: ['eye', 'Model']
+  alert: ['bell', 'Alert'], forge: ['wrench', 'FORGE draft'], model: ['eye', 'Model'],
+  gallery: ['eye', 'Pictures'], media: ['eye', 'Showing'], project: ['note', 'Project']
 };
 
 function head(label, meta, proactive) {
@@ -638,6 +671,42 @@ const RENDER = {
   nowplaying(d) { return [head('Now playing'), h('div', { class: 'card__title' }, d.what)]; },
   note(d) { return [head(d.title || 'Note'), h('div', { class: 'card__text' }, d.text)]; },
   vision(d) { return [head(d.title || 'Vision'), h('div', { class: 'card__text' }, d.text)]; },
+  project(d) {                                         // v0.6: a project: decided, open, parts
+    const sec = (title, kids) => kids && kids.length ? h('div', { class: 'proj__sec' }, h('div', { class: 'bench__label' }, title), kids) : null;
+    const eur = v => v == null || v === '' ? '' : `\u20ac${Number(v).toFixed(Number(v) % 1 ? 2 : 0)}`;
+    const parts = (d.parts || []).map(x => h('div', { class: 'proj__part' },
+      h('span', { class: 'proj__pname' }, x.link ? h('a', { href: x.link, target: '_blank', rel: 'noopener noreferrer' }, x.name) : x.name,
+        x.why ? h('small', null, x.why) : null),
+      h('span', { class: 'proj__q' }, x.qty > 1 ? `\u00d7${x.qty}` : ''),
+      h('span', { class: 'proj__st', 'data-s': x.status || 'idea' }, x.status || 'idea'),
+      h('span', { class: 'proj__eur' }, eur(x.price_eur))));
+    return [head(d.name || 'Project', d.total_eur ? `about ${eur(d.total_eur)}` : (d.tasks ? `${d.tasks} tasks` : '')),
+      d.goal ? h('div', { class: 'card__sub' }, d.goal) : null,
+      sec('Decided', (d.decisions || []).map(t => h('div', { class: 'proj__li' }, t))),
+      sec('Open questions', (d.questions || []).map(q => h('div', { class: 'proj__li proj__li--q' }, h('b', null, String(q.n)), ' ', q.text))),
+      sec('Parts', parts.length ? [...parts, h('div', { class: 'proj__part proj__total' }, h('span', null, 'Total'), h('span'), h('span'), h('span', { class: 'proj__eur' }, eur(d.total_eur)))] : null),
+      sec('Ideas', (d.ideas || []).map(t => h('div', { class: 'proj__li' }, t))),
+      sec('Research', (d.research || []).map(t => h('div', { class: 'proj__li proj__li--r' }, t)))];
+  },
+  gallery(d) {                                         // v0.6: "something like one of these?"
+    const vids = d.media === 'videos', items = d.items || [];
+    const grid = h('div', { class: 'gal' + (vids ? ' gal--v' : '') }, items.map((x, i) => {
+      const tile = h('button', { class: 'gal__tile', 'aria-label': `${i + 1}: ${x.title || ''}`, onclick: () => vids ? playIn(tile, x) : lightbox(x) },
+        h('img', { src: x.thumbnail || x.image, alt: x.title || '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: e => { e.target.style.visibility = 'hidden'; } }),
+        h('b', { class: 'gal__n' }, String(i + 1)),
+        vids ? h('span', { class: 'gal__cap' }, [x.title, x.duration].filter(Boolean).join(' \u00b7 ')) : null);
+      return tile;
+    }));
+    return [head(vids ? `Videos: ${d.query || ''}` : `Pictures: ${d.query || ''}`, `${items.length}`), grid,
+      h('div', { class: 'card__sub' }, vids ? 'Tap one to play it here, or say "play the first one on my PC".' : 'Tap one to see it big, or tell me the number.')];
+  },
+  media(d) {
+    const box = h('div', { class: 'gal__big' });
+    if (d.media === 'video') playIn(box, d, true);
+    else box.append(h('img', { src: d.image || d.thumbnail, alt: d.title || '', referrerpolicy: 'no-referrer', onerror: e => { if (d.thumbnail && e.target.src !== d.thumbnail) e.target.src = d.thumbnail; } }));
+    return [head(d.title || 'Showing', d.source || ''), box,
+      d.url ? h('a', { class: 'card__sub', href: d.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open the source') : null];
+  },
   model(d) {                                           // Nov 25: what a task made, in 3D: drag to turn it
     const ms = d.models || [], url = (m, f) => `/api/tasks/${encodeURIComponent(d.task)}/file?path=${encodeURIComponent(f || m.path)}`;
     const box = h('div', { class: 'model__box' }), size = h('div', { class: 'card__sub' });
@@ -686,6 +755,9 @@ function summary(c) {
     case 'nowplaying': return d.what;
     case 'forge': return d.name;
     case 'model': return d.title;
+    case 'gallery': return d.query;
+    case 'project': return d.name;
+    case 'media': return d.title;
     case 'alert': return d.title;
     default: return d.text || d.title;
   }
@@ -730,7 +802,7 @@ function leave(c) {
 }
 function arm(c) {
   clearTimeout(c.timer);
-  if (!WAITS.has(c.type) && !c.proactive && c.type !== 'model') c.timer = setTimeout(() => { c.collapsed = true; c.el = null; render(); }, RULES.autoCollapseMs);
+  if (!WAITS.has(c.type) && !c.proactive && !['model', 'gallery', 'media', 'project'].includes(c.type)) c.timer = setTimeout(() => { c.collapsed = true; c.el = null; render(); }, RULES.autoCollapseMs);
 }
 /** Show one answer. Several cards from one answer: showCards([{type,data},...]) */
 function showCards(list, opts = {}) {
@@ -849,6 +921,28 @@ $('evaTypebar').onsubmit = e => {
 function setConnection(live) { $('evaConn').dataset.live = String(!!live); }
 
 /* ---------- public API ---------- */
+/* ---------------- pictures and videos (v0.6) ---------------- */
+function playIn(el, x, big) {                             // a video plays inside the card when it can be embedded
+  const src = x.embed || '';
+  if (el.classList.contains('is-playing')) return;        // already playing: a second tap does nothing
+  if (/^https:\/\/(www\.)?(youtube(-nocookie)?\.com|player\.vimeo\.com|www\.dailymotion\.com)\//.test(src)) {
+    el.textContent = ''; el.classList.add('is-playing');
+    el.append(h('iframe', { src: src + (src.includes('?') ? '&' : '?') + 'autoplay=1', allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen',
+      allowfullscreen: '', referrerpolicy: 'strict-origin-when-cross-origin', title: x.title || 'Video', loading: 'lazy' }));
+  } else if (x.url) {
+    if (big) { el.append(h('a', { href: x.url, target: '_blank', rel: 'noopener noreferrer', class: 'gal__open' }, h('img', { src: x.thumbnail || '', alt: x.title || '', referrerpolicy: 'no-referrer' }))); }
+    else window.open(x.url, '_blank', 'noopener');
+  }
+}
+function lightbox(x) {
+  const close = () => box.remove();
+  const box = h('div', { class: 'lightbox', role: 'dialog', 'aria-label': x.title || 'Picture', onclick: close },
+    h('img', { src: x.image || x.thumbnail, alt: x.title || '', referrerpolicy: 'no-referrer', onerror: e => { if (x.thumbnail && e.target.src !== x.thumbnail) e.target.src = x.thumbnail; } }),
+    h('div', { class: 'lightbox__cap' }, [x.title, x.source].filter(Boolean).join(' \u00b7 ')));
+  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
+  document.body.append(box);
+}
+
 /* ---------------- the workbench (v0.5): a task's work, live, like EDITH at the bench ---------------- */
 const BENCH = { t: null, pinned: 0, closed: new Set(), tab: 'model', modelKey: '' };
 const benchEl = () => $('evaBench');
@@ -1093,7 +1187,7 @@ function caption(text, spoken) { if (text) E.setCaption(text, spoken); }
 function toCard(d) {
   if (!d || !d.kind) return null;
   if (d.kind === 'clock') return { type: 'note', data: { title: 'Time', text: `${d.time} · ${d.date}` } };
-  if (['weather', 'calendar', 'email', 'confirm', 'nowplaying', 'forge', 'vision', 'model'].includes(d.kind)) return { type: d.kind, data: d };
+  if (['weather', 'calendar', 'email', 'confirm', 'nowplaying', 'forge', 'vision', 'model', 'gallery', 'media', 'project'].includes(d.kind)) return { type: d.kind, data: d };
   return { type: 'note', data: { title: d.title || 'Note', text: d.text || '' } };
 }
 function proactiveCard(d, text) {

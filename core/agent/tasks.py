@@ -42,6 +42,7 @@ class Task:
     details: str = ""           # the full write-up for the screen; summary is what she says
     files: list = field(default_factory=list)         # files it delivered (outside the workspace)
     error: str = ""
+    project: str = ""           # v0.6: the project it belongs to (its brief goes in the instructions)
     system: str = ""            # Nov 25: the instructions, written once at the start and resent unchanged
     drop_thinking: bool = False  # earlier thinking no longer matches (trimmed or changed): the API drops it
 
@@ -63,6 +64,25 @@ def short_title(goal: str) -> str:
     return " ".join(words).strip(" ,.") or "task"
 
 
+def name_task(goal: str) -> str:
+    """Nov 25: 'prices online for a small' was the regex's name for a 3D printer price search. Haiku names it in
+    two to four words (a fraction of a cent); the regex stays as the fallback."""
+    try:
+        from core import mind
+        from core.claude import get_claude
+        if not mind.allowed():
+            return short_title(goal)
+        r = get_claude().message(
+            system="Name this task in two to four plain lowercase words, the thing itself, like 'guitar stand' or "
+                   "'3d printer prices' or 'week plan'. Reply with the name only.",
+            messages=[{"role": "user", "content": goal[:600]}], model=mind.cfg()["model"], max_tokens=20,
+            purpose="task name")
+        name = re.sub(r"[^\w\s'-]", "", (r.get("text") or "").strip().lower()).strip()
+        return name if 1 <= len(name.split()) <= 5 and len(name) <= 40 else short_title(goal)
+    except Exception:
+        return short_title(goal)
+
+
 class Store:
     def __init__(self, root: Path = ROOT):
         self.root = Path(root)
@@ -76,9 +96,9 @@ class Store:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def new(self, goal: str, budget: float = 1.0) -> Task:
-        t = Task(id=uuid.uuid4().hex[:8], goal=" ".join(goal.split())[:1000], title=short_title(goal),
-                 budget_eur=float(budget))
+    def new(self, goal: str, budget: float = 1.0, title: str = "", project: str = "") -> Task:
+        t = Task(id=uuid.uuid4().hex[:8], goal=" ".join(goal.split())[:1000], title=title or short_title(goal),
+                 budget_eur=float(budget), project=project)
         t.note("task created")
         self.save(t)
         self.workspace(t.id)

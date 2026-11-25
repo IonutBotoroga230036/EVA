@@ -29,6 +29,7 @@ DEFAULTS = {"enabled": True, "model": "claude-haiku-5-5", "hard_model": "claude-
 # effort: Haiku 5.5's default. The docs warn that at "low" it skips checks and searches more often, and checking
 # instead of guessing is the point of the mind.
 SKIP_TOOLS = {"work_it_out"}
+MIND_ONLY = {"look_at_shown"}          # needs eyes: a reflex can't look at a picture, so understanding hands it over
 
 THINK_HARDER = {"name": "think_harder",
                 "description": "Switch to a stronger model for the rest of this answer, for genuinely hard "
@@ -64,23 +65,46 @@ def cfg() -> dict:
         return dict(DEFAULTS)
 
 
-def allowed() -> bool:
-    """On, Claude reachable, and not 'local only' (said by voice, or the mind set to local)."""
+_why_off = {"said": None}
+
+
+def why_off() -> str:
+    """'' when the mind may think, otherwise the reason (logged once, so a quiet mind is never a mystery)."""
     if not cfg().get("enabled", True):
-        return False
+        return "mind.enabled is false in the settings"
     try:
         from core.brain import get_brain
-        b = get_brain()
-        st = b._state()
-        said = (st.get("features") or {}).get("mind")
-        if st.get("mode") == "local" and said in (None, "default"):
-            return False
-        if (b.feature_mode("mind") or b.mode()) not in ("auto", "cloud"):
-            return False
         from core.claude import get_claude
-        return get_claude().available()
-    except Exception:
-        return False
+        b = get_brain()
+        said = (b._state().get("features") or {}).get("mind")
+        if said in ("local",):
+            return "you set the mind to local"
+        if said in ("auto", "cloud"):
+            pass                                   # you switched it on by voice
+        elif (b._cfg()["features"].get("mind") or "") == "local":
+            return "inference.features.mind is local in the settings"
+        else:
+            # Nov 25: it follows understanding. His saved state was "local" with understanding on Claude, so the
+            # mind (a new feature he had never chosen for) stayed off all evening
+            from core.understand.brains import cloud_allowed
+            if not cloud_allowed():
+                return "understanding is local only, so the mind is too"
+        if not get_claude().available():
+            return "no Claude key (ANTHROPIC_API_KEY)"
+        return ""
+    except Exception as e:
+        return f"couldn't check ({e})"
+
+
+def allowed() -> bool:
+    """On, Claude reachable, and not local only: the mind may use the cloud whenever understanding may, unless you
+    set the mind itself to local ("Eva, use local for the mind")."""
+    reason = why_off()
+    if reason and _why_off["said"] != reason:
+        from loguru import logger
+        logger.info(f"MIND: off ({reason}); open questions go the old way")
+    _why_off["said"] = reason
+    return not reason
 
 
 def tools_for(schemas: list[dict]) -> list[dict]:
@@ -122,6 +146,12 @@ How you work:
   task) ask him first by themselves: just call them; the turn ends at his "shall I?".
 - Big jobs (designing something, research that takes minutes, writing files, anything with many steps) go to
   task_start: a background task with its own plan and a live view in the window.
+- Projects last weeks (project_start). With an active project, keep it current as you talk: decisions he makes
+  (project_note kind decision), open questions, parts with prices and links (project_add_part); tasks for it get
+  project=<its name>. Answer from what's decided before; say when something contradicts it.
+- Not sure what he means by a thing (a "transparent screen", a style, a part)? Show examples with show_images
+  and ask "something like one of these?"; look_at_shown lets you see one yourself. What's on his screen is in
+  the situation, so "the second one" means number 2 there. find_videos for how-tos; open_shown plays or opens one.
 - Showing things: task_show puts what a task made in the window (models you can turn in 3D, pictures,
   write-ups); open_file opens a task's file or folder on the PC, in its default app or a named program;
   check_installed tells you what's installed and what opens a file type; install_app installs a program
@@ -165,6 +195,20 @@ def situation(orch=None) -> str:
                          f"wait).")
     except Exception:
         pass
+    try:
+        from core.projects import get_store as projects
+        pr = projects().active()
+        if pr:
+            lines.append("Active project (build on it):\n" + pr.brief(900))
+    except Exception:
+        pass
+    try:
+        from core import show
+        on_screen = show.shown_text()
+        if on_screen:
+            lines.append(on_screen)
+    except Exception:
+        pass
     if orch is not None and getattr(orch, "locked", False):
         lines.append("His phone is locked: private things (messages, email, calendar details) wait for an unlock.")
     return "\n".join(lines)
@@ -199,6 +243,16 @@ def build_messages(history: list[dict], user_input: str, situation_text: str, fa
     if facts:
         now += f"<what he told you before>\n{facts}\n</what he told you before>\n"
     return prior + [{"role": "user", "content": now + user_input}]
+
+
+def tool_result_content(out: dict, widget_shown: bool):
+    """Text, or text and a picture when the tool let her look at one (look_at_shown)."""
+    text = tool_result_text(out, widget_shown)
+    img = out.get("_image")
+    if not img:
+        return text
+    return [{"type": "text", "text": text},
+            {"type": "image", "source": {"type": "base64", "media_type": img["media_type"], "data": img["b64"]}}]
 
 
 def tool_result_text(out: dict, widget_shown: bool) -> str:

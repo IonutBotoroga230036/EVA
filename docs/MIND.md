@@ -52,3 +52,14 @@ It opens by itself when a task starts (close it and a small pill at the top keep
 wrench button brings it back). `/stage` is the same thing full screen, for a second monitor and later the desk
 screen. A window that opens mid-task loads everything so far (`GET /api/tasks/live`, `GET /api/tasks/{id}/live`).
 Nothing on the workbench is spoken; she still speaks only at milestones, questions and the result.
+
+
+## v0.6: showing, projects, places
+
+| Part | Where | What |
+|---|---|---|
+| The mind's gate | `mind.why_off` | It follows understanding: on whenever understanding may use Claude, unless you set the mind itself to local ("Eva, use local for the mind"). When it's off, the log says why once: `MIND: off (...)`. On 25 Nov it stayed off all evening because the saved brain state was "local" with only understanding on Claude. |
+| Pictures and videos | `core/show.py` | show_images, find_videos (ddgs 9.16 images/videos, safesearch moderate), open_shown (big in the window or in the PC browser), look_at_shown (she downloads that one picture, public addresses only, 5 MB, and sees it). What's on screen is in the situation, so "the second one" works. look_at_shown always goes to the mind. |
+| Projects | `core/projects.py` | data/projects/<id>.json: goal, decisions, ideas, open questions and answers, research, parts (qty, price, link, why, status), links, tasks. The active project's brief is in every mind turn; task_start(project=...) puts it in the task's instructions and the result comes back as research. project_export writes parts.csv and project.md to Documents/E.V.A./projects/<name>. |
+| Places with hours | `core/nearby.py` | OpenStreetMap Overpass (overpass-api.de, fallback overpass.private.coffee): POST body, a User-Agent and Referer, ten minutes of cache, two seconds between calls. Opening hours read for the common forms (days, times, several spans, past midnight, off, 24/7); unusual ones are passed on as written. Where: the phone's fix, else saved home, else the city centre. |
+| Task names | `tasks.name_task` | Haiku names a task in two to four words; the regex is the fallback. |

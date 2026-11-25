@@ -79,9 +79,13 @@ def forge_status(**_):
         say = f"The last build finished: {pretty(last.result_name)} is waiting for your approval, sir."
     elif last.status == "interrupted":
         say = f"The last build, \"{last.request}\", was interrupted by a restart, sir. Ask me again to rebuild it."
+    elif last.status == "cancelled":
+        say = (f"I stopped the build of \"{last.request}\", sir, as you asked, and nothing was kept. Say 'build it "
+               f"again' if you want it after all.")
     else:
         say = last.say or f"The last build ended as {last.status}, sir."
-    return {"result": json.dumps({"last": last.status, "name": last.result_name}), "exact": True, "say": say}
+    return {"result": json.dumps({"last": last.status, "name": last.result_name, "request": last.request}),
+            "exact": True, "say": say}
 
 
 def forge_cancel(**_):

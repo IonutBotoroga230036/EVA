@@ -88,9 +88,26 @@ How you work:
 - Budget for this task: about {task.budget_eur:.2f} euros; be efficient (few, purposeful steps).
 
 The task started on {datetime.fromtimestamp(task.created):%A %d %B %Y, %H:%M}. The task: {task.goal}
-
+{_project_brief(task)}
 About him (his own notes):
 {_context()[:4000] or '(none)'}"""
+
+
+def _project_brief(task: Task) -> str:
+    """v0.6: a task inside a project knows what was decided; it can add to the project with use_eva_tool
+    (project_note, project_add_part)."""
+    if not task.project:
+        return ""
+    try:
+        from core.projects import get_store as projects
+        pr = projects().get(task.project)
+    except Exception:
+        pr = None
+    if not pr:
+        return ""
+    return ("\nThis task is part of a project. Build on what's decided; put new findings, parts (with prices and "
+            "links) and questions into the project with use_eva_tool (project_note, project_add_part).\n"
+            + pr.brief(1500) + "\n")
 
 
 def _size(msgs: list) -> int:
@@ -190,8 +207,14 @@ class Manager:
         self.current: Optional[str] = None
 
     # ---------------------------------------------------------------- the conversation side
-    def start(self, goal: str, budget: float = 0.0) -> Task:
-        t = self.store.new(goal, budget or float(cfg()["budget_eur"]))
+    def start(self, goal: str, budget: float = 0.0, title: str = "", project: str = "") -> Task:
+        t = self.store.new(goal, budget or float(cfg()["budget_eur"]), title, project)
+        if project:
+            from core.projects import get_store as projects
+            pr = projects().get(project)
+            if pr and t.id not in pr.tasks:
+                pr.tasks.append(t.id)
+                projects().save(pr)
         logger.info(f"AGENT: task {t.id} '{t.title}' started: {t.goal}")
         self._enqueue(t.id)
         return t
@@ -492,6 +515,17 @@ class Manager:
                     t.details = t.summary
                 for step in t.plan:
                     step["done"] = True
+                if t.project:                                   # v0.6: the result goes into the project too
+                    try:
+                        from core.projects import get_store as projects
+                        pr = projects().get(t.project)
+                        if pr:
+                            pr.notes.append({"ts": time.time(), "kind": "research",
+                                             "text": f"{t.title}: {spoken(t.summary, 3, 400)}"})
+                            pr.links += [{"title": Path(f).name, "url": f} for f in t.files[:10]]
+                            projects().save(pr)
+                    except Exception as e:
+                        logger.warning(f"AGENT: couldn't add the result to the project ({e})")
                 t.status = "done"
                 t.note("done")
                 self.store.save(t)

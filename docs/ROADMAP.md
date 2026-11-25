@@ -64,10 +64,13 @@ take on a real project with you (the desk screen) from "what do you mean?" to a 
 |---|---|---|
 | v0.5 | **One mind** | Clear commands stay reflexes (Jev or Haiku picks the tool, it runs, same speed and cost). Sentences that need thinking ("how can I see the files?", "what would you do?", vague or several steps) go to a reasoning loop with all her tools: she looks things up, checks your PC, offers options ("open it in this viewer, or I'll install one, or I show it here"), asks, and phrases the answer herself. Actions still ask first; big jobs still become tasks. She knows her own abilities and what's on the PC. Haiku for most turns, Sonnet when it's hard. |
 | v0.5 | **The workbench** | A live stage in the window while she works: her plan ticking off, what she's doing now, the code as she writes it, each version of the model turning in 3D. Full screen for a second monitor (later the desk screen). Spoken updates at milestones only. |
-| v0.6 | **Showing instead of guessing** | When she isn't sure what you mean, she finds pictures and videos and asks "something like this?"; you point, she goes on from your pick. |
-| v0.6 | **Projects** | Longer than tasks: research, decisions, a parts list with prices and links, wiring and steps, open questions, all kept per project ("how do I connect the display to the Pi?" answered with everything decided before). First project: the transparent desk screen. |
+| v0.6 (built 25 Nov) | **Showing instead of guessing** | When she isn't sure what you mean, she finds pictures and videos and asks "something like this?"; you point, she goes on from your pick. |
+| v0.6 (built 25 Nov) | **Projects** | Longer than tasks: research, decisions, a parts list with prices and links, wiring and steps, open questions, all kept per project ("how do I connect the display to the Pi?" answered with everything decided before). First project: the transparent desk screen. |
 | v0.7 | **Chats like Gemini** | Named conversations in a sidebar, searchable, one memory across all of them. Ready for local models to replace Claude where they're good enough. |
 | later | **Computer use, local models, body** | She sees the screen and moves the cursor (built in, with consent); local models take over turn by turn; the cube with camera, mic and speaker as another device. |
+
+The checklist with every item's status, the JARVIS test (scored per version) and new proposals are kept as an
+Excel file outside the repo (it's his to fill in); the test scenarios are also in docs/JARVIS_TEST.md.
 
 ## What the phone app needs first
 The voice pipeline (1) so the app just streams audio to E.V.A., network safety (2) and private remote access (8)

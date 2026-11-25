@@ -240,6 +240,8 @@ class JobManager:
         job.finished = time.time()
         if job.cancel_requested:
             job.status = "cancelled"
+            job.say = (f"I stopped the build of \"{job.request}\", sir, and threw the draft away. Say 'build it "
+                       f"again' if you want it after all.")             # Nov 25: it used to keep the "ready" line
             if job.result_status == "ready":
                 try:
                     self._forge().discard(job.result_name)        # you cancelled: never offer it

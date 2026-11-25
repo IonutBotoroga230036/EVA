@@ -894,7 +894,7 @@ def test_a_finished_task_shows_its_model_in_the_window():
 def test_the_window_can_turn_the_model():
     html = Path("interfaces/web/eva.html").read_text(encoding="utf-8")
     assert "function modelViewer(src)" in html and "function parseSTL(buf)" in html
-    assert "model(d) {" in html and "'vision', 'model'].includes(d.kind)" in html
+    assert "model(d) {" in html and "'vision', 'model', 'gallery', 'media', 'project'].includes(d.kind)" in html
     assert "d.kind==='model'" in Path("interfaces/web/eva_classic.html").read_text(encoding="utf-8")
 
 

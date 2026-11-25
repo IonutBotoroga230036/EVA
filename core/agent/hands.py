@@ -27,7 +27,8 @@ MAX_RESULT = 8000
 # E.V.A. tools a task may use without asking: nothing personal, nothing that acts. Everything else asks first,
 # because a task also reads web pages, and a page must never be able to make it read your mail and send it out.
 FREE_EVA_TOOLS = {"get_datetime", "calculate", "weather", "get_weather", "train_times", "convert_currency",
-                  "get_exchange_rate", "list_rates", "moon_phase", "get_moon_phase", "km_to_miles", "miles_to_km"}
+                  "get_exchange_rate", "list_rates", "moon_phase", "get_moon_phase", "km_to_miles", "miles_to_km",
+                  "project_note", "project_add_part", "project_show", "nearby"}     # v0.6: they only add to a project
 
 
 def _s(props: dict, required=()) -> dict:

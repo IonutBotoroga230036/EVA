@@ -249,3 +249,9 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - "What opens STL files on my PC?" / "install PrusaSlicer" (asks first) / "open the base in PrusaSlicer"
 - The workbench: while a task works, watch it live (plan, what she's doing, code, the model in 3D). The wrench
   button opens it; `/stage` is full screen for a second monitor.
+
+
+## Showing, projects, places (v0.6)
+- "Show me pictures of ..." / "find me a video on ..." / "the second one" / "play it on my PC" / "what is the third one?"
+- "Start a project for ...", "let's go with ...", "add ... to the parts", "what's still open?", "put the parts list in a file"
+- "Is the Jumbo still open?", "a pharmacy open now", "a café near me", "how long until ... closes"

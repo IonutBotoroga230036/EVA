@@ -179,6 +179,9 @@ _DAY_WORD = re.compile(r"\b(today|tonight|tomorrow|monday|tuesday|wednesday|thur
                        r"this week|next week)\b", re.I)
 
 
+from core.mind import MIND_ONLY as _MIND_ONLY  # noqa: E402  (tools that need the mind's eyes)
+
+
 def unchecked_fact(text: str, tools: list[str]) -> str | None:
     """The kind of personal fact this answer states without having looked it up this turn, or None."""
     for kind, (rx, prefixes) in _FACTS.items():
@@ -1300,7 +1303,7 @@ class HybridOrchestrator:
                     shown = shown or ev.get("type") == "widget"
                     yield ev
                 out = gathered[-1][1] if gathered else {}
-                res = {"type": "tool_result", "tool_use_id": u["id"], "content": mind.tool_result_text(out, shown)}
+                res = {"type": "tool_result", "tool_use_id": u["id"], "content": mind.tool_result_content(out, shown)}
                 if '"error"' in (out.get("result") or ""):
                     res["is_error"] = True
                 results.append(res)
@@ -1869,7 +1872,7 @@ class HybridOrchestrator:
                 for _ in range(MAX_TOOL_ITERS):
                     decision = await self._decide(client, ctx["skills"], gathered)
                     tool = decision.get("tool", "none")
-                    if tool == "work_it_out":
+                    if tool == "work_it_out" or tool in _MIND_ONLY:
                         handed = True
                         break                              # v0.5: it needs thinking: the mind answers below
                     if tool == "unavailable" and not gathered and self._mind_ready(user_input):
