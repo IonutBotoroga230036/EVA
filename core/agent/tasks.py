@@ -43,6 +43,7 @@ class Task:
     files: list = field(default_factory=list)         # files it delivered (outside the workspace)
     error: str = ""
     project: str = ""           # v0.6: the project it belongs to (its brief goes in the instructions)
+    toolsets: list = field(default_factory=list)   # v0.7: "browser", "computer:act", "computer:watch"
     system: str = ""            # Nov 25: the instructions, written once at the start and resent unchanged
     drop_thinking: bool = False  # earlier thinking no longer matches (trimmed or changed): the API drops it
 
@@ -96,9 +97,10 @@ class Store:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def new(self, goal: str, budget: float = 1.0, title: str = "", project: str = "") -> Task:
+    def new(self, goal: str, budget: float = 1.0, title: str = "", project: str = "",
+            toolsets: Optional[list] = None) -> Task:
         t = Task(id=uuid.uuid4().hex[:8], goal=" ".join(goal.split())[:1000], title=title or short_title(goal),
-                 budget_eur=float(budget), project=project)
+                 budget_eur=float(budget), project=project, toolsets=list(toolsets or []))
         t.note("task created")
         self.save(t)
         self.workspace(t.id)

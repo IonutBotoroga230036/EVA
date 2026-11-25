@@ -24,6 +24,7 @@ from loguru import logger
 
 SETTINGS_PATH = Path("config/settings.yaml")
 LOCAL_PATH = Path("config/settings.local.yaml")
+UI_PATH = Path("data/settings_ui.json")        # v0.7: what you change in the window's settings (on top of both)
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -51,7 +52,14 @@ def get_settings() -> dict:
     local = _read(LOCAL_PATH)
     if local:
         logger.info(f"settings: your overrides from {LOCAL_PATH} are applied")
-    return deep_merge(base, local)
+    merged = deep_merge(base, local)
+    try:
+        import json
+        ui = json.loads(UI_PATH.read_text(encoding="utf-8")) if UI_PATH.exists() else {}
+    except Exception as e:
+        logger.error(f"settings: {UI_PATH} is not valid JSON ({e}); ignoring it")
+        ui = {}
+    return deep_merge(merged, ui) if isinstance(ui, dict) else merged
 
 
 def local_cfg() -> dict:

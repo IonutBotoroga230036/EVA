@@ -293,3 +293,10 @@ agent:
   pc: "auto"                           # auto: the PC agent if it's connected, else this machine | local | remote
   programs: ["openscad", "prusa-slicer", "blender"]   # may run on a task's files without asking (+ ones it installed)
 
+browser:                               # v0.7 her own browser (core/browser.py): a separate Chromium, none of your sign-ins
+  enabled: true                        # needs: pip install playwright, then python -m playwright install chromium
+  visible: false                       # true = you see her window on the PC while she browses
+
+computer:                              # v0.7 using your computer (core/computer.py), always as a task you said yes to
+  mode: "ask"                          # off | watch (screenshots only) | ask (asks first, then mouse and keyboard)
+

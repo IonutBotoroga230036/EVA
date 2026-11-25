@@ -896,6 +896,112 @@ async def classic():
     return HTMLResponse(path.read_text(encoding="utf-8")) if path.exists() else Response(status_code=404)
 
 
+@app.get("/api/chats")
+async def chats_list(q: str = ""):
+    """v0.7: the chats, newest first, or the ones matching q."""
+    from core import chats
+    if q.strip():
+        items = await asyncio.to_thread(chats.search, q[:100])
+    else:
+        items = await asyncio.to_thread(chats.listing)
+    return JSONResponse({"chats": items})
+
+
+@app.get("/api/chats/{cid}")
+async def chats_get(cid: str):
+    from core import chats
+    try:
+        chat = await asyncio.to_thread(chats.get, cid)
+    except ValueError:
+        chat = None
+    if not chat:
+        return PlainTextResponse("no such chat", status_code=404)
+    return JSONResponse(chats.public(chat))
+
+
+@app.post("/api/chats/{cid}/rename")
+async def chats_rename(cid: str, request: Request):
+    from core import chats
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        body = await request.json()
+        return JSONResponse(await asyncio.to_thread(chats.rename, cid, str((body or {}).get("title") or "")))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/chats/{cid}/delete")
+async def chats_delete(cid: str, request: Request):
+    from core import chats
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        ok = await asyncio.to_thread(chats.delete, cid)
+    except ValueError:
+        ok = False
+    for conn in list(CONNECTIONS):               # a window on that chat starts fresh
+        if conn.chat_id == cid:
+            conn.chat_id = None
+    return JSONResponse({"deleted": ok}, status_code=200 if ok else 404)
+
+
+@app.get("/api/browser/shot.png")
+async def browser_shot():
+    """v0.7: the last thing her browser showed (a page she looked at for you)."""
+    from core import browser
+    if not browser.SHOT.exists():
+        return PlainTextResponse("nothing yet", status_code=404)
+    return Response(browser.SHOT.read_bytes(), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/settings")
+async def settings_get():
+    """v0.7: the switches for the window's settings panel."""
+    from core import ui_settings
+    return JSONResponse(ui_settings.snapshot())
+
+
+class _NotTheWindow(Exception):
+    pass
+
+
+async def _settings_body(request: Request) -> dict:
+    if request.headers.get("x-eva") != "1":          # a page on another site can't send this header (no CSRF)
+        raise _NotTheWindow("missing X-EVA header")
+    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get("key"), str):
+        raise ValueError("send {key, value}")
+    return body
+
+
+@app.post("/api/settings")
+async def settings_set(request: Request):
+    from core import ui_settings
+    try:
+        body = await _settings_body(request)
+        out = ui_settings.change(body["key"], body.get("value"))
+    except _NotTheWindow as e:
+        return JSONResponse({"error": str(e)}, status_code=403)
+    except (ValueError, TypeError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    logger.info(f"SETTINGS: {out['key']} = {out['value']!r} (from the window)")
+    return JSONResponse(out)
+
+
+@app.post("/api/settings/reset")
+async def settings_reset(request: Request):
+    from core import ui_settings
+    try:
+        body = await _settings_body(request)
+        out = ui_settings.reset(body["key"])
+    except _NotTheWindow as e:
+        return JSONResponse({"error": str(e)}, status_code=403)
+    except (ValueError, TypeError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse(out)
+
+
 @app.get("/api/tasks/live")
 async def tasks_live():
     """The workbench's task list: running and waiting first, then the last finished."""
@@ -977,6 +1083,7 @@ class Connection:
         self._listener_lock = asyncio.Lock()
         self._resample = Resampler(16000)
         self._audio_errors = 0
+        self.chat_id: str | None = None      # v0.7: the chat this window writes to (made on the first sentence)
 
     async def send(self, msg: dict) -> None:
         async with self._send_lock:
@@ -994,6 +1101,56 @@ class Connection:
         except Exception as e:                    # listening is optional; the browser can always listen
             self.stt = {"engine": "browser", "reason": str(e)}
         await self.send({"type": "stt", **self.stt})
+        await self.open_chat(None, continue_recent=True, quiet=True)   # the page asks with chat_current
+
+    # ------------------------------------------------------------ chats (v0.7)
+    async def open_chat(self, cid: str | None, continue_recent: bool = False, quiet: bool = False) -> None:
+        """Switch this window to a chat (None: a fresh one). Her recent turns become that chat's; memory stays."""
+        from core import chats
+        chat = None
+        if cid:
+            chat = await asyncio.to_thread(chats.get, cid)
+        elif continue_recent:
+            chat = await asyncio.to_thread(chats.latest_recent)
+        self.chat_id = chat["id"] if chat else None
+        self.orch.history = chats.history(chat) if chat else []
+        if not quiet:
+            await self.send_chat(chat)
+        if chat:
+            logger.info(f"CHATS: window on '{chat['title']}' ({self.chat_id})")
+
+    async def send_chat(self, chat: dict | None = None) -> None:
+        from core import chats
+        if chat is None and self.chat_id:
+            chat = await asyncio.to_thread(chats.get, self.chat_id)
+        await self.send({"type": "chat", "chat": chats.public(chat) if chat else
+                         {"id": None, "title": "New chat", "turns": []}})
+
+    async def _chat_add(self, role: str, text: str, proactive: bool = False) -> None:
+        from core import chats
+        try:
+            if not self.chat_id:
+                if proactive:
+                    return                       # a reminder alone doesn't start a chat
+                chat = await asyncio.to_thread(chats.new)
+                self.chat_id = chat["id"]
+            chat = await asyncio.to_thread(chats.add, self.chat_id, role, text, proactive)
+            if chat is None:                     # deleted meanwhile: start a new one
+                chat = await asyncio.to_thread(chats.new)
+                self.chat_id = chat["id"]
+                chat = await asyncio.to_thread(chats.add, self.chat_id, role, text, proactive)
+            if chat is None:
+                return
+            if role == "you" and len(chat["turns"]) == 1:
+                await self.send({"type": "chat_meta", "id": chat["id"], "title": chat["title"]})
+            if role == "eva" and not chat.get("titled") and len(chat["turns"]) >= 2:
+                loop = asyncio.get_running_loop()
+
+                def titled(cid, title):
+                    asyncio.run_coroutine_threadsafe(self.send({"type": "chat_meta", "id": cid, "title": title}), loop)
+                chats.make_title(chat["id"], titled)
+        except Exception as e:                   # the chat log must never break a turn
+            logger.warning(f"CHATS: couldn't save a line ({e})")
 
     async def reply(self, text: str, turn: int) -> None:
         from core import device as _device
@@ -1002,6 +1159,7 @@ class Connection:
         speaker = TurnSpeaker(self.tts, self.send, turn) if self.tts else None
         chunker, streamed = SentenceChunker(), False
         last_final = ""
+        await self._chat_add("you", text)
         try:
             async for event in self.orch.process_stream(text):
                 await self.send(event)
@@ -1043,6 +1201,7 @@ class Connection:
                 if ms:
                     meta["listen_ms"] = ms                 # she asked you something: more time to think
             await self.send(meta)
+            await self._chat_add("eva", last_final)
             if speaker:
                 await speaker.finish()
         except asyncio.CancelledError:
@@ -1073,6 +1232,7 @@ class Connection:
             await self.send({"type": "widget", "data": widget, "proactive": True})
         await self.send({"type": "final", "text": text, "proactive": True, **({} if speak else {"silent": True})})
         self.orch.history.append({"role": "assistant", "content": text})     # so "snooze it" has context
+        await self._chat_add("eva", text, proactive=True)
         if not speak:
             logger.info(f"EVA (shown): {text}")
             return
@@ -1266,6 +1426,15 @@ class Connection:
                     await self.interrupt()
                 elif kind == "message":
                     await self.submit(data.get("text") or "", voice=bool(data.get("voice")))
+                elif kind == "chat_open":                  # v0.7: carry on in an old chat
+                    await self.interrupt()
+                    cid = str(data.get("id") or "")
+                    await self.open_chat(cid if re.fullmatch(r"[a-f0-9]{10}", cid) else None)
+                elif kind == "chat_current":               # the page just connected: what's this window on?
+                    await self.send_chat()
+                elif kind == "chat_new":
+                    await self.interrupt()
+                    await self.open_chat(None)
                 elif kind == "device":
                     self.device_caps = tuple(str(c) for c in (data.get("caps") or [])[:20])
                     self.connected_at = time.time()

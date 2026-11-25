@@ -255,3 +255,13 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - "Show me pictures of ..." / "find me a video on ..." / "the second one" / "play it on my PC" / "what is the third one?"
 - "Start a project for ...", "let's go with ...", "add ... to the parts", "what's still open?", "put the parts list in a file"
 - "Is the Jumbo still open?", "a pharmacy open now", "a café near me", "how long until ... closes"
+
+
+## Her browser, your computer, settings, chats (v0.7)
+- "Check what ... costs on the ... website": she opens it in her own browser and shows you the page. She never pays,
+  orders or types passwords; she hands those steps to you.
+- "Open the Bluetooth settings" (any Windows settings page) / "turn on Bluetooth on my PC" (asks first, then uses the
+  mouse and keyboard; push the mouse into a corner to stop her). Off / watch only / ask in the settings.
+- The gear button: budget limits, test mode, brain switches, the mind, tasks, her browser, computer use, focus.
+- Chats (bottom of the window): named conversations, search, rename, delete, "New chat". "What did we decide in the
+  other chat?" works: she looks through them.

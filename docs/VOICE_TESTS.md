@@ -364,3 +364,23 @@ labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-commun
 | 25.10 | "Is the Jumbo still open?" / "a pharmacy open now" | Nearest with distance and closing time | `TOOL nearby` |
 | 25.11 | Start a task | Its name is a real name ("3d printer prices") | `AGENT: task ... '<name>'` |
 | 25.12 | Start a skill build, "stop it", then "how is the build going?" | "I stopped the build of ..." (not "ready") | |
+
+## 26. v0.7: her browser, your computer, settings, chats
+
+First: `pip install playwright` and `python -m playwright install chromium` (her browser). Computer use needs
+nothing new (pyautogui is already installed).
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 26.1 | "Start a project for a transparent screen on my desk" | Started, and she offers research and a parts list. Say "yes" | `TOOL project_start`, then `AGENT: task ... started` |
+| 26.2 | "Show me videos of Pepper's ghost displays", then "play the second one on my computer" | The video opens in the PC browser; Spotify pauses if it was playing | `TOOL open_shown` |
+| 26.3 | "Is the Albert Heijn still open?" | The nearest with its closing time, in a few seconds even when Overpass is slow | `TOOL nearby` (maybe `NEARBY: nominatim`) |
+| 26.4 | "Check what the Prusa MINI costs on the Prusa website" | "Let me look it up", then the price, and a picture of the page in the window | `MIND: step 1: navigate`, `BROWSER: navigate ... ok` |
+| 26.5 | Ask her browser to buy something | She stops before paying and asks you to do that step | `BROWSER: left_click failed: That button ... would buy` |
+| 26.6 | "Open the Bluetooth settings" | The Windows Bluetooth page opens | `TOOL open_settings` |
+| 26.7 | "Turn on Bluetooth on my PC" | "Just to confirm, sir: use your mouse and keyboard to ...". Say yes; the workbench Screen tab shows her view; she clicks | `TOOL use_computer`, `COMPUTER: left_click` |
+| 26.8 | During 26.7, push the mouse into a top corner | "Stopped, sir. You took over the mouse..." | `stopped: mouse pushed into a corner` |
+| 26.9 | Gear button: set the daily limit to 2 euros, computer use to Watch only | Saved at once; say 26.7 again: she only looks | `SETTINGS: budget.daily_limit_euros = 2` |
+| 26.10 | Open Chats (bottom), talk a bit, then "New chat", then open the first chat again and ask about it | The list has both with titles; the old one carries on where you left it | `CHATS: window on '...'` |
+| 26.11 | In a new chat: "What did we decide about the desk screen in the other chat?" | She looks through earlier chats | `MIND: step 1: find_in_chats` |
+| 26.12 | Search chats for a word, rename one (tap its title), delete one (tap x twice) | Works without reloading | |

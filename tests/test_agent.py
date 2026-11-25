@@ -41,8 +41,10 @@ class Script:
             else:
                 self.n += 1
                 u = {"type": "tool_use", "id": f"toolu_{self.n:03d}", "name": b[0], "input": b[1]}
+                if ":" in b[0]:                            # "browser:navigate": a toolset member (v0.7)
+                    u["toolset_name"], u["name"] = b[0].split(":", 1)
                 content.append(u)
-                uses.append({"id": u["id"], "name": u["name"], "input": u["input"]})
+                uses.append({k: u[k] for k in ("id", "name", "input", "toolset_name") if k in u})
         text = "".join(b for b in blocks if isinstance(b, str))
         return {"content": content, "tool_uses": uses, "text": text, "cost_eur": self.cost,
                 "stop_reason": stop or ("tool_use" if uses else "end_turn")}

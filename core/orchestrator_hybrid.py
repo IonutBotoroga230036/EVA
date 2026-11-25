@@ -1247,8 +1247,12 @@ class HybridOrchestrator:
         c = mind.cfg()
         if getattr(self, "_mind_system", None) is None:
             self._mind_system = mind.system_prompt()
-        if getattr(self, "_mind_tools_for", None) is not self.belt:
-            self._mind_tools, self._mind_tools_for = mind.tools_for(self.belt.schemas), self.belt
+        from core import browser as brw
+        with_browser = brw.allowed()
+        if getattr(self, "_mind_tools_for", None) is not self.belt or getattr(self, "_mind_browser", None) != with_browser:
+            self._mind_tools = mind.tools_for(self.belt.schemas) + ([brw.ENTRY] if with_browser else [])
+            self._mind_tools_for, self._mind_browser = self.belt, with_browser
+        browsed = False
         self._context(user_input, ctx)
         hint, self._mind_hint = getattr(self, "_mind_hint", None), None
         situation = mind.situation(self)
@@ -1306,12 +1310,35 @@ class HybridOrchestrator:
                 logger.info(f"MIND: answered after {step + 1} step{'s' if step else ''} ({model})")
                 self._mind_done = True
                 self._finish(user_input, answer, used)
+                if browsed and brw.SHOT.exists():            # what she saw, in the window
+                    b = brw.get_browser()
+                    yield {"type": "widget", "data": {"kind": "media", "media": "image", "title": b.last_title[:80]
+                                                      or "Her browser", "source": b.last_url[:120],
+                                                      "image": f"/api/browser/shot.png?v={int(time.time())}",
+                                                      "url": b.last_url}}
                 yield {"type": "final", "text": answer}
                 return
             logger.info(f"MIND: step {step + 1}: {', '.join(u['name'] for u in uses)}")
-            results = []
+            results, failed_set = [], set()
             for u in uses:
                 name, args = u["name"], mind.json_args(u)
+                if u.get("toolset_name") == "browser":     # v0.7: her own browser, inside the answer
+                    if "browser" in failed_set:
+                        results.append(brw.skipped(u, "browser"))
+                        continue
+                    if not browsed:
+                        yield {"type": "ack", "text": "Let me look it up, sir."}
+                    res = await asyncio.to_thread(brw.result, u)
+                    browsed = True
+                    if res.get("is_error"):
+                        failed_set.add("browser")
+                    results.append(res)
+                    continue
+                if u.get("toolset_name"):
+                    results.append({"type": "tool_result", "tool_use_id": u["id"], "toolset_name": u["toolset_name"],
+                                    "is_error": True, "content": f"{u['toolset_name']} isn't available here; use "
+                                                                 f"use_computer for the screen"})
+                    continue
                 if name == "think_harder":
                     model, effort = c["hard_model"], c.get("hard_effort") or None
                     results.append({"type": "tool_result", "tool_use_id": u["id"],

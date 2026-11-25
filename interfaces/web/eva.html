@@ -143,6 +143,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .bench__view .model__view{height:100%;min-height:240px}
 .bench__code{margin:0;padding:14px 16px;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:#d9ccff;white-space:pre;tab-size:4}
 .bench__code.is-bad{color:#ffb3c1}
+.bench__screen{display:block;max-width:100%;max-height:100%;margin:auto;object-fit:contain;border-radius:8px;cursor:zoom-in}
 .bench__empty{display:grid;place-items:center;height:100%;color:var(--dim-text);font-size:14px;text-align:center;padding:24px}
 .bench__scan{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,transparent 0,rgba(168,85,247,.12) 50%,transparent 100%);
   background-size:100% 220px;background-repeat:no-repeat;animation:benchScan 2.6s linear infinite;opacity:0;transition:opacity .4s}
@@ -317,6 +318,19 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .seg.seg--sm button{font-size:12px;padding:0 2px}
 .brain-feat{display:flex;flex-direction:column;gap:6px;padding-top:8px}
 
+/* ===== Settings panel (v0.7) ===== */
+.eva.settings-open .eva-scrim{opacity:1;pointer-events:auto}
+.eva.settings-open #evaSettings{transform:none;visibility:visible}
+.set-group{display:flex;flex-direction:column;gap:10px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
+.set-field{display:flex;flex-direction:column;gap:6px}
+.set-field .rt-in{flex:none;height:40px;width:100%}
+.set-field label{font-size:14px;color:var(--ice);display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.set-field small{font-size:11px;color:var(--dim-text)} .set-field small button{color:var(--lilac);background:none;border:0;font-size:11px;padding:0;text-decoration:underline;cursor:pointer}
+.set-toggle{align-self:flex-start;min-width:64px;height:32px;border-radius:16px;border:1px solid var(--line);background:rgba(8,6,15,.6);color:var(--dim-text);font:600 12px var(--font-display);letter-spacing:.08em}
+.set-toggle[aria-pressed="true"]{background:var(--violet-deep);border-color:var(--violet-bright);color:var(--ice)}
+.set-spend{font-size:13px;color:var(--dim-text);line-height:1.6}
+.set-ok{font-size:12px;color:#9fe3b8;min-height:16px}
+
 /* ===== Routines panel (v0.2.5) ===== */
 .eva.routines-open .eva-scrim{opacity:1;pointer-events:auto}
 .eva.routines-open #evaRoutines{transform:none;visibility:visible}
@@ -358,6 +372,27 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .turn--you .turn__text{color:var(--dim-text)}
 .turn__tag{display:inline-block;font-size:11px;padding:1px 8px;margin-right:8px;border-radius:var(--r-pill);background:rgba(192,38,211,.18);border:1px solid rgba(192,38,211,.45);vertical-align:1px}
 .drawer__type{padding:0 32px;flex:none}
+/* ===== Chats (v0.7): named conversations beside the transcript, one memory across them ===== */
+.eva-drawer{width:min(1040px,100vw)}
+.drawer__head{gap:10px}
+.drawer__title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:18px;background:none;border:0;color:var(--ice);text-align:left;padding:0;cursor:text}
+.drawer__title input{width:100%;font:inherit;color:var(--ice);background:rgba(8,6,15,.6);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+.drawer__body{flex:1;min-height:0;display:grid;grid-template-columns:260px minmax(0,1fr)}
+.chats{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line-soft);padding:14px 10px 0 18px}
+.chats__search input{width:100%;height:36px;border-radius:18px;border:1px solid var(--line);background:rgba(8,6,15,.6);color:var(--ice);padding:0 14px;font-size:14px}
+.chats__list{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:10px 0}
+.chats__day{font:600 11px var(--font-display);letter-spacing:.14em;color:var(--dim-text);padding:10px 8px 4px;text-transform:uppercase}
+.chat-item{position:relative;display:flex;flex-direction:column;gap:2px;text-align:left;width:100%;border:0;border-radius:10px;background:none;color:var(--ice);padding:8px 34px 8px 10px;cursor:pointer}
+.chat-item:hover,.chat-item:focus-visible{background:rgba(196,164,255,.08)}
+.chat-item.is-on{background:rgba(139,92,246,.22)}
+.chat-item b{font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item small{font-size:12px;color:var(--dim-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item__del{position:absolute;right:4px;top:6px;width:28px;height:28px;border-radius:14px;border:0;background:none;color:var(--dim-text);opacity:0;cursor:pointer;font-size:11px}
+.chat-item:hover .chat-item__del,.chat-item:focus-within .chat-item__del,.chat-item__del.is-armed{opacity:1}
+.chat-item__del.is-armed{width:auto;padding:0 8px;background:rgba(192,38,211,.25);color:var(--ice)}
+.chats__empty{color:var(--dim-text);font-size:13px;padding:12px 8px}
+.chat-new{height:32px;border-radius:16px;border:1px solid var(--line-strong);background:rgba(139,92,246,.18);color:var(--ice);padding:0 14px;font-size:13px;cursor:pointer;white-space:nowrap}
+#evaChatsBtn{display:none}
 
 /* ===== Phone ===== */
 @media (max-width:899px){
@@ -384,6 +419,10 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   .eva-typebar{width:100%}
   .eva-drawer{height:min(640px,86vh)}
   .transcript,.drawer__head,.drawer__type{padding-left:20px;padding-right:20px}
+  .drawer__body{grid-template-columns:minmax(0,1fr);position:relative}
+  .chats{position:absolute;inset:0;z-index:2;background:var(--glass-solid);border-right:0;padding:12px 20px 0;display:none}
+  .eva-drawer.chats-open .chats{display:flex}
+  #evaChatsBtn{display:inline-flex}
   .turn{grid-template-columns:1fr;gap:2px}
 }
 @media (max-width:899px) and (max-height:700px){ .eva.has-card .eva-caption{-webkit-line-clamp:2} }
@@ -420,6 +459,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
   <symbol id="i-note" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
 </svg>
@@ -431,6 +471,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
     </div>
     <div class="eva-top__right">
       <div class="eva-clock" aria-hidden="true"><div class="eva-clock__time" id="evaTime">--:--</div><div class="eva-clock__date" id="evaDate"></div></div>
+      <button class="icon-btn" id="evaSettingsBtn" aria-label="Settings" aria-controls="evaSettings" aria-expanded="false"><svg class="i"><use href="#i-gear"/></svg></button>
       <button class="icon-btn" id="evaBenchBtn" aria-label="Workbench" aria-controls="evaBench" aria-expanded="false"><svg class="i"><use href="#i-wrench"/></svg></button>
       <button class="icon-btn" id="evaRoutinesBtn" aria-label="Routines and lists" aria-controls="evaRoutines" aria-expanded="false"><svg class="i"><use href="#i-clock"/></svg></button>
       <button class="icon-btn" id="evaStatusBtn" aria-label="Status" aria-controls="evaPanel" aria-expanded="false"><svg class="i"><use href="#i-panel"/></svg></button>
@@ -446,7 +487,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   </main>
 
   <footer class="eva-bottom">
-    <button class="eva-history-btn" id="evaHistoryBtn" aria-controls="evaDrawer" aria-expanded="false"><svg class="i"><use href="#i-up"/></svg>History</button>
+    <button class="eva-history-btn" id="evaHistoryBtn" aria-controls="evaDrawer" aria-expanded="false"><svg class="i"><use href="#i-up"/></svg>Chats</button>
     <form class="eva-typebar" id="evaTypebar"><label class="typefield"><span class="sr">Message</span><input id="evaInput" autocomplete="off" placeholder="Type to E.V.A."><button class="send-btn" aria-label="Send"><svg class="i"><use href="#i-send"/></svg></button></label></form>
     <nav class="eva-dock" aria-label="Controls">
       <button class="dock-btn" id="evaWake" aria-pressed="true" aria-label="Wake word"><svg class="i"><use href="#i-ear"/></svg></button>
@@ -458,12 +499,24 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   <div class="eva-scrim" id="evaScrim"></div>
   <aside class="eva-panel" id="evaPanel" aria-label="Status" aria-hidden="true"></aside>
   <aside class="eva-panel" id="evaRoutines" aria-label="Routines and lists" aria-hidden="true"></aside>
+  <aside class="eva-panel" id="evaSettings" aria-label="Settings" aria-hidden="true"></aside>
   <section class="eva-bench" id="evaBench" aria-label="Workbench" aria-hidden="true"></section>
   <button class="bench-pill" id="evaBenchPill" hidden></button>
-  <section class="eva-drawer" id="evaDrawer" aria-label="Conversation" aria-hidden="true">
+  <section class="eva-drawer" id="evaDrawer" aria-label="Chats" aria-hidden="true">
     <div class="drawer__handle"></div>
-    <div class="drawer__head"><span class="panel__title" style="font-size:18px">Today</span><button class="icon-btn" id="evaHistoryClose" aria-label="Close history"><svg class="i"><use href="#i-down"/></svg></button></div>
-    <div class="transcript" id="evaTranscript"><div class="transcript__empty">Nothing said yet today.</div></div>
+    <div class="drawer__head">
+      <button class="icon-btn" id="evaChatsBtn" aria-label="All chats" aria-controls="evaChats" aria-expanded="false"><svg class="i"><use href="#i-panel"/></svg></button>
+      <button class="panel__title drawer__title" id="evaChatTitle" title="Rename this chat">New chat</button>
+      <button class="chat-new" id="evaChatNew">New chat</button>
+      <button class="icon-btn" id="evaHistoryClose" aria-label="Close chats"><svg class="i"><use href="#i-down"/></svg></button>
+    </div>
+    <div class="drawer__body">
+      <nav class="chats" id="evaChats" aria-label="Your chats">
+        <label class="chats__search"><span class="sr">Search chats</span><input id="evaChatSearch" type="search" placeholder="Search chats" autocomplete="off"></label>
+        <div class="chats__list" id="evaChatList"></div>
+      </nav>
+      <div class="transcript" id="evaTranscript"><div class="transcript__empty">Nothing said yet in this chat.</div></div>
+    </div>
   </section>
 </div>
 
@@ -887,9 +940,95 @@ function addTranscript({ role, text, time, proactive }) {
 
 /* ---------- overlays ---------- */
 function openPanel() { closeAll(); renderPanel(); root.classList.add('panel-open'); $('evaPanel').setAttribute('aria-hidden', 'false'); $('evaStatusBtn').setAttribute('aria-expanded', 'true'); }
-function openHistory() { closeAll(); root.classList.add('history-open'); $('evaDrawer').setAttribute('aria-hidden', 'false'); $('evaHistoryBtn').setAttribute('aria-expanded', 'true'); transcript.scrollTop = transcript.scrollHeight; }
+function openHistory() { closeAll(); root.classList.add('history-open'); $('evaDrawer').setAttribute('aria-hidden', 'false'); $('evaHistoryBtn').setAttribute('aria-expanded', 'true'); transcript.scrollTop = transcript.scrollHeight; chatsLoad(); }
+
+/* ---------- chats (v0.7): named conversations, like Gemini; what she knows about you is shared by all ---------- */
+const CHATS = { id: null, title: 'New chat', q: '', list: [], armed: '' };
+const two = n => String(n).padStart(2, '0');
+function chatWhen(ts) {
+  const d = new Date(ts * 1000), now = new Date(), day = 864e5;
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (d.getTime() >= start) return `${two(d.getHours())}:${two(d.getMinutes())}`;
+  if (d.getTime() >= start - day) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+function chatDay(ts) {
+  const d = new Date(ts * 1000), now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return d.getTime() >= start ? 'Today' : d.getTime() >= start - 864e5 ? 'Yesterday' : d.getTime() >= start - 6 * 864e5 ? 'This week' : 'Earlier';
+}
+function chatTitle(t) { CHATS.title = t || 'New chat'; const b = $('evaChatTitle'); if (!b.querySelector('input')) b.textContent = CHATS.title; }
+function chatLoaded(chat) {
+  CHATS.id = chat.id || null; chatTitle(chat.title);
+  transcript.textContent = '';
+  const turns = chat.turns || [];
+  if (!turns.length) transcript.append(h('div', { class: 'transcript__empty' }, 'Nothing said yet in this chat. What she knows about you carries over from every chat.'));
+  let lastDay = '';
+  turns.forEach(t => {
+    const d = new Date(t.ts * 1000), day = d.toDateString();
+    const time = (day !== lastDay && day !== new Date().toDateString() ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' ' : '') + `${two(d.getHours())}:${two(d.getMinutes())}`;
+    lastDay = day;
+    addTranscript({ role: t.role === 'you' ? 'you' : 'eva', text: t.text, time, proactive: !!t.proactive });
+  });
+  transcript.scrollTop = transcript.scrollHeight;
+  chatsRender();
+}
+function chatMeta(m) {
+  if (m.id && (!CHATS.id || CHATS.id === m.id)) { CHATS.id = m.id; chatTitle(m.title); }
+  if (root.classList.contains('history-open')) chatsLoad();
+}
+let chatsTimer = 0;
+async function chatsLoad() {
+  try {
+    const r = await fetch('/api/chats' + (CHATS.q ? '?q=' + encodeURIComponent(CHATS.q) : ''), { credentials: 'same-origin' });
+    if (r.ok) { CHATS.list = (await r.json()).chats || []; chatsRender(); }
+  } catch (_) {}
+}
+function chatsRender() {
+  const box = $('evaChatList'); box.textContent = '';
+  if (!CHATS.list.length) { box.append(h('div', { class: 'chats__empty' }, CHATS.q ? 'No chat mentions that.' : 'Your chats show up here.')); return; }
+  let day = '';
+  CHATS.list.forEach(c => {
+    const d = CHATS.q ? '' : chatDay(c.updated);
+    if (d && d !== day) { box.append(h('div', { class: 'chats__day' }, d)); day = d; }
+    const del = h('button', { class: 'chat-item__del' + (CHATS.armed === c.id ? ' is-armed' : ''), 'aria-label': `Delete the chat ${c.title}`,
+      onclick: e => { e.stopPropagation(); chatDelete(c.id); } }, CHATS.armed === c.id ? 'Delete?' : '\u2715');
+    box.append(h('div', { class: 'chat-item' + (c.id === CHATS.id ? ' is-on' : ''), role: 'button', tabindex: '0', 'aria-current': c.id === CHATS.id ? 'true' : 'false',
+      onclick: () => chatOpen(c.id), onkeydown: e => { if (e.key === 'Enter') chatOpen(c.id); } },
+      h('b', null, c.title), h('small', null, `${chatWhen(c.updated)} \u00b7 ${c.match || c.preview || ''}`), del));
+  });
+}
+function chatsPanel(open) { $('evaDrawer').classList.toggle('chats-open', open); $('evaChatsBtn').setAttribute('aria-expanded', open ? 'true' : 'false'); }
+function chatOpen(id) { CHATS.armed = ''; chatsPanel(false); if (id !== CHATS.id) emit('chat-open', { id }); }
+async function chatDelete(id) {
+  if (CHATS.armed !== id) { CHATS.armed = id; chatsRender(); setTimeout(() => { if (CHATS.armed === id) { CHATS.armed = ''; chatsRender(); } }, 4000); return; }
+  CHATS.armed = '';
+  try { await fetch(`/api/chats/${id}/delete`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } }); } catch (_) {}
+  if (id === CHATS.id) emit('chat-new');
+  chatsLoad();
+}
+function chatRename() {
+  const b = $('evaChatTitle'); if (!CHATS.id || b.querySelector('input')) return;
+  const inp = h('input', { value: CHATS.title, 'aria-label': 'Chat name', maxlength: '60' });
+  let over = false;
+  const done = async save => {
+    if (over) return; over = true;                     // Enter, then the blur as the input goes: save once
+    const t = inp.value.trim(); b.textContent = CHATS.title;
+    if (save && t && t !== CHATS.title) {
+      try { const r = await fetch(`/api/chats/${CHATS.id}/rename`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ title: t }) });
+        if (r.ok) { chatTitle((await r.json()).title); chatsLoad(); } } catch (_) {}
+    }
+  };
+  inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } else if (e.key === 'Escape') done(false); };
+  inp.onblur = () => done(true);
+  b.textContent = ''; b.append(inp); inp.focus(); inp.select();
+}
+$('evaChatTitle').onclick = chatRename;
+$('evaChatNew').onclick = () => { chatsPanel(false); emit('chat-new'); };
+$('evaChatsBtn').onclick = () => chatsPanel(!$('evaDrawer').classList.contains('chats-open'));
+$('evaChatSearch').oninput = e => { CHATS.q = e.target.value.trim(); clearTimeout(chatsTimer); chatsTimer = setTimeout(chatsLoad, 200); };
 function closeAll() {
-  root.classList.remove('panel-open', 'history-open', 'routines-open');
+  root.classList.remove('panel-open', 'history-open', 'routines-open', 'settings-open');
+  $('evaSettings').setAttribute('aria-hidden', 'true'); $('evaSettingsBtn').setAttribute('aria-expanded', 'false');
   $('evaPanel').setAttribute('aria-hidden', 'true'); $('evaDrawer').setAttribute('aria-hidden', 'true');
   $('evaRoutines').setAttribute('aria-hidden', 'true'); $('evaRoutinesBtn').setAttribute('aria-expanded', 'false');
   $('evaStatusBtn').setAttribute('aria-expanded', 'false'); $('evaHistoryBtn').setAttribute('aria-expanded', 'false');
@@ -897,6 +1036,43 @@ function closeAll() {
 function openRoutines() { closeAll(); root.classList.add('routines-open'); $('evaRoutines').setAttribute('aria-hidden', 'false');
   $('evaRoutinesBtn').setAttribute('aria-expanded', 'true'); emit('routines', { open: true }); }
 $('evaRoutinesBtn').onclick = () => root.classList.contains('routines-open') ? closeAll() : openRoutines();
+function openSettings() { closeAll(); root.classList.add('settings-open'); $('evaSettings').setAttribute('aria-hidden', 'false');
+  $('evaSettingsBtn').setAttribute('aria-expanded', 'true'); settingsLoad(); }
+$('evaSettingsBtn').onclick = () => root.classList.contains('settings-open') ? closeAll() : openSettings();
+/* v0.7 settings: what you'd otherwise say or edit in YAML; saved on top of your settings files */
+async function settingsLoad() {
+  const box = $('evaSettings');
+  try {
+    const r = await fetch('/api/settings', { credentials: 'same-origin' }); if (!r.ok) throw new Error(r.status);
+    settingsRender(await r.json());
+  } catch (e) { box.textContent = ''; box.append(h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load the settings.")); }
+}
+async function settingsSend(key, value, reset) {
+  const r = await fetch(reset ? '/api/settings/reset' : '/api/settings', { method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-EVA': '1' }, body: JSON.stringify({ key, value }) });
+  const out = await r.json().catch(() => ({}));
+  const ok = $('setOk'); if (ok) { ok.textContent = r.ok ? 'Saved.' : (out.error || "That didn't save."); ok.style.color = r.ok ? '' : 'var(--magenta)'; }
+  if (r.ok) settingsLoad();
+}
+function settingsRender(d) {
+  const box = $('evaSettings'), sp = d.spend || {};
+  const eur = v => `\u20ac${Number(v || 0).toFixed(2)}`;
+  const field = f => {
+    let ctl;
+    if (f.kind === 'bool') ctl = h('button', { class: 'set-toggle', 'aria-pressed': f.value ? 'true' : 'false', onclick: () => settingsSend(f.key, !f.value) }, f.value ? 'ON' : 'OFF');
+    else if (f.kind === 'select') { ctl = h('select', { class: 'rt-in', onchange: e => settingsSend(f.key, e.target.value) }, f.choices.map(c => { const o = h('option', { value: c.value }, c.label); if (c.value === f.value) o.selected = true; return o; })); }
+    else if (f.kind === 'number') ctl = h('input', { class: 'rt-in', type: 'number', min: f.min, max: f.max, step: f.step, value: f.value ?? '', onchange: e => settingsSend(f.key, Number(e.target.value)) });
+    else ctl = h('input', { class: 'rt-in', type: 'text', value: f.value ?? '', placeholder: 'e.g. Eat, Gym', onchange: e => settingsSend(f.key, e.target.value) });
+    const note = f.from_window && !f.key.startsWith('@') ? h('small', null, 'Set here. ', h('button', { onclick: () => settingsSend(f.key, null, true) }, 'Use the file value')) : null;
+    return h('div', { class: 'set-field' }, h('label', null, f.label), ctl, note);
+  };
+  box.textContent = '';
+  box.append(h('div', { class: 'panel__head' }, h('div', { class: 'panel__title' }, 'Settings'),
+      h('button', { class: 'icon-btn', 'aria-label': 'Close settings', onclick: closeAll }, icon('x'))),
+    h('div', { class: 'set-spend' }, `Today ${eur(sp.spent)} of ${eur(sp.limit)} \u00b7 this month ${eur(sp.month_spent)} of ${eur(sp.month_limit)}`),
+    h('div', { class: 'set-ok', id: 'setOk' }),
+    ...(d.groups || []).map(g => h('div', { class: 'set-group' }, h('div', { class: 'bench__label' }, g.title), g.fields.map(field))));
+}
 $('evaBenchBtn').onclick = () => root.classList.contains('bench-open') ? benchOpen(false) : (BENCH.t ? (benchRender(), benchOpen(true)) : benchLoad(true).then(() => benchOpen(true)));
 $('evaBenchPill').onclick = () => benchOpen(true);
 $('evaStatusBtn').onclick = () => root.classList.contains('panel-open') ? closeAll() : openPanel();
@@ -960,13 +1136,13 @@ function benchPill() {
 }
 function benchState(st) {
   BENCH.t = { task: st.task, title: st.title, status: st.status, plan: st.plan || [], now: st.now || '', cost: st.cost_eur || 0,
-    steps: st.steps || 0, events: (st.events || []).slice(-60), code: st.code, output: st.output, model: st.model, v: Date.now() };
-  BENCH.tab = st.model ? 'model' : st.code ? 'code' : 'model'; BENCH.modelKey = '';
+    steps: st.steps || 0, events: (st.events || []).slice(-60), code: st.code, output: st.output, model: st.model, screen: st.screen, v: Date.now() };
+  BENCH.tab = st.model ? 'model' : st.screen ? 'screen' : st.code ? 'code' : 'model'; BENCH.modelKey = '';
   benchRender();
 }
 function benchEvent(task, ev) {
   if (!BENCH.t || BENCH.t.task !== task) {
-    BENCH.t = { task, title: ev.state?.title || 'Task', status: 'running', plan: [], now: '', cost: 0, steps: 0, events: [], code: null, output: null, model: null, v: 0 };
+    BENCH.t = { task, title: ev.state?.title || 'Task', status: 'running', plan: [], now: '', cost: 0, steps: 0, events: [], code: null, output: null, model: null, screen: null, v: 0 };
     BENCH.modelKey = '';
   }
   const t = BENCH.t, s = ev.state || {};
@@ -975,6 +1151,7 @@ function benchEvent(task, ev) {
   if (ev.kind === 'code') { t.code = { path: ev.path, text: ev.text || '' }; if (!recent) BENCH.tab = 'code'; }
   if (ev.kind === 'output') { t.output = { text: ev.text || '', ok: ev.ok !== false }; if (!recent && ev.ok === false) BENCH.tab = 'output'; }
   if (ev.kind === 'model') { t.model = { path: ev.path, png: ev.png, size_mm: ev.size_mm }; t.v = Date.now(); if (!recent) BENCH.tab = 'model'; }
+  if (ev.kind === 'screen') { t.screen = { png: ev.png, where: ev.where || '', ts: Date.now() }; if (!recent && !t.model) BENCH.tab = 'screen'; }
   if (['doing', 'did', 'say', 'status', 'model', 'plan', 'output'].includes(ev.kind)) { t.events.push(ev); t.events = t.events.slice(-60); }
   if (ev.kind === 'doing' && ev.label) t.now = ev.label;
   if (!BENCH.closed.has(task) && ['running', 'queued'].includes(t.status) && !$('eva').classList.contains('bench-open')) benchOpen(true);
@@ -1001,7 +1178,7 @@ function benchRender() {
     t.events.slice().reverse().filter(e => e.kind !== 'plan').slice(0, 40).map(e => h('div', { class: 'bench__ev' + (e.kind === 'say' ? ' is-say' : '') + (e.ok === false ? ' is-bad' : '') },
       h('time', null, hm2(e.ts)), h('span', null, e.kind === 'did' ? (e.ok === false ? '\u2715' : '\u2713') : e.kind === 'say' ? '\u201c' : '\u2022'),
       h('span', null, e.kind === 'say' ? e.text : e.kind === 'model' ? `New version of ${e.path}` : e.kind === 'status' ? (e.asked ? `Asked you: ${e.asked}` : statusWord) : e.kind === 'output' ? (e.ok === false ? 'The code hit an error' : 'The code ran') : e.label))));
-  const tabs = [['model', 'Model', !!t.model], ['code', 'Code', !!t.code], ['output', 'Output', !!t.output]];
+  const tabs = [['model', 'Model', !!t.model], ['screen', 'Screen', !!t.screen], ['code', 'Code', !!t.code], ['output', 'Output', !!t.output]];
   if (!tabs.find(x => x[0] === BENCH.tab && x[2])) BENCH.tab = (tabs.find(x => x[2]) || tabs[0])[0];
   const view = h('div', { class: 'bench__view' });
   let caption = '';
@@ -1011,6 +1188,9 @@ function benchRender() {
     const v = keep ? BENCH.viewer : (modelViewer(benchFile(t.task, t.model.path, t.v)) || h('img', { class: 'model__img', src: benchFile(t.task, t.model.png, t.v), alt: t.model.path }));
     BENCH.viewer = v; BENCH.modelKey = key; view.append(v); if (keep && v.redraw) v.redraw();
     caption = `${t.model.path}: ${(t.model.size_mm || []).map(x => Math.round(x)).join(' x ')} mm. Drag to turn it.`;
+  } else if (BENCH.tab === 'screen' && t.screen) {
+    view.append(h('img', { class: 'bench__screen', src: benchFile(t.task, t.screen.png, t.screen.ts), alt: 'What she sees', onclick: () => lightbox({ image: benchFile(t.task, t.screen.png, t.screen.ts), title: t.screen.where }) }));
+    caption = t.screen.where ? `What she sees: ${t.screen.where}` : 'What she sees';
   } else if (BENCH.tab === 'code' && t.code) {
     view.append(h('pre', { class: 'bench__code' }, t.code.text)); caption = t.code.path;
   } else if (BENCH.tab === 'output' && t.output) {
@@ -1105,7 +1285,7 @@ function modelViewer(src) {
 window.EVA = { setState, setLevel: v => { core.level = v == null ? null : Math.max(0, Math.min(1, v)); },
   setCaption, setHint, setConnection, showCard, showCards, dismiss, clearCards, expand,
   alert: (data) => { const id = showCard('alert', data, { proactive: true }); setState('alert'); return id; },
-  setStatus, openPanel, openHistory, closeAll, addTranscript, rules: RULES };
+  setStatus, openPanel, openHistory, closeAll, addTranscript, chatLoaded, chatMeta, rules: RULES };
 window.EVA.bench = { event: benchEvent, load: benchLoad, open: benchOpen };   // v0.5: the bridge feeds the workbench
 if (location.pathname === '/stage' || new URLSearchParams(location.search).has('stage')) {   // full screen on another monitor
   root.classList.add('stage-mode'); benchOpen(true);
@@ -1302,7 +1482,7 @@ function speak(text, then) {                                   // fallback when 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   try { ws = new WebSocket(`${proto}://${location.host}/ws`); } catch (_) { return; }
-  ws.onopen = () => { connected = true; E.setConnection(true); idleHint(); refreshStatus(); flushDevice(); if (E.bench) E.bench.load(document.getElementById('eva').classList.contains('stage-mode')); };
+  ws.onopen = () => { connected = true; E.setConnection(true); idleHint(); refreshStatus(); flushDevice(); sendCtl({ type: 'chat_current' }); if (E.bench) E.bench.load(document.getElementById('eva').classList.contains('stage-mode')); };
   ws.onclose = () => { connected = false; ttsMode = 'browser'; sttMode = 'browser'; toldSpeaking = false; micRelease();
     E.setConnection(false); setTimeout(connect, 2500); };
   ws.onmessage = e => handle(JSON.parse(e.data));
@@ -1354,6 +1534,8 @@ function handle(ev) {
     case 'audio': onAudio(ev); break;
     case 'audio_end': onAudioEnd(ev); break;
     case 'task_live': if (E.bench) E.bench.event(ev.task, ev.event || {}); break;    // v0.5: the workbench
+    case 'chat': if (E.chatLoaded) E.chatLoaded(ev.chat || {}); break;                // v0.7: chats
+    case 'chat_meta': if (E.chatMeta) E.chatMeta(ev); break;
   }
 }
 function send(text, viaVoice) {
@@ -1590,6 +1772,8 @@ addEventListener('eva:conversation', async e => {
   catch (_) {}
   refreshStatus();
 });
+addEventListener('eva:chat-open', e => { stopAudio(); sendCtl({ type: 'chat_open', id: e.detail.id }); });
+addEventListener('eva:chat-new', () => { stopAudio(); sendCtl({ type: 'chat_new' }); });
 addEventListener('eva:forge-review', () => send('which skills are waiting', false));
 
 /* ---------------- Routines panel (v0.2.5): reminders, routines, moods, shopping list ---------------- */

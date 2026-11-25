@@ -26,7 +26,7 @@ _states: dict[str, dict] = {}
 
 def _blank(task) -> dict:
     return {"task": task.id, "title": task.title, "goal": task.goal, "status": task.status, "plan": list(task.plan),
-            "now": "", "events": deque(maxlen=MAX_EVENTS), "code": None, "output": None, "model": None,
+            "now": "", "events": deque(maxlen=MAX_EVENTS), "code": None, "output": None, "model": None, "screen": None,
             "models": [], "cost_eur": task.cost_eur, "steps": task.steps, "updated": time.time()}
 
 
@@ -80,6 +80,9 @@ def emit(task, kind: str, **data) -> dict:
                 st["model"] = {"path": data.get("path", ""), "png": data.get("png", ""),
                                "size_mm": data.get("size_mm")}
                 st["models"] = [m for m in st["models"] if m["path"] != st["model"]["path"]][-5:] + [st["model"]]
+            elif kind == "screen":                         # v0.7: what she sees (her browser, your screen)
+                st["screen"] = {"png": data.get("png", ""), "where": str(data.get("where") or "")[:160],
+                                "ts": ev.get("ts", time.time())}
             elif kind == "status":
                 st["now"] = {"done": "Done", "waiting": "Waiting for you", "paused": "Paused",
                              "failed": "Stopped on an error", "cancelled": "Cancelled"}.get(task.status, st["now"])

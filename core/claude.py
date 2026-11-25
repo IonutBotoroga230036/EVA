@@ -28,6 +28,7 @@ from core.security.audit import audit
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
+TOOLSET_API_VERSION = "2026-10-21"     # v0.7: the computer and browser toolsets' docs show this version
 
 
 class ClaudeUnavailable(RuntimeError):
@@ -57,6 +58,7 @@ def _load_key() -> Optional[str]:
 class ClaudeClient:
     def __init__(self, api_key: Optional[str] = None, budget: Optional[BudgetTracker] = None,
                  model: str = "claude-sonnet-5", http: Optional[httpx.Client] = None, timeout: float = 240.0):
+        self._toolset_version_ok = True
         self.api_key = api_key if api_key is not None else _load_key()
         self.budget = budget or get_budget()
         self.model = model
@@ -128,7 +130,8 @@ class ClaudeClient:
                 out["thinking"] += block.get("thinking", "")
             elif block.get("type") == "tool_use":
                 out["tool_uses"].append({"id": block.get("id"), "name": block.get("name"),
-                                         "input": block.get("input") or {}})
+                                         "input": block.get("input") or {},
+                                         **({"toolset_name": block["toolset_name"]} if block.get("toolset_name") else {})})
                 if out["tool_input"] is None:
                     out["tool_input"] = block.get("input")
                     out["tool_name"] = block.get("name")
@@ -154,10 +157,22 @@ class ClaudeClient:
         return r.json()
 
     def _send(self, body: dict, betas: Optional[list[str]] = None):
-        headers = {"x-api-key": self.api_key, "anthropic-version": API_VERSION, "content-type": "application/json"}
+        toolsets = any(isinstance(t, dict) and str(t.get("type", "")).endswith("toolset_20260801")
+                       for t in body.get("tools") or [])
+        version = TOOLSET_API_VERSION if toolsets and self._toolset_version_ok else API_VERSION
+        headers = {"x-api-key": self.api_key, "anthropic-version": version, "content-type": "application/json"}
         if betas:
             headers["anthropic-beta"] = ",".join(betas)
-        return self.http.post(API_URL, json=body, headers=headers)
+        r = self.http.post(API_URL, json=body, headers=headers)
+        if toolsets and r.status_code == 400 and "anthropic-version" in r.text:
+            # v0.7: the docs show the toolsets with a newer API version; if that one is refused (or required),
+            # flip once and remember
+            self._toolset_version_ok = not self._toolset_version_ok
+            headers["anthropic-version"] = TOOLSET_API_VERSION if self._toolset_version_ok else API_VERSION
+            logger.warning(f"Claude: anthropic-version {version} refused with the toolsets; trying "
+                           f"{headers['anthropic-version']}")
+            r = self.http.post(API_URL, json=body, headers=headers)
+        return r
 
     def _post(self, body: dict) -> Optional[dict]:
         r = self._send(body)

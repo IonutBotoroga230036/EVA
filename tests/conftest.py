@@ -259,3 +259,26 @@ def isolate_later(tmp_path, monkeypatch):
     monkeypatch.setattr(later, "STORE", tmp_path / "later.json")
     monkeypatch.setattr(later, "_later", None)
     yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_v07(tmp_path, monkeypatch):
+    """v0.7: never your real data/settings_ui.json, her real browser profile, or your real screen and mouse."""
+    import core.settings as st
+    monkeypatch.setattr(st, "UI_PATH", tmp_path / "settings_ui.json")
+    st.get_settings.cache_clear()
+    import core.browser as browser
+    monkeypatch.setattr(browser, "PROFILE", tmp_path / "browser_profile")
+    monkeypatch.setattr(browser, "SHOT", tmp_path / "browser" / "shot.png")
+    monkeypatch.setattr(browser, "installed", lambda: False)        # tests that want her browser give a fake one
+    monkeypatch.setattr(browser, "_browser", None)
+    import core.computer as computer
+
+    def no_screen():
+        raise AssertionError("tests never move your real mouse")
+    monkeypatch.setattr(computer, "_gui", no_screen)
+    import core.chats as chats                       # never your real chats; titles inline
+    monkeypatch.setattr(chats, "DIR", tmp_path / "chats")
+    monkeypatch.setattr(chats, "THREADED", False)
+    yield
+    st.get_settings.cache_clear()

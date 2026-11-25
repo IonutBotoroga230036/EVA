@@ -1,6 +1,6 @@
 # E.V.A. handoff (for a new Claude session)
 
-Last updated: Monday 23 November 2026, 14:00 (Europe/Amsterdam). Read this first, then EVA.md, docs/ROADMAP.md,
+Last updated: Thursday 26 November 2026, 00:30 (Europe/Amsterdam). Read this first, then EVA.md, docs/ROADMAP.md,
 docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
 
 ## Who and what
@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v060b_budget_pause.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v070_browser_computer_chats.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,21 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 26 Nov 2026 (00:30, v0.7: her browser, your computer, settings, chats)
+
+Branch `claude/v07-browser-computer-chats` (from `claude/v06-show-projects`, which holds the "v0.7 prep" commit
+with the fixes from his 23:32 log: project_start offers research and "yes" starts it, projects by number and
+project_delete, "play the second one on my computer" opens the shown video and pauses music, Nominatim fallback
+and brand aliases for the map, look_at_shown attaches the picture, vague FORGE requests resolved). New:
+`core/browser.py` (browser toolset, Playwright, checked in real Chromium here), `core/computer.py` (computer
+toolset with pyautogui, NOT run on a real screen here: no display; first real test is his 26.7), `core/ui_settings.py`
+(gear panel, data/settings_ui.json), `core/chats.py` (Chats drawer, data/chats). The mind gets the browser toolset
+when allowed; tasks get it plus the computer toolset for use_computer tasks (`Task.toolsets`). Toolset calls use
+anthropic-version `TOOLSET_API_VERSION` (2026-10-21, from the docs' example) with a flip-once fallback on a 400:
+if his first browser answer fails with a version error, look at `core/claude.py._send`. Tests: tests/test_v07.py;
+conftest isolates the settings file, her browser (fake), the screen (no pyautogui) and chats. Full suite 1261
+passed, 3 skipped, also under cp1252. Docs: MIND.md v0.7, VOICE_TESTS 26, CAPABILITIES, ROADMAP.
 
 ## State on 25 Nov 2026 (23:20, v0.6b: a task stuck on budget)
 

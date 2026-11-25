@@ -66,8 +66,9 @@ take on a real project with you (the desk screen) from "what do you mean?" to a 
 | v0.5 | **The workbench** | A live stage in the window while she works: her plan ticking off, what she's doing now, the code as she writes it, each version of the model turning in 3D. Full screen for a second monitor (later the desk screen). Spoken updates at milestones only. |
 | v0.6 (built 25 Nov) | **Showing instead of guessing** | When she isn't sure what you mean, she finds pictures and videos and asks "something like this?"; you point, she goes on from your pick. |
 | v0.6 (built 25 Nov) | **Projects** | Longer than tasks: research, decisions, a parts list with prices and links, wiring and steps, open questions, all kept per project ("how do I connect the display to the Pi?" answered with everything decided before). First project: the transparent desk screen. |
-| v0.7 | **Chats like Gemini** | Named conversations in a sidebar, searchable, one memory across all of them. Ready for local models to replace Claude where they're good enough. |
-| later | **Computer use, local models, body** | She sees the screen and moves the cursor (built in, with consent); local models take over turn by turn; the cube with camera, mic and speaker as another device. |
+| v0.7 (built 26 Nov) | **Chats like Gemini** | Named conversations in the Chats drawer, searchable, renamable, one memory across all of them; she can look through earlier chats. |
+| v0.7 (built 26 Nov) | **Her browser, your computer, settings** | Her own Chromium for pages that need clicking (never pays or types passwords); computer use as a task you said yes to, with the Screen tab and the mouse-in-a-corner stop; Windows settings pages; a settings panel in the window. |
+| later | **Local models, body** | Local models take over turn by turn where they're good enough; the cube with camera, mic and speaker as another device. |
 
 The checklist with every item's status, the JARVIS test (scored per version) and new proposals are kept as an
 Excel file outside the repo (it's his to fill in); the test scenarios are also in docs/JARVIS_TEST.md.

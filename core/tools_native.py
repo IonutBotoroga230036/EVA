@@ -869,3 +869,19 @@ TOOL_SCHEMAS += _nearby.SCHEMAS
 REGISTRY.update(_nearby.FUNCTIONS)
 GUARDS.update(_nearby.GUARDS)
 ACK_PHRASES.update(_nearby.ACKS)
+
+# ---------------------------------------------------------------- v0.7: using your computer, Windows settings pages
+from core import computer as _computer  # noqa: E402
+
+TOOL_SCHEMAS += _computer.SCHEMAS
+REGISTRY.update(_computer.FUNCTIONS)
+GUARDS.update(_computer.GUARDS)
+ACTION_TOOLS |= _computer.ACTIONS
+CONFIRM_TOOLS.update(_computer.CONFIRM)          # using the mouse and keyboard always asks first
+
+# ---------------------------------------------------------------- v0.7: chats (one memory across them)
+from core import chats as _chats  # noqa: E402
+
+TOOL_SCHEMAS += _chats.SCHEMAS
+REGISTRY.update(_chats.FUNCTIONS)
+GUARDS.update(_chats.GUARDS)
