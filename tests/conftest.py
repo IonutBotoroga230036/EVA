@@ -234,6 +234,11 @@ def isolate_nov23_afternoon(tmp_path, monkeypatch):
     monkeypatch.setattr(_arun, "default_notify", lambda task, kind, text: None)  # no Telegram from tests
     import core.forge_engine as _fe
     monkeypatch.setattr(_fe, "live_check", lambda d, plan: None)  # never a real service from a test
+    import os as _os
+    import core.pc_tools as _pct
+    monkeypatch.setattr(_os, "startfile", lambda *a, **k: None, raising=False)          # tests never open apps
+    import types as _types
+    monkeypatch.setattr(_pct, "subprocess", _types.SimpleNamespace(Popen=lambda *a, **k: None, DEVNULL=-3))
     try:
         from interfaces.web import server_stream as _ss
         _ss._WAKE_PARTIAL.clear()                                  # a cut-off "Hey Eva, ..." never leaks

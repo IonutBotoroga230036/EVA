@@ -180,7 +180,7 @@ TOOL_SCHEMAS = [
         "description": "Switch where heavy thinking and skill-building run: cloud (Claude), local (private, free), or auto.",
         "parameters": {"type": "object", "properties": {
             "mode": {"type": "string", "enum": ["auto", "cloud", "local"]},
-            "feature": {"type": "string", "enum": ["", "conversation", "planning", "thinking", "forge"],
+            "feature": {"type": "string", "enum": ["", "conversation", "planning", "thinking", "forge", "mind"],
                         "description": "Only this feature; empty for everything."}}, "required": ["mode"]}}},
     {"type": "function", "function": {
         "name": "budget_status",
@@ -579,13 +579,14 @@ def tool_send_to_phone(text: str = "", **_):
             {"result": json.dumps({"error": "send failed"}), "say": "Telegram didn't take the message, sir."})
 
 
-FEATURE_WORDS = {"forge": r"\b(forge|skill[- ]?build\w*|build(?:ing)? skills?|coding)\b",
+FEATURE_WORDS = {"mind": r"\b(?:the |your )mind\b",
+                 "forge": r"\b(forge|skill[- ]?build\w*|build(?:ing)? skills?|coding)\b",
                  "thinking": r"\b(think\w*|reasoning|deep thought)\b",
                  "planning": r"\b(plan\w*|multi-?step)\b",
                  "conversation": r"\b(conversation\w*|chat\w*|talking)\b",
                  "understanding": r"\b(understand\w*|decisions?|deciding|intent)\b"}
 FEATURE_NAMES = {"forge": "FORGE", "thinking": "deep thinking", "planning": "planning", "conversation": "conversation",
-                 "understanding": "understanding what you mean"}
+                 "understanding": "understanding what you mean", "mind": "the mind (thinking things through)"}
 
 
 def feature_from_words(text: str) -> str:
@@ -828,3 +829,18 @@ GUARDS.update(_agent_tools.GUARDS)
 ACTION_TOOLS |= _agent_tools.ACTIONS
 EXACT_TOOLS |= _agent_tools.EXACT
 CONFIRM_TOOLS.update(_agent_tools.CONFIRM)        # starting a task costs money; a standing yes changes the rules
+
+# ---------------------------------------------------------------- v0.5: her hands on the PC (what's installed, open, install)
+from core import pc_tools as _pc_tools  # noqa: E402
+
+TOOL_SCHEMAS += _pc_tools.SCHEMAS
+REGISTRY.update(_pc_tools.FUNCTIONS)
+GUARDS.update(_pc_tools.GUARDS)
+ACTION_TOOLS |= _pc_tools.ACTIONS
+CONFIRM_TOOLS.update(_pc_tools.CONFIRM)           # installing changes the PC: always a yes first
+
+# ---------------------------------------------------------------- v0.5: the mind (understanding can hand a sentence over)
+from core import mind as _mind  # noqa: E402
+
+TOOL_SCHEMAS.append(_mind.WORK_IT_OUT)
+REGISTRY["work_it_out"] = lambda **_: {"result": json.dumps({"note": "the mind answers this"})}

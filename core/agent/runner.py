@@ -25,7 +25,7 @@ from typing import Callable, Optional
 
 from loguru import logger
 
-from core.agent import consent
+from core.agent import consent, live
 from core.agent.hands import KIND, SCHEMAS, Hands
 from core.agent.tasks import Store, Task, get_store
 
@@ -251,6 +251,7 @@ class Manager:
         t.status = "paused"
         t.note("paused by you")
         self.store.save(t)
+        live.emit(t, "status")
         return f"Paused the {t.title}, sir. Say 'resume the {t.title}' when you want it back."
 
     def resume(self, t: Task) -> str:
@@ -276,6 +277,7 @@ class Manager:
         t.status = "cancelled"
         t.note("cancelled by you")
         self.store.save(t)
+        live.emit(t, "status")
         return f"Cancelled the {t.title}, sir. Its files stay in its folder."
 
     def status_text(self, t: Task) -> str:
@@ -322,6 +324,7 @@ class Manager:
                 if t:
                     t.status, t.error = "failed", f"{e.__class__.__name__}: {e}"[:300]
                     self.store.save(t)
+                    live.emit(t, "status")
                     self.notify(t, "failed", f"Sir, the {t.title} stopped on an error: {_spoken_error(e)}. Say "
                                 f"'resume the {t.title}' to try again; I'll carry on from where it stopped.")
 
@@ -371,6 +374,7 @@ class Manager:
         if not t.system:                    # written once: a changing prompt would void her earlier thinking
             t.system = system_prompt(t, _home())
         self.store.save(t)
+        live.emit(t, "status")
         hands = self._hands(t)
         msgs = self.store.messages(t.id)
         if not msgs:
@@ -398,6 +402,7 @@ class Manager:
                 if trimmed and not t.drop_thinking:
                     t.drop_thinking = True
                     t.note("trimmed the older steps")
+                live.emit(t, "doing", label="Thinking")
                 try:
                     resp = self._ask_claude(claude, t, msgs, c)
                 except Exception as e:
@@ -408,6 +413,8 @@ class Manager:
                     raise
                 t.cost_eur += float(resp.get("cost_eur") or 0.0)
                 t.steps += 1
+                if (resp.get("text") or "").strip() and resp.get("tool_uses"):
+                    live.emit(t, "say", text=spoken((resp.get("text") or ""), 3, 400))
                 msgs.append({"role": "assistant", "content": resp.get("content") or
                              [{"type": "text", "text": resp.get("text") or ""}]})
                 uses = resp.get("tool_uses") or []
@@ -488,6 +495,7 @@ class Manager:
                 t.status = "done"
                 t.note("done")
                 self.store.save(t)
+                live.emit(t, "status")
                 say = spoken(t.summary)
                 files = ""
                 if t.files:
@@ -550,6 +558,7 @@ class Manager:
         if msgs is not None:
             self.store.save_messages(t.id, msgs)
         self.store.save(t)
+        live.emit(t, "status", asked=text[:300])
         text = re.sub(r"^\s*sir[,.!]\s*", "", text or "", flags=re.I)      # not "Sir, about it: Sir, ..."
         text = text[:1].upper() + text[1:]
         line = (f"Sir, about the {t.title}: {text}" if what == "question" else

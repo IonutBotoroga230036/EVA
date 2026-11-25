@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v040c_see_it.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v050_mind_bench.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,27 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 25 Nov 2026 (21:00, v0.5 one mind + the workbench)
+
+He wants EDITH/J.A.R.V.I.S.: she should think along, show her work live, remember across chats, take on a real
+project (a transparent desk screen). Plan agreed and written into ROADMAP ("Toward EDITH"): v0.5 one mind + the
+workbench (built now), v0.6 visual research ("something like this?") + projects, v0.7 chats like Gemini.
+Built (zip `eva_v050_mind_bench.zip`, docs/MIND.md): `core/mind.py` + `HybridOrchestrator._mind`: when no tool
+ran (or understanding picks the new `work_it_out` tool, or "unavailable") and it isn't personal chat
+(`mind.is_chat`), Claude Haiku 5.5 (effort medium) runs a tool loop with every belt tool (cached), the situation
+and recalled facts; `think_harder` switches to Sonnet; actions stop at `_ask_confirmation`; fact and claim guards
+apply; failures fall back to the old path with whatever was gathered. Feature `mind` (auto) in brain FEATURES;
+local only turns it off. `core/pc_tools.py`: check_installed (PATH/Program Files + the Windows file association),
+install_app (winget, CONFIRM), open_file (task files, document types only, optional program, never NEVER_RUN).
+The conversation lane keeps personal chat only (it used to take "should I", "advice", "what would you"). Jev is
+unchanged: it stays a picker and can pick work_it_out. Workbench: `core/agent/live.py` (emit/state/recent, labels),
+hands and runner emit doing/did/plan/code/output/model/say/status; PULSE `agent.live` -> `send_live` ->
+`task_live`; `GET /api/tasks/live`, `GET /api/tasks/{id}/live`, `GET /stage`; eva.html bench (plan, activity,
+Model/Code/Output tabs, scan line, pill, stage mode). Fixed on the way: in v0.4c the model card's viewer sat in
+the bridge script, where h() doesn't exist and the card couldn't see it, so the card would have failed; both now
+live in the UI script (a test checks the split) and the real page was run in Chromium with a fake socket at desk,
+phone and stage sizes. The calendar fact guard no longer reads "Nothing on your PC" as "nothing on (the calendar)".
 
 ## State on 25 Nov 2026 (19:40, the first finished guitar stand)
 

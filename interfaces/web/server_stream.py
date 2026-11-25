@@ -127,6 +127,16 @@ def _speaker(conns: list):
     return max(conns, key=lambda c: (getattr(c, "last_talk", 0.0), getattr(c, "connected_at", 0.0)), default=None)
 
 
+async def send_live(data: dict) -> None:
+    """A task's step for the workbench in every open window."""
+    msg = {"type": "task_live", "task": data.get("task"), "event": data.get("event") or {}}
+    for conn in list(CONNECTIONS):
+        try:
+            await conn.send(msg)
+        except Exception:
+            pass
+
+
 def _done_widget(ev: dict):
     try:
         from core.agent.tasks import get_store
@@ -264,6 +274,11 @@ async def lifespan(_app: FastAPI):
         if not loop.is_closed():
             asyncio.run_coroutine_threadsafe(announce_task(data), loop)
     get_bus().subscribe("agent.event", _on_agent)
+
+    def _on_live(data: dict) -> None:                 # v0.5 workbench: every step, to every window, never spoken
+        if not loop.is_closed():
+            asyncio.run_coroutine_threadsafe(send_live(data), loop)
+    get_bus().subscribe("agent.live", _on_live)
     from core.agent import pc as agent_pc
     from core.agent.runner import get_manager
     agent_pc.LINK["loop"] = loop
@@ -294,6 +309,7 @@ async def lifespan(_app: FastAPI):
     yield
     get_bus().unsubscribe("forge.done", _on_forge_done)
     get_bus().unsubscribe("agent.event", _on_agent)
+    get_bus().unsubscribe("agent.live", _on_live)
     oracle.stop()
     oracle_task.cancel()
     if telegram:
@@ -342,6 +358,12 @@ app.include_router(routines_router)
 
 @app.get("/")
 async def index():
+    return HTMLResponse(UI_FILE.read_text(encoding="utf-8"))
+
+
+@app.get("/stage")
+async def stage():
+    """The workbench full screen, for a second monitor (later the desk screen)."""
     return HTMLResponse(UI_FILE.read_text(encoding="utf-8"))
 
 
@@ -872,6 +894,23 @@ async def classic():
     """The previous interface, kept as a fallback while the new one settles in."""
     path = Path(__file__).parent / "eva_classic.html"
     return HTMLResponse(path.read_text(encoding="utf-8")) if path.exists() else Response(status_code=404)
+
+
+@app.get("/api/tasks/live")
+async def tasks_live():
+    """The workbench's task list: running and waiting first, then the last finished."""
+    from core.agent import live
+    return JSONResponse({"tasks": live.recent()})
+
+
+@app.get("/api/tasks/{tid}/live")
+async def task_live(tid: str):
+    """Everything a task did so far, for a window that opens in the middle of it."""
+    from core.agent import live
+    st = live.state(tid) if re.fullmatch(r"[a-f0-9]{8}", tid) else None
+    if st is None:
+        return PlainTextResponse("no such task", status_code=404)
+    return JSONResponse(json.loads(json.dumps(st, default=list)))
 
 
 @app.get("/api/tasks/{tid}/file")

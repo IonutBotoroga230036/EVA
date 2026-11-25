@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from core.agent import consent
+from core.agent import consent, live
 from core.agent.pc import PCError, get_pc
 
 MAX_RESULT = 8000
@@ -204,8 +204,10 @@ class Hands:
         if kind not in ("look",):
             self.log_consent(kind, f"{name} {_json(args)[:200]}", "approved" if approved else
                              ("standing" if kind in consent.standing() or kind in self.task.grants else "logged"))
+        what = live.label(name, args)
+        live.emit(self.task, "doing", label=what, tool=name)
         try:
-            out = getattr(self, "h_" + name)(**args)
+            out = self._do(name, args, what)
             if isinstance(out, dict) and out.get("_image_b64"):             # Claude sees the picture too
                 img = out.pop("_image_b64")
                 return ("result", [{"type": "text", "text": _json(out)},
@@ -218,10 +220,17 @@ class Hands:
             logger.exception(f"AGENT: {name} crashed")
             return ("result", f"error: {e.__class__.__name__}: {e}", True)
 
+    def _do(self, name: str, args: dict, what: str):
+        out = getattr(self, "h_" + name)(**args)
+        bad = isinstance(out, dict) and (out.get("ok") is False or (isinstance(out.get("exit"), int) and out["exit"] != 0))
+        live.emit(self.task, "did", label=what, tool=name, ok=not bad)
+        return out
+
     # ---------------------------------------------------------------- the hands
     def h_update_plan(self, steps: list):
         self.task.plan = [{"step": str(s)[:200], "done": False, "result": ""} for s in (steps or [])[:20]]
         self.task.note(f"plan: {len(self.task.plan)} steps")
+        live.emit(self.task, "plan")
         return {"ok": True, "steps": len(self.task.plan)}
 
     def h_mark_step(self, index: int, result: str = ""):
@@ -230,6 +239,7 @@ class Hands:
             raise ValueError(f"there's no step {i}")
         self.task.plan[i].update(done=True, result=str(result)[:200])
         self.task.note(f"done: {self.task.plan[i]['step']}")
+        live.emit(self.task, "plan")
         return {"ok": True}
 
     def h_tell_user(self, message: str):
@@ -249,11 +259,15 @@ class Hands:
     def h_write_file(self, path: str, content: str):
         out = get_pc().write_file(self.task.id, path, content)
         self.task.note(f"wrote {out['path']}")
+        live.emit(self.task, "code", path=out["path"], text=content)
         return out
 
     def h_run_python(self, code: str, timeout: float = 120):
+        live.emit(self.task, "code", path="the code she's running", text=code)
         out = get_pc().run_python(self.task.id, code, int(timeout or 120))
         self.task.note(f"ran Python (exit {out.get('exit')})")
+        live.emit(self.task, "output", text=(out.get("stdout") or "") + (out.get("stderr") or ""),
+                  ok=out.get("exit") == 0)
         return out
 
     def h_install_python_packages(self, packages: list, why: str = ""):
@@ -272,6 +286,8 @@ class Hands:
     def h_run_program(self, program: str, args: list, timeout: float = 300):
         out = get_pc().run_program(self.task.id, program, list(args or []), int(timeout or 300))
         self.task.note(f"ran {program} (exit {out.get('exit')})")
+        live.emit(self.task, "output", text=(out.get("stdout") or "") + (out.get("stderr") or ""),
+                  ok=out.get("exit") == 0)
         return out
 
     def h_web_search(self, query: str):
@@ -352,6 +368,7 @@ class Hands:
     def h_preview_model(self, path: str):
         out = get_pc().preview(self.task.id, path)
         self.task.note(f"looked at {path}")
+        live.emit(self.task, "model", path=out["model"], png=out["png"], size_mm=out["size_mm"])
         size = " x ".join(f"{x:g}" for x in out["size_mm"])
         return {"model": out["model"], "size_mm": size, "triangles": out["triangles"],
                 "look": "Check: is it the shape you meant, the right size, stable, printable without supports?",

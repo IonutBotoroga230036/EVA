@@ -164,7 +164,7 @@ _FACTS = {
     "calendar": (re.compile(r"\byou(?:'re| are) (?:free|busy|clear)\b(?! to)|\b(?:looks?|is) (?:clear|wide open|free|"
                             r"open|busy|packed)\b|\bfree (?:slot|time|window)s?\b|\bno (?:meetings?|events?|class(?:es)?|"
                             r"appointments?|lectures?)\b|\byou have (?:a |an |no |\d+ |two |three )?(?:meetings?|events?|"
-                            r"class(?:es)?|appointments?|lectures?)\b|\bnothing (?:on|scheduled|planned)\b|\byour "
+                            r"class(?:es)?|appointments?|lectures?)\b|\bnothing (?:on (?!your (?:pc|computer|laptop|phone|screen|disk|drive)\b)|scheduled|planned)\b|\byour "
                             r"(?:calendar|schedule) (?:is|looks)\b", re.I), ("calendar_",)),
     "email": (re.compile(r"\byou have (?:\d+|no|a|an|two|three|several) (?:new |unread )?(?:e-?mails?|messages?)\b|"
                          r"\bno new (?:e-?mails?|messages?)\b|\binbox is\b", re.I), ("email_", "messages_")),
@@ -1210,6 +1210,108 @@ class HybridOrchestrator:
                     ev = {"type": "final", "text": NOT_DONE}
             yield ev
 
+    # ------------------------------------------------------------ the mind (v0.5): what needs thinking
+    def _mind_ready(self, user_input: str) -> bool:
+        from core import mind
+        if is_small_talk(user_input) and len(user_input.split()) <= 8:
+            return False                                  # "how are you?" stays a quick local answer
+        return mind.allowed()
+
+    async def _mind(self, client, user_input: str, ctx: dict, gathered: list, used: set) -> AsyncIterator[dict]:
+        """Think it through with every tool (core/mind.py). Sets self._mind_done when it answered; if Claude fails
+        on the way, the old path answers with whatever was gathered."""
+        from core import mind
+        from core.budget import BudgetExceeded
+        from core.claude import ClaudeUnavailable, get_claude
+        self._mind_done = False
+        c = mind.cfg()
+        if getattr(self, "_mind_system", None) is None:
+            self._mind_system = mind.system_prompt()
+        if getattr(self, "_mind_tools_for", None) is not self.belt:
+            self._mind_tools, self._mind_tools_for = mind.tools_for(self.belt.schemas), self.belt
+        self._context(user_input, ctx)
+        msgs = mind.build_messages(self.history, user_input, mind.situation(self), mind.facts_text(ctx.get("facts")),
+                                   int(c["history_turns"]))
+        model, effort, claude = c["model"], c.get("effort") or None, get_claude()
+        last_text = ""
+        for step in range(int(c["max_steps"])):
+            call = asyncio.to_thread(claude.message, system=self._mind_system, messages=msgs, tools=self._mind_tools,
+                                     model=model, max_tokens=int(c["max_tokens"]), effort=effort, purpose="mind",
+                                     cache=True)
+            try:
+                resp = None
+                async for kind, value in self._with_ack("Let me think, sir." if step == 0 else None, call):
+                    if kind == "ack":
+                        yield {"type": "ack", "text": value}
+                    else:
+                        resp = value
+            except (BudgetExceeded, ClaudeUnavailable, RuntimeError, httpx.HTTPError, OSError) as e:
+                logger.warning(f"MIND: {str(e)[:160]}; answering the old way")
+                return
+            msgs.append({"role": "assistant", "content": resp.get("content") or
+                         [{"type": "text", "text": resp.get("text") or "..."}]})
+            uses = resp.get("tool_uses") or []
+            text = mind.spoken(resp.get("text") or "")
+            last_text = text or last_text
+            if not uses:
+                answer = text or "I'm not sure, sir. Could you say that another way?"
+                ran = [t for t, _ in gathered]
+                kind = unchecked_fact(answer, ran)        # the same guards as every answer: no made-up facts
+                if kind:
+                    logger.warning(f"MIND: fact guard ({kind}): {answer!r}")
+                    answer, check = offer_for(kind, user_input, answer)
+                    if check:
+                        self.pending_offer = {"tool": check[0], "args": check[1], "ts": time.time()}
+                acted = any(self.belt.is_action(t) and '"error"' not in out.get("result", "") for t, out in gathered)
+                if not acted and _CLAIM.search(answer):
+                    logger.warning(f"MIND: claim guard: {answer!r} but no action ran")
+                    answer = NOT_DONE
+                logger.info(f"MIND: answered after {step + 1} step{'s' if step else ''} ({model})")
+                self._mind_done = True
+                self._finish(user_input, answer, used)
+                yield {"type": "final", "text": answer}
+                return
+            logger.info(f"MIND: step {step + 1}: {', '.join(u['name'] for u in uses)}")
+            results = []
+            for u in uses:
+                name, args = u["name"], mind.json_args(u)
+                if name == "think_harder":
+                    model, effort = c["hard_model"], c.get("hard_effort") or None
+                    results.append({"type": "tool_result", "tool_use_id": u["id"],
+                                    "content": "A stronger model answers from here on."})
+                    continue
+                if not self.belt.has(name) or name in mind.SKIP_TOOLS:
+                    results.append({"type": "tool_result", "tool_use_id": u["id"], "is_error": True,
+                                    "content": f"there's no tool called {name}"})
+                    continue
+                args = await self._fill(name, args, user_input)
+                if self.belt.needs_confirm(name) or (self.belt.is_action(name) and not (
+                        self.belt.guard_ok(name, user_input) or name in self._recent())):
+                    # it changes something: E.V.A. asks, his yes runs it; the turn ends here
+                    self._mind_done = True
+                    for ev in self._ask_confirmation(name, args, user_input, used):
+                        if ev["type"] == "final" and text and text not in ev["text"]:
+                            ev = {**ev, "text": f"{text} {ev['text']}"}
+                        yield ev
+                    return
+                used.add(name)
+                shown = False
+                async for ev in self._run(name, args, gathered):
+                    shown = shown or ev.get("type") == "widget"
+                    yield ev
+                out = gathered[-1][1] if gathered else {}
+                res = {"type": "tool_result", "tool_use_id": u["id"], "content": mind.tool_result_text(out, shown)}
+                if '"error"' in (out.get("result") or ""):
+                    res["is_error"] = True
+                results.append(res)
+            msgs.append({"role": "user", "content": results})
+        says = [out.get("say") for _, out in gathered if out.get("say")]
+        answer = last_text or " ".join(dict.fromkeys(says)) or "I looked into it, sir, but I need another try."
+        logger.info(f"MIND: stopped after {c['max_steps']} steps")
+        self._mind_done = True
+        self._finish(user_input, answer, used)
+        yield {"type": "final", "text": answer}
+
     # ------------------------------------------------------------ conversation lane (v0.2.5)
     @staticmethod
     def _alternating(history: list[dict]) -> list[dict]:
@@ -1587,6 +1689,7 @@ class HybridOrchestrator:
         gathered: list = []
         used: set[str] = set()
         ctx: dict = {}
+        handed = False                                   # v0.5: understanding said "work it out"
         if self.last_missing and self.belt.has("forge_build") and re.match(
                 r"^\s*(?:yes,? )?(?:please )?(?:build it|build that|make it|go build it|draft it|create it)\b", user_input, re.I):
             user_input_for_forge = self.last_missing
@@ -1766,6 +1869,11 @@ class HybridOrchestrator:
                 for _ in range(MAX_TOOL_ITERS):
                     decision = await self._decide(client, ctx["skills"], gathered)
                     tool = decision.get("tool", "none")
+                    if tool == "work_it_out":
+                        handed = True
+                        break                              # v0.5: it needs thinking: the mind answers below
+                    if tool == "unavailable" and not gathered and self._mind_ready(user_input):
+                        break                              # v0.5: the mind looks for a way (or offers to build it)
                     if tool == "unavailable" and (gathered or not (decision.get("_trusted")
                                                                    or _ABILITY_HINT.search(user_input))):
                         tool = "none"                      # conversation, or we already have data: just answer
@@ -1836,6 +1944,15 @@ class HybridOrchestrator:
                         break                      # Nov 23: "any messages?" then 27 s deciding what else to do
                     if self.belt.is_action(tool) and not ok and out.get("say"):
                         break                      # it failed and said why honestly: don't retry blindly
+
+            # v0.5: nothing ran, and it isn't personal chat: the mind thinks it through with every tool
+            from core import mind as _mind_mod
+            chat = conversation.enabled() and _mind_mod.is_chat(user_input) and not handed
+            if not gathered and not chat and self._mind_ready(user_input):
+                async for ev in self._mind(client, user_input, ctx, gathered, used):
+                    yield ev
+                if self._mind_done:
+                    return
 
             # 5-6. answer (v0.2.5: no tool and you're talking, not commanding -> the conversation lane)
             answer = ""

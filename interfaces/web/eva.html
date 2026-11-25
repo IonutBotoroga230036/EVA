@@ -70,6 +70,69 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .icon-btn{width:44px;height:44px;border-radius:var(--r-md);display:grid;place-items:center;background:var(--tint);border:1px solid var(--line);color:var(--lilac);transition:background var(--dur-hover),box-shadow var(--dur-hover)}
 .icon-btn:hover{background:rgba(196,164,255,.12);box-shadow:0 0 18px rgba(168,85,247,.25)}
 
+/* ===== Workbench (v0.5): a task's work, live ===== */
+.eva-bench{position:fixed;z-index:9;top:calc(var(--safe-t) + 84px);left:max(24px,var(--safe-l));right:max(24px,var(--safe-r));bottom:calc(var(--safe-b) + 128px);
+  display:grid;grid-template-columns:minmax(240px,320px) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:14px;padding:18px;
+  border-radius:var(--r-panel);background:linear-gradient(180deg,rgba(26,18,54,.9),rgba(12,9,26,.92));border:1px solid var(--line);
+  box-shadow:var(--glow-card),inset 0 0 80px -40px rgba(168,85,247,.35);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+  opacity:0;transform:translateY(12px) scale(.985);visibility:hidden;transition:opacity var(--dur-in) var(--ease-out),transform var(--dur-in) var(--ease-out),visibility 0s linear var(--dur-in)}
+.eva.bench-open .eva-bench{opacity:1;transform:none;visibility:visible;transition-delay:0s}
+.bench__head{grid-column:1 / -1;display:flex;align-items:center;gap:14px;min-width:0}
+.bench__title{font:600 20px var(--font-display);letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bench__status{display:inline-flex;align-items:center;gap:8px;font:600 11px var(--font-display);letter-spacing:.16em;text-transform:uppercase;color:var(--lilac);
+  padding:5px 10px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--tint)}
+.bench__status i{width:7px;height:7px;border-radius:50%;background:var(--violet-bright);box-shadow:0 0 10px var(--violet-bright)}
+.bench__status[data-s="running"] i,.bench__status[data-s="queued"] i{animation:benchPulse 1.2s ease-in-out infinite}
+.bench__status[data-s="waiting"] i{background:var(--magenta);box-shadow:0 0 10px var(--magenta)}
+.bench__status[data-s="failed"] i{background:var(--offline);box-shadow:0 0 10px var(--offline)}
+@keyframes benchPulse{50%{opacity:.25}}
+.bench__now{flex:1;min-width:0;color:var(--ice);font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bench__meta{color:var(--dim-text);font-size:12px;white-space:nowrap}
+.bench__side{display:flex;flex-direction:column;gap:14px;min-height:0;overflow:hidden}
+.bench__plan{display:flex;flex-direction:column;gap:6px;flex:none;max-height:45%;overflow:auto}
+.bench__step{display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.4;color:var(--dim-text)}
+.bench__step b{flex:none;width:18px;height:18px;margin-top:1px;border-radius:50%;border:1px solid var(--line-strong);display:grid;place-items:center;font-size:11px}
+.bench__step.is-done{color:var(--ice)} .bench__step.is-done b{background:var(--violet-deep);border-color:var(--violet-bright)}
+.bench__step.is-next{color:var(--ice)} .bench__step.is-next b{box-shadow:0 0 10px var(--violet-bright);border-color:var(--violet-bright)}
+.bench__label{font:600 11px var(--font-display);letter-spacing:.18em;text-transform:uppercase;color:var(--lilac)}
+.bench__feed{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.bench__ev{display:grid;grid-template-columns:42px 14px minmax(0,1fr);gap:6px;color:var(--dim-text);animation:benchIn .3s var(--ease-out)}
+.bench__ev time{font-variant-numeric:tabular-nums;opacity:.7}
+.bench__ev.is-say{color:var(--ice);font-style:italic}
+.bench__ev.is-bad span:nth-child(2){color:var(--offline)}
+@keyframes benchIn{from{opacity:0;transform:translateY(-4px)}}
+.bench__main{position:relative;display:flex;flex-direction:column;min-height:0;border-radius:var(--r-md);border:1px solid var(--line-soft);background:rgba(6,4,16,.6);overflow:hidden}
+.bench__tabs{display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--line-soft)}
+.bench__tab{font:600 12px var(--font-display);letter-spacing:.12em;text-transform:uppercase;color:var(--dim-text);padding:6px 12px;border-radius:var(--r-sm);border:1px solid transparent;background:transparent;cursor:pointer}
+.bench__tab:not(:disabled):not(.is-on):hover{color:var(--ice);background:var(--tint)}
+.bench__tab.is-on{color:var(--ice);border-color:var(--line);background:var(--tint-2)}
+.bench__tab:disabled{opacity:.35}
+.bench__view{position:relative;flex:1;min-height:0;overflow:auto}
+.bench__view .model__view{height:100%;min-height:240px}
+.bench__code{margin:0;padding:14px 16px;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:#d9ccff;white-space:pre;tab-size:4}
+.bench__code.is-bad{color:#ffb3c1}
+.bench__empty{display:grid;place-items:center;height:100%;color:var(--dim-text);font-size:14px;text-align:center;padding:24px}
+.bench__scan{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,transparent 0,rgba(168,85,247,.12) 50%,transparent 100%);
+  background-size:100% 220px;background-repeat:no-repeat;animation:benchScan 2.6s linear infinite;opacity:0;transition:opacity .4s}
+.eva-bench[data-s="running"] .bench__scan{opacity:1}
+@keyframes benchScan{from{background-position:0 -220px}to{background-position:0 calc(100% + 220px)}}
+.bench__caption{padding:6px 12px;font-size:12px;color:var(--dim-text);border-top:1px solid var(--line-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bench-pill{position:fixed;z-index:9;top:calc(var(--safe-t) + 22px);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;max-width:min(560px,70vw);
+  padding:8px 16px;border-radius:var(--r-pill);background:var(--glass-solid);border:1px solid var(--line);color:var(--ice);font-size:13px;box-shadow:var(--glow-btn)}
+.bench-pill span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bench-pill i{flex:none;width:7px;height:7px;border-radius:50%;background:var(--violet-bright);animation:benchPulse 1.2s ease-in-out infinite}
+.eva.bench-open .bench-pill{display:none}
+@media (max-width:899px){
+  .eva-bench{top:calc(var(--safe-t) + 70px);left:10px;right:10px;bottom:calc(var(--safe-b) + 150px);grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);padding:12px;gap:10px}
+  .bench__side{max-height:30vh} .bench__feed{display:none} .bench__plan{max-height:none}
+  .bench__meta{display:none} .bench-pill{top:auto;bottom:calc(var(--safe-b) + 112px)}
+  .bench__head{flex-wrap:wrap;row-gap:6px} .bench__title{flex:1;min-width:0} .bench__now{order:9;flex-basis:100%;font-size:14px}
+}
+/* full screen for a second monitor (or the desk screen): /stage */
+.eva.stage-mode .eva-top,.eva.stage-mode .eva-bottom,.eva.stage-mode .eva-main{display:none}
+.eva.stage-mode .eva-bench{inset:max(18px,var(--safe-t)) 18px 18px 18px;opacity:1;transform:none;visibility:visible}
+.eva.stage-mode .bench__title{font-size:28px} .eva.stage-mode .bench__now{font-size:19px}
+
 /* ===== Main: stage + rail ===== */
 .eva-main{position:relative;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 0px;gap:0;align-items:center;justify-content:center;
   max-width:1240px;width:100%;margin:0 auto;transition:grid-template-columns var(--dur-layout) var(--ease-out),gap var(--dur-layout) var(--ease-out)}
@@ -325,6 +388,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
   <symbol id="i-note" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
 </svg>
 
@@ -335,6 +399,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
     </div>
     <div class="eva-top__right">
       <div class="eva-clock" aria-hidden="true"><div class="eva-clock__time" id="evaTime">--:--</div><div class="eva-clock__date" id="evaDate"></div></div>
+      <button class="icon-btn" id="evaBenchBtn" aria-label="Workbench" aria-controls="evaBench" aria-expanded="false"><svg class="i"><use href="#i-wrench"/></svg></button>
       <button class="icon-btn" id="evaRoutinesBtn" aria-label="Routines and lists" aria-controls="evaRoutines" aria-expanded="false"><svg class="i"><use href="#i-clock"/></svg></button>
       <button class="icon-btn" id="evaStatusBtn" aria-label="Status" aria-controls="evaPanel" aria-expanded="false"><svg class="i"><use href="#i-panel"/></svg></button>
     </div>
@@ -361,6 +426,8 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   <div class="eva-scrim" id="evaScrim"></div>
   <aside class="eva-panel" id="evaPanel" aria-label="Status" aria-hidden="true"></aside>
   <aside class="eva-panel" id="evaRoutines" aria-label="Routines and lists" aria-hidden="true"></aside>
+  <section class="eva-bench" id="evaBench" aria-label="Workbench" aria-hidden="true"></section>
+  <button class="bench-pill" id="evaBenchPill" hidden></button>
   <section class="eva-drawer" id="evaDrawer" aria-label="Conversation" aria-hidden="true">
     <div class="drawer__handle"></div>
     <div class="drawer__head"><span class="panel__title" style="font-size:18px">Today</span><button class="icon-btn" id="evaHistoryClose" aria-label="Close history"><svg class="i"><use href="#i-down"/></svg></button></div>
@@ -758,6 +825,8 @@ function closeAll() {
 function openRoutines() { closeAll(); root.classList.add('routines-open'); $('evaRoutines').setAttribute('aria-hidden', 'false');
   $('evaRoutinesBtn').setAttribute('aria-expanded', 'true'); emit('routines', { open: true }); }
 $('evaRoutinesBtn').onclick = () => root.classList.contains('routines-open') ? closeAll() : openRoutines();
+$('evaBenchBtn').onclick = () => root.classList.contains('bench-open') ? benchOpen(false) : (BENCH.t ? (benchRender(), benchOpen(true)) : benchLoad(true).then(() => benchOpen(true)));
+$('evaBenchPill').onclick = () => benchOpen(true);
 $('evaStatusBtn').onclick = () => root.classList.contains('panel-open') ? closeAll() : openPanel();
 $('evaHistoryBtn').onclick = () => root.classList.contains('history-open') ? closeAll() : openHistory();
 $('evaHistoryClose').onclick = closeAll;
@@ -780,10 +849,173 @@ $('evaTypebar').onsubmit = e => {
 function setConnection(live) { $('evaConn').dataset.live = String(!!live); }
 
 /* ---------- public API ---------- */
+/* ---------------- the workbench (v0.5): a task's work, live, like EDITH at the bench ---------------- */
+const BENCH = { t: null, pinned: 0, closed: new Set(), tab: 'model', modelKey: '' };
+const benchEl = () => $('evaBench');
+function benchFile(task, path, v) { return `/api/tasks/${encodeURIComponent(task)}/file?path=${encodeURIComponent(path)}${v ? '&v=' + v : ''}`; }
+function benchOpen(open) {
+  const root = $('eva'); root.classList.toggle('bench-open', !!open);
+  benchEl().setAttribute('aria-hidden', open ? 'false' : 'true'); $('evaBenchBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open && BENCH.t) BENCH.closed.delete(BENCH.t.task); else if (!open && BENCH.t) BENCH.closed.add(BENCH.t.task);
+  benchPill();
+}
+function benchPill() {
+  const p = $('evaBenchPill'), t = BENCH.t, live = t && ['running', 'queued', 'waiting'].includes(t.status);
+  p.hidden = !live || $('eva').classList.contains('bench-open');
+  if (!p.hidden) { p.textContent = ''; p.append(h('i'), h('span', null, `${t.title}: ${t.now || t.status}`)); }
+}
+function benchState(st) {
+  BENCH.t = { task: st.task, title: st.title, status: st.status, plan: st.plan || [], now: st.now || '', cost: st.cost_eur || 0,
+    steps: st.steps || 0, events: (st.events || []).slice(-60), code: st.code, output: st.output, model: st.model, v: Date.now() };
+  BENCH.tab = st.model ? 'model' : st.code ? 'code' : 'model'; BENCH.modelKey = '';
+  benchRender();
+}
+function benchEvent(task, ev) {
+  if (!BENCH.t || BENCH.t.task !== task) {
+    BENCH.t = { task, title: ev.state?.title || 'Task', status: 'running', plan: [], now: '', cost: 0, steps: 0, events: [], code: null, output: null, model: null, v: 0 };
+    BENCH.modelKey = '';
+  }
+  const t = BENCH.t, s = ev.state || {};
+  Object.assign(t, { title: s.title ?? t.title, status: s.status ?? t.status, plan: s.plan ?? t.plan, now: s.now ?? t.now, cost: s.cost_eur ?? t.cost, steps: s.steps ?? t.steps });
+  const recent = Date.now() - BENCH.pinned < 20000;          // you picked a tab: she doesn't flip it for 20 s
+  if (ev.kind === 'code') { t.code = { path: ev.path, text: ev.text || '' }; if (!recent) BENCH.tab = 'code'; }
+  if (ev.kind === 'output') { t.output = { text: ev.text || '', ok: ev.ok !== false }; if (!recent && ev.ok === false) BENCH.tab = 'output'; }
+  if (ev.kind === 'model') { t.model = { path: ev.path, png: ev.png, size_mm: ev.size_mm }; t.v = Date.now(); if (!recent) BENCH.tab = 'model'; }
+  if (['doing', 'did', 'say', 'status', 'model', 'plan', 'output'].includes(ev.kind)) { t.events.push(ev); t.events = t.events.slice(-60); }
+  if (ev.kind === 'doing' && ev.label) t.now = ev.label;
+  if (!BENCH.closed.has(task) && ['running', 'queued'].includes(t.status) && !$('eva').classList.contains('bench-open')) benchOpen(true);
+  benchRender();
+}
+function benchRender() {
+  const el = benchEl(), t = BENCH.t; benchPill();
+  if (!t) { el.textContent = ''; el.append(h('div', { class: 'bench__empty', style: 'grid-column:1/-1' }, 'No task yet. Ask me to design, research or plan something.')); return; }
+  el.dataset.s = t.status;
+  const statusWord = { running: 'Working', queued: 'Starting', waiting: 'Needs you', done: 'Done', paused: 'Paused', failed: 'Stopped', cancelled: 'Cancelled' }[t.status] || t.status;
+  const head = h('div', { class: 'bench__head' },
+    h('span', { class: 'bench__status', 'data-s': t.status }, h('i'), statusWord),
+    h('span', { class: 'bench__title' }, t.title),
+    h('span', { class: 'bench__now' }, t.now),
+    h('span', { class: 'bench__meta' }, `${t.steps} steps · ${Math.round(t.cost * 100)} cents`),
+    $('eva').classList.contains('stage-mode') ? null : h('a', { class: 'icon-btn', href: '/stage', target: '_blank', rel: 'noopener', 'aria-label': 'Full screen on another monitor', title: 'Full screen' }, icon('expand')),
+    $('eva').classList.contains('stage-mode') ? null : h('button', { class: 'icon-btn', 'aria-label': 'Close the workbench', onclick: () => benchOpen(false) }, icon('x')));
+  const next = t.plan.findIndex(p => !p.done);
+  const plan = h('div', { class: 'bench__plan' }, h('div', { class: 'bench__label' }, 'Plan'),
+    t.plan.length ? t.plan.map((p, i) => h('div', { class: 'bench__step' + (p.done ? ' is-done' : i === next ? ' is-next' : '') },
+      h('b', null, p.done ? '\u2713' : String(i + 1)), h('span', null, p.step))) : h('div', { class: 'bench__step' }, 'Planning...'));
+  const hm2 = ts => { const d = new Date((ts || 0) * 1000); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const feed = h('div', { class: 'bench__feed' }, h('div', { class: 'bench__label' }, 'Activity'),
+    t.events.slice().reverse().filter(e => e.kind !== 'plan').slice(0, 40).map(e => h('div', { class: 'bench__ev' + (e.kind === 'say' ? ' is-say' : '') + (e.ok === false ? ' is-bad' : '') },
+      h('time', null, hm2(e.ts)), h('span', null, e.kind === 'did' ? (e.ok === false ? '\u2715' : '\u2713') : e.kind === 'say' ? '\u201c' : '\u2022'),
+      h('span', null, e.kind === 'say' ? e.text : e.kind === 'model' ? `New version of ${e.path}` : e.kind === 'status' ? (e.asked ? `Asked you: ${e.asked}` : statusWord) : e.kind === 'output' ? (e.ok === false ? 'The code hit an error' : 'The code ran') : e.label))));
+  const tabs = [['model', 'Model', !!t.model], ['code', 'Code', !!t.code], ['output', 'Output', !!t.output]];
+  if (!tabs.find(x => x[0] === BENCH.tab && x[2])) BENCH.tab = (tabs.find(x => x[2]) || tabs[0])[0];
+  const view = h('div', { class: 'bench__view' });
+  let caption = '';
+  if (BENCH.tab === 'model' && t.model) {
+    const key = `${t.model.path}|${t.v}`;
+    const keep = BENCH.modelKey === key && BENCH.viewer;
+    const v = keep ? BENCH.viewer : (modelViewer(benchFile(t.task, t.model.path, t.v)) || h('img', { class: 'model__img', src: benchFile(t.task, t.model.png, t.v), alt: t.model.path }));
+    BENCH.viewer = v; BENCH.modelKey = key; view.append(v); if (keep && v.redraw) v.redraw();
+    caption = `${t.model.path}: ${(t.model.size_mm || []).map(x => Math.round(x)).join(' x ')} mm. Drag to turn it.`;
+  } else if (BENCH.tab === 'code' && t.code) {
+    view.append(h('pre', { class: 'bench__code' }, t.code.text)); caption = t.code.path;
+  } else if (BENCH.tab === 'output' && t.output) {
+    view.append(h('pre', { class: 'bench__code' + (t.output.ok ? '' : ' is-bad') }, t.output.text || '(nothing printed)')); caption = t.output.ok ? 'What the code printed' : 'The error';
+  } else view.append(h('div', { class: 'bench__empty' }, t.status === 'running' ? 'Working on it. The model shows up here as soon as there is one.' : 'Nothing to show yet.'));
+  const main = h('div', { class: 'bench__main' },
+    h('div', { class: 'bench__tabs' }, tabs.map(([k, label, ok]) => h('button', { class: 'bench__tab' + (BENCH.tab === k ? ' is-on' : ''), disabled: !ok,
+      onclick: () => { BENCH.tab = k; BENCH.pinned = Date.now(); benchRender(); } }, label))),
+    view, h('div', { class: 'bench__scan' }), h('div', { class: 'bench__caption' }, caption));
+  el.textContent = '';
+  el.append(head, h('div', { class: 'bench__side' }, plan, feed), main);
+  if (BENCH.tab === 'code') { const pre = view.querySelector('pre'); if (pre) pre.scrollTop = pre.scrollHeight; }
+}
+async function benchLoad(open) {
+  try {
+    const r = await fetch('/api/tasks/live', { credentials: 'same-origin' }); if (!r.ok) return;
+    const list = (await r.json()).tasks || []; if (!list.length) { benchRender(); return; }
+    const pick = list[0], s = await fetch(`/api/tasks/${pick.task}/live`, { credentials: 'same-origin' });
+    if (s.ok) { benchState(await s.json()); if (open || ['running', 'queued'].includes(pick.status)) benchOpen(true); }
+  } catch (_) {}
+}
+
+/* ---------------- 3D models: an STL from a task, turned with a finger or the mouse (WebGL, no libraries) ---------------- */
+function parseSTL(buf) {
+  const dv = new DataView(buf);
+  if (buf.byteLength >= 84) {
+    const n = dv.getUint32(80, true);
+    if (n > 0 && 84 + n * 50 === buf.byteLength) {
+      const v = new Float32Array(n * 9);
+      for (let i = 0; i < n; i++) { const o = 84 + i * 50 + 12; for (let k = 0; k < 9; k++) v[i * 9 + k] = dv.getFloat32(o + k * 4, true); }
+      return v;
+    }
+  }
+  const nums = [...new TextDecoder().decode(buf).matchAll(/vertex\s+(\S+)\s+(\S+)\s+(\S+)/g)];
+  const v = new Float32Array(Math.floor(nums.length / 3) * 9);
+  for (let i = 0; i < v.length / 3; i++) { v[i * 3] = +nums[i][1]; v[i * 3 + 1] = +nums[i][2]; v[i * 3 + 2] = +nums[i][3]; }
+  return v;
+}
+function modelViewer(src) {
+  const cv = h('canvas', { class: 'model__view', 'aria-label': 'The model. Drag to turn it.' });
+  const gl = cv.getContext('webgl', { antialias: true });
+  if (!gl) return null;
+  const sh = (type, code) => { const s = gl.createShader(type); gl.shaderSource(s, code); gl.compileShader(s); return s; };
+  const pr = gl.createProgram();
+  gl.attachShader(pr, sh(gl.VERTEX_SHADER, 'attribute vec3 p;attribute vec3 n;uniform mat3 r;uniform vec3 k;varying float l;' +
+    'void main(){vec3 q=r*p;vec3 m=normalize(r*n);l=.3+.7*abs(dot(m,normalize(vec3(-.4,.6,-.7))));gl_Position=vec4(q.x*k.x,q.z*k.y,q.y*k.z,1.);}'));
+  gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, 'precision mediump float;varying float l;void main(){gl_FragColor=vec4(vec3(.66,.56,1.)*l,1.);}'));
+  gl.linkProgram(pr); gl.useProgram(pr);
+  const st = { yaw: -0.6, pitch: 0.45, zoom: 1, n: 0, span: 1 };
+  const draw = () => {
+    const w = cv.clientWidth || 320, hh = cv.clientHeight || 260, dpr = devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr); }
+    gl.viewport(0, 0, cv.width, cv.height);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
+    const cy = Math.cos(st.yaw), sy = Math.sin(st.yaw), cp = Math.cos(st.pitch), sp = Math.sin(st.pitch);
+    // rotate about z (up), then tilt about x; column-major for WebGL
+    gl.uniformMatrix3fv(gl.getUniformLocation(pr, 'r'), false, [cy, cp * sy, sp * sy, -sy, cp * cy, sp * cy, 0, -sp, cp]);
+    const s = 2.3 * st.zoom / st.span;
+    gl.uniform3f(gl.getUniformLocation(pr, 'k'), s * hh / w, s, 1 / st.span);
+    if (st.n) gl.drawArrays(gl.TRIANGLES, 0, st.n);
+  };
+  fetch(src, { credentials: 'same-origin' }).then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status)).then(buf => {
+    const v = parseSTL(buf), n = new Float32Array(v.length);
+    let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < v.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], v[i + k]); hi[k] = Math.max(hi[k], v[i + k]); }
+    for (let i = 0; i < v.length; i += 3) for (let k = 0; k < 3; k++) v[i + k] -= (lo[k] + hi[k]) / 2;
+    for (let t = 0; t < v.length; t += 9) {
+      const ax = v[t + 3] - v[t], ay = v[t + 4] - v[t + 1], az = v[t + 5] - v[t + 2], bx = v[t + 6] - v[t], by = v[t + 7] - v[t + 1], bz = v[t + 8] - v[t + 2];
+      const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+      for (let j = 0; j < 9; j += 3) { n[t + j] = nx; n[t + j + 1] = ny; n[t + j + 2] = nz; }
+    }
+    st.span = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1; st.n = v.length / 3;
+    [['p', v], ['n', n]].forEach(([name, data]) => {
+      const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(pr, name); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+    });
+    requestAnimationFrame(draw);
+  }).catch(() => cv.replaceWith(h('div', { class: 'card__sub' }, "I couldn't load the model.")));
+  let last = null;
+  cv.addEventListener('pointerdown', e => { last = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointerup', () => { last = null; });
+  cv.addEventListener('pointermove', e => {
+    if (!last) return;
+    st.yaw += (e.clientX - last[0]) * 0.01; st.pitch = Math.max(-1.5, Math.min(1.5, st.pitch + (e.clientY - last[1]) * 0.01));
+    last = [e.clientX, e.clientY]; requestAnimationFrame(draw);
+  });
+  cv.redraw = () => requestAnimationFrame(draw);
+  cv.addEventListener('wheel', e => { e.preventDefault(); st.zoom = Math.max(0.3, Math.min(5, st.zoom * (e.deltaY < 0 ? 1.1 : 0.9))); requestAnimationFrame(draw); }, { passive: false });
+  return cv;
+}
+
 window.EVA = { setState, setLevel: v => { core.level = v == null ? null : Math.max(0, Math.min(1, v)); },
   setCaption, setHint, setConnection, showCard, showCards, dismiss, clearCards, expand,
   alert: (data) => { const id = showCard('alert', data, { proactive: true }); setState('alert'); return id; },
   setStatus, openPanel, openHistory, closeAll, addTranscript, rules: RULES };
+window.EVA.bench = { event: benchEvent, load: benchLoad, open: benchOpen };   // v0.5: the bridge feeds the workbench
+if (location.pathname === '/stage' || new URLSearchParams(location.search).has('stage')) {   // full screen on another monitor
+  root.classList.add('stage-mode'); benchOpen(true);
+}
 
 startCore();
 setHint('Listening for "Hey Eva"');
@@ -871,74 +1103,6 @@ function proactiveCard(d, text) {
   if (d && d.kind === 'email') { const m = (d.emails || [])[0] || {}; return { type: 'alert', data: { kind: 'Email', title: `Important email from ${m.from || ''}`.trim(), text: m.subject || '' } }; }
   if (d && /reminder|routine/i.test(d.title || '')) return { type: 'reminder', data: { title: d.text || title } };
   return { type: 'alert', data: { kind: 'E.V.A.', title, text: d && d.text && d.text !== title ? d.text : '' } };
-}
-
-/* ---------------- 3D models: an STL from a task, turned with a finger or the mouse (WebGL, no libraries) ---------------- */
-function parseSTL(buf) {
-  const dv = new DataView(buf);
-  if (buf.byteLength >= 84) {
-    const n = dv.getUint32(80, true);
-    if (n > 0 && 84 + n * 50 === buf.byteLength) {
-      const v = new Float32Array(n * 9);
-      for (let i = 0; i < n; i++) { const o = 84 + i * 50 + 12; for (let k = 0; k < 9; k++) v[i * 9 + k] = dv.getFloat32(o + k * 4, true); }
-      return v;
-    }
-  }
-  const nums = [...new TextDecoder().decode(buf).matchAll(/vertex\s+(\S+)\s+(\S+)\s+(\S+)/g)];
-  const v = new Float32Array(Math.floor(nums.length / 3) * 9);
-  for (let i = 0; i < v.length / 3; i++) { v[i * 3] = +nums[i][1]; v[i * 3 + 1] = +nums[i][2]; v[i * 3 + 2] = +nums[i][3]; }
-  return v;
-}
-function modelViewer(src) {
-  const cv = h('canvas', { class: 'model__view', 'aria-label': 'The model. Drag to turn it.' });
-  const gl = cv.getContext('webgl', { antialias: true });
-  if (!gl) return null;
-  const sh = (type, code) => { const s = gl.createShader(type); gl.shaderSource(s, code); gl.compileShader(s); return s; };
-  const pr = gl.createProgram();
-  gl.attachShader(pr, sh(gl.VERTEX_SHADER, 'attribute vec3 p;attribute vec3 n;uniform mat3 r;uniform vec3 k;varying float l;' +
-    'void main(){vec3 q=r*p;vec3 m=normalize(r*n);l=.3+.7*abs(dot(m,normalize(vec3(-.4,.6,-.7))));gl_Position=vec4(q.x*k.x,q.z*k.y,q.y*k.z,1.);}'));
-  gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, 'precision mediump float;varying float l;void main(){gl_FragColor=vec4(vec3(.66,.56,1.)*l,1.);}'));
-  gl.linkProgram(pr); gl.useProgram(pr);
-  const st = { yaw: -0.6, pitch: 0.45, zoom: 1, n: 0, span: 1 };
-  const draw = () => {
-    const w = cv.clientWidth || 320, hh = cv.clientHeight || 260, dpr = devicePixelRatio || 1;
-    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr); }
-    gl.viewport(0, 0, cv.width, cv.height);
-    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
-    const cy = Math.cos(st.yaw), sy = Math.sin(st.yaw), cp = Math.cos(st.pitch), sp = Math.sin(st.pitch);
-    // rotate about z (up), then tilt about x; column-major for WebGL
-    gl.uniformMatrix3fv(gl.getUniformLocation(pr, 'r'), false, [cy, cp * sy, sp * sy, -sy, cp * cy, sp * cy, 0, -sp, cp]);
-    const s = 2.3 * st.zoom / st.span;
-    gl.uniform3f(gl.getUniformLocation(pr, 'k'), s * hh / w, s, 1 / st.span);
-    if (st.n) gl.drawArrays(gl.TRIANGLES, 0, st.n);
-  };
-  fetch(src, { credentials: 'same-origin' }).then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status)).then(buf => {
-    const v = parseSTL(buf), n = new Float32Array(v.length);
-    let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
-    for (let i = 0; i < v.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], v[i + k]); hi[k] = Math.max(hi[k], v[i + k]); }
-    for (let i = 0; i < v.length; i += 3) for (let k = 0; k < 3; k++) v[i + k] -= (lo[k] + hi[k]) / 2;
-    for (let t = 0; t < v.length; t += 9) {
-      const ax = v[t + 3] - v[t], ay = v[t + 4] - v[t + 1], az = v[t + 5] - v[t + 2], bx = v[t + 6] - v[t], by = v[t + 7] - v[t + 1], bz = v[t + 8] - v[t + 2];
-      const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
-      for (let j = 0; j < 9; j += 3) { n[t + j] = nx; n[t + j + 1] = ny; n[t + j + 2] = nz; }
-    }
-    st.span = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1; st.n = v.length / 3;
-    [['p', v], ['n', n]].forEach(([name, data]) => {
-      const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-      const loc = gl.getAttribLocation(pr, name); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
-    });
-    requestAnimationFrame(draw);
-  }).catch(() => cv.replaceWith(h('div', { class: 'card__sub' }, "I couldn't load the model.")));
-  let last = null;
-  cv.addEventListener('pointerdown', e => { last = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener('pointerup', () => { last = null; });
-  cv.addEventListener('pointermove', e => {
-    if (!last) return;
-    st.yaw += (e.clientX - last[0]) * 0.01; st.pitch = Math.max(-1.5, Math.min(1.5, st.pitch + (e.clientY - last[1]) * 0.01));
-    last = [e.clientX, e.clientY]; requestAnimationFrame(draw);
-  });
-  cv.addEventListener('wheel', e => { e.preventDefault(); st.zoom = Math.max(0.3, Math.min(5, st.zoom * (e.deltaY < 0 ? 1.1 : 0.9))); requestAnimationFrame(draw); }, { passive: false });
-  return cv;
 }
 
 /* ---------------- audio: Kokoro chunks, strictly ordered ---------------- */
@@ -1044,7 +1208,7 @@ function speak(text, then) {                                   // fallback when 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   try { ws = new WebSocket(`${proto}://${location.host}/ws`); } catch (_) { return; }
-  ws.onopen = () => { connected = true; E.setConnection(true); idleHint(); refreshStatus(); flushDevice(); };
+  ws.onopen = () => { connected = true; E.setConnection(true); idleHint(); refreshStatus(); flushDevice(); if (E.bench) E.bench.load(document.getElementById('eva').classList.contains('stage-mode')); };
   ws.onclose = () => { connected = false; ttsMode = 'browser'; sttMode = 'browser'; toldSpeaking = false; micRelease();
     E.setConnection(false); setTimeout(connect, 2500); };
   ws.onmessage = e => handle(JSON.parse(e.data));
@@ -1095,6 +1259,7 @@ function handle(ev) {
     }
     case 'audio': onAudio(ev); break;
     case 'audio_end': onAudioEnd(ev); break;
+    case 'task_live': if (E.bench) E.bench.event(ev.task, ev.event || {}); break;    // v0.5: the workbench
   }
 }
 function send(text, viaVoice) {

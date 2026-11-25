@@ -71,6 +71,7 @@ inference:
       forge: "auto"                       # writing skills: Claude when available (~EUR 0.10-0.30 a skill, facts checked
                                           # against the web); "local" = your GPU, free, facts unchecked
       understanding: "auto"               # which skill a sentence wants (Claude, ~EUR 0.0001 a command). local = stays on the PC
+      mind: "auto"                        # v0.5: sentences that need thinking (Claude Haiku, Sonnet when hard). local = the old way
 
 # v0.3.1: understanding what you mean (core/understand/brains.py). Measure first: python -m core.understand.eval
 understanding:
@@ -274,6 +275,13 @@ calendar:
     - "microsoft"
 
 # v0.4 "Agent": long tasks in the background (core/agent, docs/AGENT.md)
+mind:                                  # v0.5 one mind (docs/MIND.md): sentences that need thinking
+  enabled: true                        # false = the old way (one tool, its line, or the local model)
+  model: "claude-haiku-5-5"            # most thoughts ($0.10 / $0.50 per million tokens, a fraction of a cent each)
+  hard_model: "claude-sonnet-5-5"      # when she calls think_harder (designs, tricky plans)
+  effort: "medium"                     # Haiku's default; "low" is faster but skips checks more often
+  max_steps: 6                         # tool rounds in one answer before she answers with what she has
+
 agent:
   model: "claude-sonnet-5-5"           # plans and works through a task ($2 / $10 per million tokens)
   budget_eur: 1.0                      # per task; going over it is a question for you

@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-DEFAULTS = {"above": 150, "keep": 50, "always": ["task_answer", "task_status", "keep_listening", "local_only",
+DEFAULTS = {"above": 150, "keep": 50, "always": ["work_it_out", "task_answer", "task_status", "keep_listening", "local_only",
                                                   "test_mode", "forge_build", "task_start"]}
 _STOP = {"the", "a", "an", "to", "of", "and", "or", "in", "on", "for", "my", "me", "is", "it", "can", "you",
          "please", "what", "how", "do", "i", "eva", "hey", "with", "at", "this", "that", "be", "are", "will",

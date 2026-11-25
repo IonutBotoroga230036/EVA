@@ -241,3 +241,11 @@ most work with natural variations too. Anything marked **asks first** waits for 
 
 ## Testing her
 - docs/VOICE_TESTS.md: a checklist of voice requests to run after every update.
+
+
+## Thinking things through (v0.5, docs/MIND.md)
+- Ask her anything that needs thinking ("how can I see the files?", "should I...?", "what would you do?"): she
+  looks things up, checks your PC, gives options and asks one question. Commands stay instant.
+- "What opens STL files on my PC?" / "install PrusaSlicer" (asks first) / "open the base in PrusaSlicer"
+- The workbench: while a task works, watch it live (plan, what she's doing, code, the model in 3D). The wrench
+  button opens it; `/stage` is full screen for a second monitor.

@@ -330,3 +330,19 @@ labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-commun
 | 23.14 | "Open the guitar stand folder on my PC" | Explorer opens Documents\E.V.A.\guitar stand | `TOOL task_show({... 'on_pc': True})` |
 | 23.15 | A new design task | She looks at her own pictures while she works (an assembly too), checks stability with numbers, asks once to copy all files, and says two sentences at the end | `TOOL preview_model` in the task log |
 | 23.16 | Start E.V.A. a second time while one runs | "Port 8001 is already in use: E.V.A. is probably still running" | |
+
+
+## 24. v0.5: one mind and the workbench (needs ANTHROPIC_API_KEY)
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 24.1 | "Lights off" / "what time is it" / "next train to Nijmegen" | Exactly as before, just as fast | no `MIND:` line |
+| 24.2 | "How can I see the files you made?" | She checks what opens STL files and offers options (show it here, open it, install a viewer), one question | `MIND: step 1: check_installed`, `MIND: answered` |
+| 24.3 | "Install it" / "yes" | "Just to confirm, sir: install PrusaSlicer on your PC with winget (Prusa3D.PrusaSlicer)" then it installs | `TOOL install_app` |
+| 24.4 | "Open the base in PrusaSlicer" | It opens | `TOOL open_file` |
+| 24.5 | "Should I print it at the library or buy a printer?" | A real answer with a recommendation, short, no list read out | `MIND: answered` |
+| 24.6 | "How are you?" | The usual quick answer | no `MIND:` line |
+| 24.7 | "Eva, design me a guitar stand so I can print it on a 3D printer" | The workbench opens: plan, "Writing ...", code, then the model turning in 3D as she makes it | `AGENT:` lines |
+| 24.8 | Close the workbench | A pill at the top keeps showing what she's doing; tap it to reopen | |
+| 24.9 | Open `https://<pc>:8443/stage` on a second screen | The same, full screen | |
+| 24.10 | "Eva, local only", then 24.2 again | The old way, no Claude | no `MIND:` line |
