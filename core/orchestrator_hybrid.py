@@ -161,8 +161,10 @@ _DENIAL = re.compile(r"\b(?:i (?:can ?not|can't|am unable to|do not have|don't h
 # nothing planned. A sentence about your calendar, email, weather or music, when no tool of that kind ran this turn,
 # is replaced by an honest offer to check; "yes" then runs the check.
 _FACTS = {
-    "calendar": (re.compile(r"\byou(?:'re| are) (?:free|busy|clear)\b(?! to)|\b(?:looks?|is) (?:clear|wide open|free|"
-                            r"open|busy|packed)\b|\bfree (?:slot|time|window)s?\b|\bno (?:meetings?|events?|class(?:es)?|"
+    "calendar": (re.compile(r"\byou(?:'re| are) (?:free|busy|clear)\b(?! to)|\b(?:looks?|is) (?:clear|wide open|busy|"
+                            r"packed)\b|\b(?:day|morning|afternoon|evening|night|schedule|calendar|agenda|today|tonight|"
+                            r"tomorrow|week|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b[^.]{0,25}?"
+                            r"\b(?:is|looks?|seems?) (?:free|open)\b|\bfree (?:slot|time|window)s?\b|\bno (?:meetings?|events?|class(?:es)?|"
                             r"appointments?|lectures?)\b|\byou have (?:a |an |no |\d+ |two |three )?(?:meetings?|events?|"
                             r"class(?:es)?|appointments?|lectures?)\b|\bnothing (?:on (?!your (?:pc|computer|laptop|phone|screen|disk|drive)\b)|scheduled|planned)\b|\byour "
                             r"(?:calendar|schedule) (?:is|looks)\b", re.I), ("calendar_",)),
@@ -1965,6 +1967,7 @@ class HybridOrchestrator:
                 self._conv_turn = True
             # nothing looked up: each sentence is checked before it's spoken; a made-up fact stops the stream
             tools_now, buf, tripped = [t for t, _ in gathered], "", False
+            tool_says = {out.get("say") for _, out in gathered if out.get("say")}   # a tool's own line was checked
             async for ev in (self._converse(client, user_input, ctx) if talk
                              else self._answer(client, gathered, user_input, ctx)):
                 if ev["type"] == "token":
@@ -1982,7 +1985,7 @@ class HybridOrchestrator:
                         continue
                     ev = {**ev, "text": done}
                 if ev["type"] == "final":
-                    kind = unchecked_fact(ev["text"], tools_now)
+                    kind = None if ev["text"].strip() in tool_says else unchecked_fact(ev["text"], tools_now)
                     if kind:
                         text, check = offer_for(kind, user_input, ev["text"])
                         logger.warning(f"fact guard ({kind}): {ev['text']!r} without checking")

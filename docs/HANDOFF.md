@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v060_show_projects.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v060b_budget_pause.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,18 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 25 Nov 2026 (23:20, v0.6b: a task stuck on budget)
+
+His 23:14 log: the desk display task (86396a4c) had paused when the daily limit (then 1.50) had 17 cents left and a
+Sonnet turn can cost up to 17 cents (16000 max tokens). He raised the limit to 3.00, but "carry on" went to
+task_resume, which only knew "paused" ("isn't paused, it's waiting"), and the status read the raw
+BudgetExceeded text. And "what's my budget" lost its answer to the calendar fact guard ("Local work is free"
+matched "is free"). Fixed (zip `eva_v060b_budget_pause.zip`): budget pauses are waits with consent_kind "budget"
+and a plain message (`_budget_words`); resume() answers a waiting task ("Carry on."); at start, budget-paused tasks
+go on by themselves when there's budget (`_budget_ok`); `_add_user` merges an answer into a trailing user message
+(a pause before her first reply or after tool results left two user turns in a row: the API rejects that); the
+fact guard skips a tool's own line and treats "free"/"open" as calendar claims only next to a day or calendar word.
 
 ## State on 25 Nov 2026 (23:00, v0.6 showing, projects, places)
 

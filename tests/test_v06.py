@@ -267,3 +267,42 @@ def test_the_map_server_is_asked_politely(monkeypatch):
     assert nearby.search("cafe", (51.589, 4.776), 900) == []
     assert [u for u, _, _ in sent] == list(nearby.SERVERS)                       # the fallback answered
     assert sent[0][2]["User-Agent"].startswith("EVA-personal-assistant") and "data" in sent[0][1]
+
+
+# ---------------------------------------------------------------- Nov 25 23:14 log: a task stuck on budget
+def test_a_budget_pause_is_clear_and_carry_on_resumes_it(mgr):  # noqa: F811
+    from core.budget import BudgetExceeded
+    m = mgr([BudgetExceeded("this call could cost up to EUR 0.170"), [T("finish", summary="Done, sir.")]])
+    t = m.start("research transparent oled desk displays")
+    t = get_store().get(t.id)
+    assert t.status == "waiting" and t.waiting["consent_kind"] == "budget"
+    assert "cents of today's" in t.waiting["text"] and "EUR 0.170" not in t.waiting["text"]
+    st = m.status_text(t)
+    assert "paused" in st and "say 'carry on'" in st and "I asked" not in st
+    m.resume(t)                                  # "you can carry on" -> task_resume used to say "it's waiting"
+    assert get_store().get(t.id).status == "done"
+
+
+def test_with_budget_again_it_goes_on_by_itself(mgr, monkeypatch):  # noqa: F811
+    from core.agent import runner
+    from core.budget import BudgetExceeded
+    m = mgr([BudgetExceeded("x"), [T("finish", summary="Done, sir.")]])
+    t = m.start("research transparent oled desk displays")
+    monkeypatch.setattr(runner, "_budget_ok", lambda need=0.25: False)
+    m.resume_after_restart()
+    assert get_store().get(t.id).status == "waiting"
+    monkeypatch.setattr(runner, "_budget_ok", lambda need=0.25: True)
+    m.resume_after_restart()
+    assert get_store().get(t.id).status == "done"
+    assert any("there's budget again" in said for _, said in m.told)
+
+
+@pytest.mark.parametrize("answer,kind", [
+    ("Today I've spent 1.33 of your 3.00 euro daily cloud budget. Local work is free.", None),
+    ("The shop is open until 10, sir.", None),
+    ("Your afternoon is free, sir.", "calendar"),
+    ("Friday looks open.", "calendar"),
+])
+def test_free_and_open_are_only_calendar_claims_with_a_day(answer, kind):
+    import core.orchestrator_hybrid as orch_mod
+    assert orch_mod.unchecked_fact(answer, []) == kind

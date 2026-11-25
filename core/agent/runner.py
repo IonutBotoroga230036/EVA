@@ -175,6 +175,37 @@ def spoken(text: str, sentences: int = 2, limit: int = 320) -> str:
     return out if len(out) <= limit else out[:limit].rsplit(" ", 1)[0] + "..."
 
 
+def _add_user(msgs: list, text: str) -> None:
+    """A user message, merged into the last one if that's already the user's (the API needs turns to alternate:
+    a budget pause before her first reply, or right after tool results, left a user message last)."""
+    if msgs and msgs[-1].get("role") == "user":
+        last = msgs[-1]["content"]
+        blocks = [{"type": "text", "text": last}] if isinstance(last, str) else list(last)
+        msgs[-1] = {"role": "user", "content": blocks + [{"type": "text", "text": text}]}
+    else:
+        msgs.append({"role": "user", "content": text})
+
+
+def _budget_ok(need: float = 0.25) -> bool:
+    try:
+        from core.budget import get_budget
+        return get_budget().can_spend(need)
+    except Exception:
+        return False
+
+
+def _budget_words(t: Task) -> str:
+    """Nov 25: 'this call could cost up to EUR 0.170; the budget doesn't allow it (EUR 0.17 left)' became words."""
+    try:
+        from core.budget import get_budget
+        b = get_budget().today_summary()
+        left = f"{b['remaining'] * 100:.0f} cents of today's {b['limit']:.2f} euros are left"
+    except Exception:
+        left = "today's cloud budget is nearly used up"
+    return (f"I paused the {t.title}, sir: {left}, and the next step could cost more than that. Say 'carry on' "
+            f"tomorrow, or raise the daily limit (daily_limit_euros in the settings) and I'll go on right away.")
+
+
 def _spoken_error(e: Exception) -> str:
     """'RuntimeError: Claude API error 400: {"type":"error",...,"message":"..."}' -> the message, short."""
     text = str(e)
@@ -284,6 +315,8 @@ class Manager:
             self.store.save(t)
             self._enqueue(t.id)
             return f"Trying the {t.title} again, sir."
+        if t.status == "waiting":                       # Nov 25: "carry on" to a task waiting on you (or the budget)
+            return self.answer("Carry on.", t.id)[1]
         if t.status != "paused":
             return f"The {t.title} isn't paused, sir; it's {t.status}."
         t.status = "waiting" if t.waiting and not t.waiting.get("answer") else "queued"
@@ -312,7 +345,11 @@ class Manager:
         if t.plan and t.status != "done":
             nxt = next((s["step"] for s in t.plan if not s.get("done")), "")
             parts.append(f", {done} of {len(t.plan)} steps done" + (f"; next: {nxt}" if nxt and t.status != "done" else ""))
-        if t.status == "waiting" and t.waiting.get("text"):
+        if t.status == "waiting" and t.waiting.get("consent_kind") == "budget":
+            parts[1] = "paused"
+            parts.append(". The day's cloud budget ran low, so it stopped before the next step; say 'carry on' and "
+                         "it goes on")
+        elif t.status == "waiting" and t.waiting.get("text"):
             parts.append(f". I asked: {t.waiting['text']}")
         if t.status == "done" and t.summary:
             parts.append(f". {spoken(t.summary)}")
@@ -352,7 +389,8 @@ class Manager:
                                 f"'resume the {t.title}' to try again; I'll carry on from where it stopped.")
 
     def resume_after_restart(self) -> int:
-        """Tasks that were running or queued when E.V.A. stopped carry on; waiting ones keep waiting."""
+        """Tasks that were running or queued when E.V.A. stopped carry on; waiting ones keep waiting, except the
+        ones that only waited for budget: if there's budget again (a new day, a higher limit) they go on."""
         n = 0
         for t in self.store.all():
             if t.status in ("running", "queued"):
@@ -360,6 +398,11 @@ class Manager:
                 t.note("resumed after a restart")
                 self.store.save(t)
                 self._enqueue(t.id)
+                n += 1
+            elif t.status == "waiting" and t.waiting.get("consent_kind") == "budget" and _budget_ok():
+                t.note("there's budget again")
+                self.answer("Carry on, there's budget again.", t.id)
+                self.notify(t, "progress", f"Sir, there's budget again, so I'm carrying on with the {t.title}.")
                 n += 1
         return n
 
@@ -431,8 +474,7 @@ class Manager:
                 except Exception as e:
                     from core.budget import BudgetExceeded
                     if isinstance(e, BudgetExceeded):
-                        return self._wait(t, "question", f"I paused the {t.title}, sir: {e}. Tell me to carry on "
-                                          f"when there's budget again.", None, msgs)
+                        return self._wait(t, "question", _budget_words(t), None, msgs, kind="budget")
                     raise
                 t.cost_eur += float(resp.get("cost_eur") or 0.0)
                 t.steps += 1
@@ -564,7 +606,10 @@ class Manager:
             if not u:
                 return True
         if u is None:                                          # she asked in plain words, not with a tool
-            msgs.append({"role": "user", "content": f"The user answered: {ans.get('words', '')}"})
+            said = f"The user answered: {ans.get('words', '')}"
+            if w.get("consent_kind") == "budget":
+                said = "(Paused for budget, now going on.) " + said
+            _add_user(msgs, said)
             return True
         results = list(w.get("results") or [])
         if w.get("kind") == "question":
