@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v040b_first_task.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v040c_see_it.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,26 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 25 Nov 2026 (19:40, the first finished guitar stand)
+
+Second run (19:24 to 19:37): the guitar stand finished in 7 steps for 8 cents (trimesh + numpy after his yes, two
+STLs delivered, two separate copy questions). Rendered here, the design is weak: a 210 x 190 mm plate with a cradle
+and a 200 mm upright T post, so a Strat stands nearly vertical on a small footprint; she couldn't see it. He then
+asked four times to see the model; understanding had no tool for it (task_status read the whole markdown summary
+aloud, see_screen said "No."). Fixed (zip `eva_v040c_see_it.zip`): `core/agent/preview.py` (STL to PNG, three
+views, depth buffer and crease lines, numpy + Pillow only); hand `preview_model` returns the picture to Claude as
+an image block in the tool_result (`_size` counts a picture as 3000, `_compact` drops old pictures); the system
+prompt asks her to look at every model plus an assembly and to check stability with numbers; `deliver_file` takes
+`paths` (one question); `finish` has `summary` (spoken, `runner.spoken` keeps two sentences, no markdown) and
+`details` (screen); finishing ticks the plan off; `task_show` (model card, `on_pc` opens Explorer); PC methods
+`preview` and `file_b64`; `GET /api/tasks/{tid}/file` (task folder only, model/png/md/txt/scad); the window's
+`model` card (WebGL viewer in eva.html, pictures in eva_classic.html); a finished task's announcement carries the
+card. FORGE: the planner knows skills can't control the mouse, keyboard or screen (feasible=false: has to be
+built in), and the crew stops when a fix still imports a module skills can't use (cursor control cost 26 cents
+over 4 rounds plus a review). Starting E.V.A. twice now says "Port 8001 is already in use". Next idea from him:
+E.V.A. controlling the cursor (a built-in computer-use tool with consent, not a FORGE skill; pyautogui is already
+a dependency).
 
 ## State on 25 Nov 2026 (19:15, first real task)
 

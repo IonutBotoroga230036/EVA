@@ -41,7 +41,9 @@ NEVER_RUN = {"cmd", "powershell", "pwsh", "bash", "sh", "zsh", "wsl", "python", 
              "scp", "ftp", "explorer", "taskkill", "del", "rm", "format", "diskpart", "bcdedit", "netsh", "icacls",
              "takeown", "runas", "git", "perl", "ruby", "php", "java", "javaw", "lua", "osascript"}
 METHODS = ("list_files", "read_file", "write_file", "run_python", "pip_install", "find_program", "install_program",
-           "run_program", "export_file", "info")
+           "run_program", "export_file", "info", "preview", "file_b64")
+SHOWABLE = {".stl": "model/stl", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml",
+            ".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".scad": "text/plain; charset=utf-8"}
 
 SANDBOX = r'''
 import os, sys, runpy
@@ -275,6 +277,39 @@ class LocalPC:
         dest = dest_dir / src.name
         shutil.copy2(src, dest)
         return {"copied_to": str(dest)}
+
+
+    def preview(self, task: str, path: str) -> dict:
+        """A picture of a 3D model in the task folder (core/agent/preview.py), saved as _eva_preview/<name>.png."""
+        from core.agent.preview import render
+        ws = _workspace(task)
+        src = _inside(ws, path)
+        if not src.is_file() or src.suffix.lower() != ".stl":
+            raise PCError(f"{path} isn't an STL file in the task folder")
+        if src.stat().st_size > 60 * 1024 * 1024:
+            raise PCError("that model is too big to draw (60 MB)")
+        out_dir = ws / "_eva_preview"
+        out_dir.mkdir(exist_ok=True)
+        rel = src.relative_to(ws).as_posix()
+        png = out_dir / (rel.replace("/", "__")[:-4] + ".png")
+        if not png.exists() or png.stat().st_mtime < src.stat().st_mtime:
+            info = render(src, png)
+        else:
+            from core.agent.preview import load_stl
+            pts = load_stl(src).reshape(-1, 3)
+            info = {"size_mm": [round(float(x), 1) for x in pts.max(0) - pts.min(0)], "triangles": len(pts) // 3}
+        return {"model": rel, "png": png.relative_to(ws).as_posix(), "size_mm": info["size_mm"],
+                "triangles": info["triangles"], "png_b64": base64.b64encode(png.read_bytes()).decode()}
+
+    def file_b64(self, task: str, path: str) -> dict:
+        """A file to show in E.V.A.'s window (models, pictures, notes): never anything outside the task folder."""
+        ws = _workspace(task)
+        src = _inside(ws, path)
+        if not src.is_file() or src.suffix.lower() not in SHOWABLE:
+            raise PCError(f"{path} isn't a file I can show")
+        if src.stat().st_size > 30 * 1024 * 1024:
+            raise PCError("that file is too big to show (30 MB)")
+        return {"path": path, "type": SHOWABLE[src.suffix.lower()], "b64": base64.b64encode(src.read_bytes()).decode()}
 
 
 class RemotePC:

@@ -292,3 +292,18 @@ def test_no_pull_request_unless_set_up(monkeypatch):
     assert github_pr.ready() == (False, "github.pull_requests is off in settings")
     told = []
     assert github_pr.propose_in_background("x", ".", "", "", [], told.append) is False and told == []
+
+
+def test_a_module_skills_cant_have_stops_after_one_fix(forge):
+    """Nov 25: cursor control imported pyautogui, then ctypes, then simulated it; four paid rounds and a review."""
+    gui = "```python\nimport pyautogui\n" + MOON + "```"
+    raw = "```python\nimport ctypes\n" + MOON + "```"
+    brain = FakeBrain(coder=[gui], fixer=[raw, raw, raw, raw])
+    p = build(forge, brain)
+    assert p.status == "rejected" and "imports ctypes, which skills can't use" in p.reason
+    assert "built into E.V.A. herself" in p.reason
+    assert brain.calls == ["planner", "coder", "tester", "fixer"]          # no rounds 3 and 4, no reviewer
+
+
+def test_the_planner_knows_what_skills_cant_do():
+    assert "mouse, keyboard or screen" in fc.PLANNER and "built into E.V.A. herself" in fc.PLANNER

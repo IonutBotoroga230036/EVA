@@ -63,6 +63,10 @@ Decide if it can be built as a small Python skill, and if so, write a short spec
   of 2000-01-06 18:14 UTC; unit and date maths; calendars). Otherwise a free https API with no key.
 - feasible=false ONLY if it needs a paid key, an account or login, hardware, other software, or admin rights.
   Needing the internet is never a reason.
+- Skills run in a sandbox: Python's standard library plus httpx, numpy and yaml, and nothing that controls the
+  computer. So feasible=false when it needs the mouse, keyboard or screen (moving the cursor, clicking, typing
+  into other apps), running programs, other processes or system settings; the reason says what it needs and
+  that this has to be built into E.V.A. herself, not as a skill.
 - 1 to 3 tools. snake_case names. params: {"param_name": "string" | "number" | "boolean"} (flat).
 - changes_something: true only if the tool changes something outside itself. confirm: what it will do, when
   it can't be undone. trigger_words: 2-6 words a user's request would contain.
@@ -326,6 +330,12 @@ class Crew:
             if not problems:
                 break
             if rnd == self.max_fix:
+                break
+            banned = [b for b in blocks if " imports " in b]
+            if rnd >= 1 and banned:                   # Nov 25: it still needs a module skills can't have
+                logger.info(f"FORGE crew: still needs {banned[0].split(' imports ')[1]} after a fix; stopping")
+                problems = [f"{banned[0].split(', which')[0]}, which skills can't use, so this has to be built "
+                            f"into E.V.A. herself"]
                 break
             failing = sorted(result["failed"])
             signature = (tuple(failing), tuple(blocks + missing + result["contract"] + ([live] if live else [])))

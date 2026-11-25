@@ -39,6 +39,7 @@ class Task:
     budget_eur: float = 1.0
     steps: int = 0
     summary: str = ""
+    details: str = ""           # the full write-up for the screen; summary is what she says
     files: list = field(default_factory=list)         # files it delivered (outside the workspace)
     error: str = ""
     system: str = ""            # Nov 25: the instructions, written once at the start and resent unchanged

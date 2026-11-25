@@ -165,6 +165,12 @@ function widgetHTML(html,ttl=14000){clearWidgets();const w=document.createElemen
   deck.appendChild(w);if(ttl)setTimeout(()=>{w.classList.add('out');setTimeout(()=>w.remove(),380);},ttl);}
 function renderWidget(d){
   if(!d||!d.kind)return;
+  if(d.kind==='model'){                                 // a task's 3D models: the pictures (the new window turns them in 3D)
+    const u=f=>`/api/tasks/${encodeURIComponent(d.task)}/file?path=${encodeURIComponent(f)}`;
+    widgetHTML(`<div class="wtitle">${esc(d.title||'Model')}</div>`+(d.models||[]).map(m=>
+      `<div class="wsub">${esc(m.name)}: ${esc((m.size_mm||[]).map(Math.round).join(' x '))} mm</div><img src="${u(m.png)}" alt="${esc(m.name)}" style="width:100%;border-radius:8px;margin:4px 0 10px">`).join(''));
+    return;
+  }
   if(d.kind==='clock')widgetHTML(`<div class="wtitle">Time</div><div class="wbig">${esc(d.time)}</div><div class="wsub">${esc(d.date)}</div>`);
   else if(d.kind==='weather'){
     const bits=[d.conditions];

@@ -127,12 +127,28 @@ def _speaker(conns: list):
     return max(conns, key=lambda c: (getattr(c, "last_talk", 0.0), getattr(c, "connected_at", 0.0)), default=None)
 
 
+def _done_widget(ev: dict):
+    try:
+        from core.agent.tasks import get_store
+        from core.agent.tools import models_widget
+        t = get_store().get(ev.get("task", ""))
+        if not t:
+            return None
+        return models_widget(t) or ({"kind": "note", "title": f"Task: {t.title}", "text": t.details[:4000]}
+                                    if t.details else None)
+    except Exception as e:
+        logger.warning(f"AGENT: couldn't draw the result ({e})")
+        return None
+
+
 async def announce_task(ev: dict) -> None:
     """A task's question, request, progress or result: every open window shows it and is ready for your answer; the
     one you last talked to says it."""
     if not ev.get("text"):
         return
     widget = {"kind": "note", "title": f"Task: {ev.get('title', '')}", "text": ev["text"]}
+    if ev.get("kind") == "done":                 # Nov 25: the result in the window: the 3D view, the write-up
+        widget = await asyncio.to_thread(_done_widget, ev) or widget
     conns = list(CONNECTIONS)
     loud = _speaker(conns)
     for conn in conns:
@@ -858,6 +874,22 @@ async def classic():
     return HTMLResponse(path.read_text(encoding="utf-8")) if path.exists() else Response(status_code=404)
 
 
+@app.get("/api/tasks/{tid}/file")
+async def task_file(tid: str, path: str):
+    """A task's model, picture or note for the window (only from its own folder; the network guard applies)."""
+    import base64 as _b64
+    from core.agent.pc import PCError, get_pc
+    from core.agent.tasks import get_store
+    if not re.fullmatch(r"[a-f0-9]{8}", tid) or get_store().get(tid) is None:
+        return PlainTextResponse("no such task", status_code=404)
+    try:
+        out = await asyncio.to_thread(get_pc().file_b64, tid, path)
+    except PCError as e:
+        return PlainTextResponse(str(e), status_code=404)
+    return Response(_b64.b64decode(out["b64"]), media_type=out["type"],
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
 @app.get("/api/status")
 async def status():
     from core.brain import get_brain
@@ -1316,8 +1348,33 @@ async def _serve_both(cert: str, key: str) -> None:
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
+def busy_ports(ports: list[tuple[str, int]]) -> list[int]:
+    """Nov 25: ports something else already holds (usually an E.V.A. that's still running)."""
+    import socket as _socket
+    busy = []
+    for host, port in ports:
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind((host, port))
+            except OSError:
+                busy.append(port)
+    return busy
+
+
+def _check_ports(ports: list[tuple[str, int]]) -> None:
+    busy = busy_ports(ports)
+    if busy:
+        nums = " and ".join(str(b) for b in busy)
+        print(f"\n  Port {nums} is already in use: E.V.A. is probably still running in another window.\n"
+              f"  Close that one (Ctrl+C), or find what holds it in PowerShell:\n"
+              f"    Get-NetTCPConnection -LocalPort {busy[0]} -State Listen | ForEach-Object "
+              f"{{ Get-Process -Id $_.OwningProcess }}\n")
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
     if netsec.https_enabled():
+        _check_ports([(netsec.bind_host(), netsec.port()), ("0.0.0.0", netsec.https_port())])
         from core import tls
         cert_file, key_file = tls.ensure([netsec.lan_ip()])
         print("\n" + netsec.startup_banner() + "\n")
@@ -1326,5 +1383,6 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             pass
     else:
+        _check_ports([(netsec.bind_host(), netsec.port())])
         print("\n" + netsec.startup_banner() + "\n")
         uvicorn.run(app, host=netsec.bind_host(), port=netsec.port(), log_level="info")

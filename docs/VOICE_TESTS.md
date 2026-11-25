@@ -325,3 +325,8 @@ labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-commun
 | 23.9 | "Pause the guitar stand" / "resume it" / "cancel it" | Each says what happened | |
 | 23.10 | "What are my permissions?" / "forget your permissions" | Lists the standing yeses / removes them | |
 | 23.11 | Telegram, PC window closed: answer a task's question there | The task carries on | `TELEGRAM: task ... answered` |
+| 23.12 | "Show me the guitar stand" (also: "can I see it in 3D before I print it?") | A card with the model: drag it to turn it, scroll to zoom, a chip per part, the write-up below | `TOOL task_show` |
+| 23.13 | The same on the phone | The model turns with a finger | |
+| 23.14 | "Open the guitar stand folder on my PC" | Explorer opens Documents\E.V.A.\guitar stand | `TOOL task_show({... 'on_pc': True})` |
+| 23.15 | A new design task | She looks at her own pictures while she works (an assembly too), checks stability with numbers, asks once to copy all files, and says two sentences at the end | `TOOL preview_model` in the task log |
+| 23.16 | Start E.V.A. a second time while one runs | "Port 8001 is already in use: E.V.A. is probably still running" | |

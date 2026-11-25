@@ -6,6 +6,7 @@
     (her "may I install OpenSCAD?") "yes" / "yes, always" / "no"   -> task_answer
     "Pause / resume / cancel the guitar stand"          -> task_pause / task_resume / task_cancel
     "What tasks are you working on?"                    -> task_list
+    "Show me the guitar stand" / "can I see it in 3D?"  -> task_show (pictures and a 3D view in the window)
     "Always allow Python packages" / "what are my permissions?" / "forget your permissions"
 """
 
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 from core.agent import consent
 
@@ -46,6 +48,64 @@ def describe_start(args: dict) -> str:
 def _find(which: str):
     from core.agent.tasks import get_store
     return get_store().find(which)
+
+
+def models_widget(t) -> dict | None:
+    """The 3D models a task made, as a card: a 3D view you can turn, pictures, sizes, the write-up."""
+    from core.agent.pc import PCError, get_pc
+    try:
+        pc = get_pc()
+        files = [f["path"] for f in pc.list_files(t.id)["files"]]
+    except PCError:
+        return None
+    stls = sorted((f for f in files if f.lower().endswith(".stl")), key=lambda f: ("assembl" not in f.lower(), f))
+    models = []
+    for f in stls[:6]:
+        try:
+            info = pc.preview(t.id, f)
+        except Exception:
+            continue
+        models.append({"name": Path(f).name, "path": f, "png": info["png"], "size_mm": info["size_mm"]})
+    if not models:
+        return None
+    return {"kind": "model", "title": t.title, "task": t.id, "models": models,
+            "text": (t.details or t.summary or "")[:4000]}
+
+
+def _open_on_pc(t) -> str:
+    """Your E.V.A. folder for this task (or its work folder) in Explorer, on this PC."""
+    import os
+    from core.agent.tasks import get_store
+    folder = Path(t.files[0]).parent if t.files else get_store().workspace(t.id)
+    starter = getattr(os, "startfile", None)
+    if starter is None or not folder.exists():
+        return ""
+    starter(str(folder))
+    return str(folder)
+
+
+def tool_task_show(which: str = "", on_pc: bool = False, **_):
+    from core.agent.tasks import get_store
+    t = _find(which)
+    if t and not which:                         # "show me": the newest task that made something to show
+        made = [x for x in get_store().all() if x.status == "done"]
+        t = max(made, key=lambda x: x.updated) if made else t
+    if not t:
+        return _ok("I haven't made anything to show yet, sir.", shown=0)
+    opened = _open_on_pc(t) if on_pc else ""
+    w = models_widget(t)
+    if not w:
+        say = f"The {t.title} has no 3D models to show, sir." + (" I opened its folder." if opened else "")
+        out = _ok(say, task=t.id, shown=0, opened=opened)
+        if t.details or t.summary:
+            out["widget"] = {"kind": "note", "title": t.title, "text": (t.details or t.summary)[:4000]}
+        return out
+    n = len(w["models"])
+    say = (f"Here's the {t.title}, sir: {n} {'model' if n == 1 else 'models'} in the window. Drag to turn it."
+           + (" I opened the folder on your PC too." if opened else ""))
+    out = _ok(say, task=t.id, shown=n, opened=opened)
+    out["widget"] = w
+    return out
 
 
 def tool_task_status(which: str = "", **_):
@@ -150,6 +210,12 @@ SCHEMAS = [
                                       "parameters": {"type": "object", "properties": WHICH}}},
     {"type": "function", "function": {"name": "task_cancel", "description": "Cancel a background task.",
                                       "parameters": {"type": "object", "properties": WHICH}}},
+    {"type": "function", "function": {
+        "name": "task_show",
+        "description": "Show what a task made: its 3D models as a 3D view and pictures in the window, its files. "
+                       "For 'show me the stand', 'can I see it in 3D / before I print it', 'show me the files "
+                       "rendered', 'open the files'. on_pc: also open the folder on the PC.",
+        "parameters": {"type": "object", "properties": {**WHICH, "on_pc": {"type": "boolean"}}}}},
     {"type": "function", "function": {"name": "task_list", "description": "Which tasks E.V.A. is working on.",
                                       "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
@@ -165,6 +231,7 @@ SCHEMAS = [
         "parameters": {"type": "object", "properties": {}}}},
 ]
 FUNCTIONS = {"task_start": tool_task_start, "task_status": tool_task_status, "task_answer": tool_task_answer,
+             "task_show": tool_task_show,
              "task_pause": tool_task_pause, "task_resume": tool_task_resume, "task_cancel": tool_task_cancel,
              "task_list": tool_task_list, "permission_grant": tool_permission_grant,
              "permission_revoke": tool_permission_revoke, "permission_list": tool_permission_list}

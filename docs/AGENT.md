@@ -72,6 +72,16 @@ something earlier does change (trimming a long task, a new version of E.V.A. wit
 so, and that task drops its older thinking from then on (`Task.drop_thinking`) instead of failing. A turn can use
 up to `agent.max_tokens` (16000, thinking included); if one is cut off anyway, she carries on from there.
 
+## Seeing what she made
+
+She draws every 3D model she makes and looks at the picture (`preview_model`, `core/agent/preview.py`: numpy and
+Pillow, a 3D view, the front and the side, sizes in mm), and for parts that go together she also makes an
+assembly and looks at that. Things that hold something get a stability check with numbers. When a task is done,
+the window shows a model card: a WebGL view you turn with a finger or the mouse (no libraries, the STL comes from
+`/api/tasks/<id>/file`, only from the task's own folder), a chip per part, the pictures, and the write-up. She
+says only one or two sentences (`finish.summary`); the rest is in `finish.details`, on the screen. "Show me the
+guitar stand" brings the card back (`task_show`); "open it on my PC" opens the folder in Explorer.
+
 ## Which window speaks
 
 A task's question or result shows in every open window and each one takes your answer, but only the window you

@@ -154,6 +154,8 @@ most work with natural variations too. Anything marked **asks first** waits for 
   weekend in Brasov": she asks to start a task (up to 1 euro, then she asks), works in the background with
   Claude, asks you when a choice matters, asks before installing anything, and tells you when it's done.
 - "How's the guitar stand going?" / "what tasks are you working on?" / "pause / resume / cancel the guitar stand"
+- "Show me the guitar stand" / "can I see it in 3D?": the model in the window, turned with a finger or the mouse;
+  "open its folder on my PC" opens Explorer there. "Try the guitar stand again" retries a failed task.
 - Her questions: just answer (here, on the phone, or on Telegram). Her "may I...": "yes", "yes, always",
   "yes, for this task", or "no".
 - Finished files land in Documents\E.V.A.\<task>. "What are my permissions?" / "forget your permissions"

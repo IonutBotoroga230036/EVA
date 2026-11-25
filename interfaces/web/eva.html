@@ -133,6 +133,15 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .card__foot{font-size:13px;color:var(--dim-text);padding-top:var(--s3);margin-top:var(--s1);border-top:1px solid var(--line-soft)}
 .card__actions{display:flex;gap:10px;margin-top:22px}
 .card__hint{font-size:12px;color:var(--dim-text);text-align:center;margin-top:var(--s3)}
+.model__box{margin-top:var(--s3);border-radius:var(--r-md);background:rgba(10,8,24,.55);border:1px solid var(--line-soft);overflow:hidden}
+.model__view{display:block;width:100%;height:280px;touch-action:none;cursor:grab}
+.model__view:active{cursor:grabbing}
+.model__img{display:block;width:100%;height:auto}
+.model__chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--s2)}
+.model__chips .chip.is-on{border-color:var(--line-strong);background:var(--tint-2)}
+.model__links{display:flex;flex-wrap:wrap;gap:12px;margin-top:var(--s2);font-size:13px}
+.model__links a{color:var(--lilac)}
+.model__text{display:block;-webkit-line-clamp:unset;white-space:pre-wrap;max-height:260px;overflow:auto;font-size:14px}
 .pill{font:600 13px/1 var(--font-display);padding:5px 10px;border-radius:var(--r-pill);background:rgba(139,92,246,.22);border:1px solid rgba(196,164,255,.3);white-space:nowrap}
 .tag-proactive{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:5px 10px 5px 8px;border-radius:var(--r-pill);background:rgba(192,38,211,.18);border:1px solid rgba(192,38,211,.5)}
 .tag-proactive svg.i{width:14px;height:14px}
@@ -498,7 +507,7 @@ let cards = [], seq = 0;
 const META = {
   weather: ['cloud', 'Weather'], calendar: ['cal', 'Calendar'], email: ['mail', 'Email'], confirm: ['cal', 'Confirm'],
   nowplaying: ['music', 'Now playing'], note: ['note', 'Note'], vision: ['eye', 'Vision'], reminder: ['bell', 'Reminder'],
-  alert: ['bell', 'Alert'], forge: ['wrench', 'FORGE draft']
+  alert: ['bell', 'Alert'], forge: ['wrench', 'FORGE draft'], model: ['eye', 'Model']
 };
 
 function head(label, meta, proactive) {
@@ -562,6 +571,23 @@ const RENDER = {
   nowplaying(d) { return [head('Now playing'), h('div', { class: 'card__title' }, d.what)]; },
   note(d) { return [head(d.title || 'Note'), h('div', { class: 'card__text' }, d.text)]; },
   vision(d) { return [head(d.title || 'Vision'), h('div', { class: 'card__text' }, d.text)]; },
+  model(d) {                                           // Nov 25: what a task made, in 3D: drag to turn it
+    const ms = d.models || [], url = (m, f) => `/api/tasks/${encodeURIComponent(d.task)}/file?path=${encodeURIComponent(f || m.path)}`;
+    const box = h('div', { class: 'model__box' }), size = h('div', { class: 'card__sub' });
+    const pick = i => {
+      const m = ms[i]; if (!m) return;
+      box.textContent = '';
+      const v = modelViewer(url(m));
+      box.append(v || h('img', { class: 'model__img', src: url(m, m.png), alt: `${m.name}: 3D view, front and side` }));
+      size.textContent = `${m.name}: ${(m.size_mm || []).map(x => Math.round(x)).join(' x ')} mm` + (v ? '. Drag to turn it, scroll to zoom.' : '');
+      chips.querySelectorAll('.chip').forEach((c, k) => c.classList.toggle('is-on', k === i));
+    };
+    const chips = h('div', { class: 'model__chips' }, ms.length > 1 ? ms.map((m, i) => h('button', { class: 'chip', onclick: () => pick(i) }, m.name)) : null);
+    setTimeout(() => pick(0), 0);
+    return [head(d.title || 'Model', `${ms.length} file${ms.length === 1 ? '' : 's'}`), box, chips, size,
+      h('div', { class: 'model__links' }, ms.map(m => h('a', { href: url(m, m.png), target: '_blank', rel: 'noopener' }, `views of ${m.name}`))),
+      d.text ? h('div', { class: 'card__text model__text' }, d.text) : null];
+  },
   reminder(d, c) { return RENDER.alert({ kind: 'Reminder', title: d.title, text: d.text }, c); },
   alert(d, c) {
     return [head(null, d.when || 'Just now', true),
@@ -592,6 +618,7 @@ function summary(c) {
     case 'confirm': return d.text;
     case 'nowplaying': return d.what;
     case 'forge': return d.name;
+    case 'model': return d.title;
     case 'alert': return d.title;
     default: return d.text || d.title;
   }
@@ -636,7 +663,7 @@ function leave(c) {
 }
 function arm(c) {
   clearTimeout(c.timer);
-  if (!WAITS.has(c.type) && !c.proactive) c.timer = setTimeout(() => { c.collapsed = true; c.el = null; render(); }, RULES.autoCollapseMs);
+  if (!WAITS.has(c.type) && !c.proactive && c.type !== 'model') c.timer = setTimeout(() => { c.collapsed = true; c.el = null; render(); }, RULES.autoCollapseMs);
 }
 /** Show one answer. Several cards from one answer: showCards([{type,data},...]) */
 function showCards(list, opts = {}) {
@@ -834,15 +861,84 @@ function caption(text, spoken) { if (text) E.setCaption(text, spoken); }
 function toCard(d) {
   if (!d || !d.kind) return null;
   if (d.kind === 'clock') return { type: 'note', data: { title: 'Time', text: `${d.time} · ${d.date}` } };
-  if (['weather', 'calendar', 'email', 'confirm', 'nowplaying', 'forge', 'vision'].includes(d.kind)) return { type: d.kind, data: d };
+  if (['weather', 'calendar', 'email', 'confirm', 'nowplaying', 'forge', 'vision', 'model'].includes(d.kind)) return { type: d.kind, data: d };
   return { type: 'note', data: { title: d.title || 'Note', text: d.text || '' } };
 }
 function proactiveCard(d, text) {
+  if (d && d.kind === 'model') return { type: 'model', data: d };          // a finished task: show what it made
   const title = (text || '').replace(/^Sir, (a reminder: )?/i, '').replace(/\.$/, '');
   if (d && d.kind === 'calendar') { const e = (d.events || [])[0] || {}; return { type: 'alert', data: { kind: 'Meeting', title, text: e.time ? `${e.time} · ${e.title}` : '' } }; }
   if (d && d.kind === 'email') { const m = (d.emails || [])[0] || {}; return { type: 'alert', data: { kind: 'Email', title: `Important email from ${m.from || ''}`.trim(), text: m.subject || '' } }; }
   if (d && /reminder|routine/i.test(d.title || '')) return { type: 'reminder', data: { title: d.text || title } };
   return { type: 'alert', data: { kind: 'E.V.A.', title, text: d && d.text && d.text !== title ? d.text : '' } };
+}
+
+/* ---------------- 3D models: an STL from a task, turned with a finger or the mouse (WebGL, no libraries) ---------------- */
+function parseSTL(buf) {
+  const dv = new DataView(buf);
+  if (buf.byteLength >= 84) {
+    const n = dv.getUint32(80, true);
+    if (n > 0 && 84 + n * 50 === buf.byteLength) {
+      const v = new Float32Array(n * 9);
+      for (let i = 0; i < n; i++) { const o = 84 + i * 50 + 12; for (let k = 0; k < 9; k++) v[i * 9 + k] = dv.getFloat32(o + k * 4, true); }
+      return v;
+    }
+  }
+  const nums = [...new TextDecoder().decode(buf).matchAll(/vertex\s+(\S+)\s+(\S+)\s+(\S+)/g)];
+  const v = new Float32Array(Math.floor(nums.length / 3) * 9);
+  for (let i = 0; i < v.length / 3; i++) { v[i * 3] = +nums[i][1]; v[i * 3 + 1] = +nums[i][2]; v[i * 3 + 2] = +nums[i][3]; }
+  return v;
+}
+function modelViewer(src) {
+  const cv = h('canvas', { class: 'model__view', 'aria-label': 'The model. Drag to turn it.' });
+  const gl = cv.getContext('webgl', { antialias: true });
+  if (!gl) return null;
+  const sh = (type, code) => { const s = gl.createShader(type); gl.shaderSource(s, code); gl.compileShader(s); return s; };
+  const pr = gl.createProgram();
+  gl.attachShader(pr, sh(gl.VERTEX_SHADER, 'attribute vec3 p;attribute vec3 n;uniform mat3 r;uniform vec3 k;varying float l;' +
+    'void main(){vec3 q=r*p;vec3 m=normalize(r*n);l=.3+.7*abs(dot(m,normalize(vec3(-.4,.6,-.7))));gl_Position=vec4(q.x*k.x,q.z*k.y,q.y*k.z,1.);}'));
+  gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, 'precision mediump float;varying float l;void main(){gl_FragColor=vec4(vec3(.66,.56,1.)*l,1.);}'));
+  gl.linkProgram(pr); gl.useProgram(pr);
+  const st = { yaw: -0.6, pitch: 0.45, zoom: 1, n: 0, span: 1 };
+  const draw = () => {
+    const w = cv.clientWidth || 320, hh = cv.clientHeight || 260, dpr = devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr); }
+    gl.viewport(0, 0, cv.width, cv.height);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
+    const cy = Math.cos(st.yaw), sy = Math.sin(st.yaw), cp = Math.cos(st.pitch), sp = Math.sin(st.pitch);
+    // rotate about z (up), then tilt about x; column-major for WebGL
+    gl.uniformMatrix3fv(gl.getUniformLocation(pr, 'r'), false, [cy, cp * sy, sp * sy, -sy, cp * cy, sp * cy, 0, -sp, cp]);
+    const s = 2.3 * st.zoom / st.span;
+    gl.uniform3f(gl.getUniformLocation(pr, 'k'), s * hh / w, s, 1 / st.span);
+    if (st.n) gl.drawArrays(gl.TRIANGLES, 0, st.n);
+  };
+  fetch(src, { credentials: 'same-origin' }).then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status)).then(buf => {
+    const v = parseSTL(buf), n = new Float32Array(v.length);
+    let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < v.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], v[i + k]); hi[k] = Math.max(hi[k], v[i + k]); }
+    for (let i = 0; i < v.length; i += 3) for (let k = 0; k < 3; k++) v[i + k] -= (lo[k] + hi[k]) / 2;
+    for (let t = 0; t < v.length; t += 9) {
+      const ax = v[t + 3] - v[t], ay = v[t + 4] - v[t + 1], az = v[t + 5] - v[t + 2], bx = v[t + 6] - v[t], by = v[t + 7] - v[t + 1], bz = v[t + 8] - v[t + 2];
+      const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+      for (let j = 0; j < 9; j += 3) { n[t + j] = nx; n[t + j + 1] = ny; n[t + j + 2] = nz; }
+    }
+    st.span = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1; st.n = v.length / 3;
+    [['p', v], ['n', n]].forEach(([name, data]) => {
+      const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(pr, name); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+    });
+    requestAnimationFrame(draw);
+  }).catch(() => cv.replaceWith(h('div', { class: 'card__sub' }, "I couldn't load the model.")));
+  let last = null;
+  cv.addEventListener('pointerdown', e => { last = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointerup', () => { last = null; });
+  cv.addEventListener('pointermove', e => {
+    if (!last) return;
+    st.yaw += (e.clientX - last[0]) * 0.01; st.pitch = Math.max(-1.5, Math.min(1.5, st.pitch + (e.clientY - last[1]) * 0.01));
+    last = [e.clientX, e.clientY]; requestAnimationFrame(draw);
+  });
+  cv.addEventListener('wheel', e => { e.preventDefault(); st.zoom = Math.max(0.3, Math.min(5, st.zoom * (e.deltaY < 0 ? 1.1 : 0.9))); requestAnimationFrame(draw); }, { passive: false });
+  return cv;
 }
 
 /* ---------------- audio: Kokoro chunks, strictly ordered ---------------- */

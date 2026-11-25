@@ -4,7 +4,8 @@ A hand returns one of:
     ("result", text, is_error)   the tool result Claude sees
     ("ask", consent_text)        it needs your yes first; the task waits (consent tier "ask")
     ("question", text)           ask_user: the task waits for your answer
-    ("finish", summary)          the task is done
+    ("finish", summary, details) the task is done
+A result may also carry a picture: ("result", [text block, image block], is_error), so Claude sees it.
 """
 
 from __future__ import annotations
@@ -78,23 +79,38 @@ SCHEMAS = [
     {"name": "use_eva_tool", "description": "Use one of E.V.A.'s everyday tools. Tools that change something "
      "(add to the calendar, send) ask the user first.",
      "input_schema": _s({"tool": STR, "args": {"type": "object"}}, ["tool"])},
-    {"name": "deliver_file", "description": "Copy a finished file from the task folder to the user's E.V.A. "
-     "folder (Documents/E.V.A./<task>), where they can open it. Asks first unless they gave a standing yes.",
+    {"name": "preview_model", "description": "Draw a 3D model (STL) from the task folder and LOOK at it: a 3D view, "
+     "the front and the side, with its size in mm. Use it on every model you make, and on an assembly of the parts "
+     "in place, before you call it done. The user sees the same pictures.",
      "input_schema": _s({"path": STR}, ["path"])},
-    {"name": "finish", "description": "The task is done: a short summary for the user (what you made, where the "
-     "files are, what they should do next). Check the files exist before you finish.",
-     "input_schema": _s({"summary": STR}, ["summary"])},
+    {"name": "deliver_file", "description": "Copy finished files from the task folder to the user's E.V.A. "
+     "folder (Documents/E.V.A./<task>), where they can open them. Give all of them in one call: one question "
+     "for the user. Asks first unless they gave a standing yes.",
+     "input_schema": _s({"paths": {"type": "array", "items": STR}, "path": STR})},
+    {"name": "finish", "description": "The task is done. summary: one or two short spoken sentences (what you made "
+     "and the one thing to do next), no lists. details: the full write-up for the screen (sizes, print settings, "
+     "steps, caveats), markdown is fine. Check the files exist before you finish.",
+     "input_schema": _s({"summary": STR, "details": STR}, ["summary"])},
 ]
 KIND = {"update_plan": "look", "mark_step": "look", "ask_user": "look", "tell_user": "look", "list_files": "look",
         "read_file": "look", "write_file": "workspace", "run_python": "run_code",
         "install_python_packages": "pip_install", "check_program": "look", "install_program": "install_program",
         "run_program": "run_program", "web_search": "look", "fetch_page": "look", "find_places": "look",
-        "list_eva_tools": "look", "use_eva_tool": "eva_action", "deliver_file": "export_file", "finish": "look"}
+        "list_eva_tools": "look", "use_eva_tool": "eva_action", "deliver_file": "export_file", "finish": "look",
+        "preview_model": "look"}
 
 
 def _json(d) -> str:
     t = d if isinstance(d, str) else json.dumps(d, ensure_ascii=False, default=str)
     return t if len(t) <= MAX_RESULT else t[:MAX_RESULT] + "...(cut)"
+
+
+def _paths(args: dict) -> list[str]:
+    """deliver_file takes paths (a list) or one path."""
+    out = [str(p) for p in (args.get("paths") or []) if str(p).strip()]
+    if args.get("path") and str(args["path"]) not in out:
+        out.append(str(args["path"]))
+    return out[:30]
 
 
 def _public_url(url: str) -> bool:
@@ -160,7 +176,9 @@ class Hands:
             return f"install the Python packages {', '.join(map(str, args.get('packages') or []))} into my own " \
                    f"environment. {args.get('why', '')}".strip()
         if name == "deliver_file":
-            return f"copy {args.get('path')} to your E.V.A. folder ({self._out_folder()})"
+            names = _paths(args)
+            what = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}" if names else "the files"
+            return f"copy {what} to your E.V.A. folder ({self._out_folder()})"
         return f"{consent.describe(kind)}: {name}"
 
     def _out_folder(self) -> str:
@@ -177,7 +195,7 @@ class Hands:
         if name == "ask_user":
             return ("question", str(args.get("question") or "").strip() or "How should I go on, sir?")
         if name == "finish":
-            return ("finish", str(args.get("summary") or "").strip())
+            return ("finish", str(args.get("summary") or "").strip(), str(args.get("details") or "").strip())
         if not approved:
             q = self.needs_yes(name, args)
             if q:
@@ -188,6 +206,11 @@ class Hands:
                              ("standing" if kind in consent.standing() or kind in self.task.grants else "logged"))
         try:
             out = getattr(self, "h_" + name)(**args)
+            if isinstance(out, dict) and out.get("_image_b64"):             # Claude sees the picture too
+                img = out.pop("_image_b64")
+                return ("result", [{"type": "text", "text": _json(out)},
+                                   {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                                "data": img}}], False)
             return ("result", _json(out), False)
         except (PCError, ValueError, TypeError, KeyError) as e:
             return ("result", f"error: {e}", True)
@@ -326,8 +349,22 @@ class Hands:
         out = belt.execute(tool, dict(args or {}))
         return {"result": out.get("result"), "say": out.get("say", "")}
 
-    def h_deliver_file(self, path: str):
-        out = get_pc().export_file(self.task.id, path, self.task.title)
-        self.task.files.append(out["copied_to"])
-        self.task.note(f"delivered {path}")
-        return out
+    def h_preview_model(self, path: str):
+        out = get_pc().preview(self.task.id, path)
+        self.task.note(f"looked at {path}")
+        size = " x ".join(f"{x:g}" for x in out["size_mm"])
+        return {"model": out["model"], "size_mm": size, "triangles": out["triangles"],
+                "look": "Check: is it the shape you meant, the right size, stable, printable without supports?",
+                "_image_b64": out["png_b64"]}
+
+    def h_deliver_file(self, paths: Optional[list] = None, path: str = ""):
+        done = []
+        for p in _paths({"paths": paths, "path": path}):
+            out = get_pc().export_file(self.task.id, p, self.task.title)
+            if out["copied_to"] not in self.task.files:
+                self.task.files.append(out["copied_to"])
+            self.task.note(f"delivered {p}")
+            done.append(out["copied_to"])
+        if not done:
+            raise ValueError("give the files to deliver in paths")
+        return {"copied_to": done}

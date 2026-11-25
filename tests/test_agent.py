@@ -178,8 +178,8 @@ def test_the_guitar_stand_end_to_end(mgr):
     assert t.steps == 11 and abs(t.cost_eur - 0.11) < 1e-9
     assert all(c["cache"] is True and c["model"] == "claude-sonnet-5-5" for c in m.script.calls)
     assert "how's the guitar stand" not in m.status_text(t)
-    assert m.status_text(t).startswith("The guitar stand: done, 7 of 7 steps done" if all(
-        s["done"] for s in t.plan) else "The guitar stand: done")
+    assert m.status_text(t).startswith("The guitar stand: done. The stand is modelled")
+    assert all(s["done"] for s in t.plan)                     # finishing ticks off the plan
 
 
 def test_a_no_is_heard_and_she_works_around_it(mgr):
@@ -712,3 +712,198 @@ def test_the_manifest_is_fetched_with_the_pairing_cookie():
     for name in ("eva.html", "eva_classic.html"):
         html = (Path("interfaces/web") / name).read_text(encoding="utf-8")
         assert 'rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials"' in html
+
+
+# ---------------------------------------------------------------- Nov 25, second run: seeing the model
+def _box_stl(path, w=100.0, d=50.0, h=20.0, binary=True):
+    import struct
+    v = [(0, 0, 0), (w, 0, 0), (w, d, 0), (0, d, 0), (0, 0, h), (w, 0, h), (w, d, h), (0, d, h)]
+    f = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7),
+         (2, 7, 6), (3, 0, 4), (3, 4, 7)]
+    if binary:
+        data = b"\0" * 80 + struct.pack("<I", len(f))
+        for a, b, c in f:
+            data += struct.pack("<12fH", 0, 0, 0, *v[a], *v[b], *v[c], 0)
+        Path(path).write_bytes(data)
+    else:
+        rows = ["solid box"] + [f"facet normal 0 0 0\n outer loop\n" + "".join(
+            f"  vertex {x} {y} {z}\n" for x, y, z in (v[a], v[b], v[c])) + " endloop\nendfacet" for a, b, c in f]
+        Path(path).write_text("\n".join(rows + ["endsolid box"]))
+
+
+@pytest.mark.parametrize("binary", [True, False])
+def test_a_model_becomes_a_picture(tmp_path, binary):
+    from PIL import Image
+    from core.agent.preview import render
+    _box_stl(tmp_path / "box.stl", binary=binary)
+    out = render(tmp_path / "box.stl")
+    assert out["size_mm"] == [100.0, 50.0, 20.0] and out["triangles"] == 12
+    img = Image.open(out["png"])
+    assert img.size == (1260, 460)
+    colours = {tuple(px) for px in __import__("numpy").asarray(img.crop((0, 0, 420, 420))).reshape(-1, 3)}
+    assert len(colours) > 3                                    # shaded faces and lines, not a blank box
+
+
+def test_not_an_stl_is_refused(tmp_path):
+    from core.agent.preview import render
+    (tmp_path / "x.stl").write_text("hello")
+    with pytest.raises(ValueError):
+        render(tmp_path / "x.stl")
+
+
+def test_she_looks_at_her_own_model(mgr):
+    m = mgr([[T("write_file", path="a.txt", content="x")], [T("preview_model", path="box.stl")],
+             [T("finish", summary="Done.")]])
+    t = get_store().new("design me a box")
+    _box_stl(get_store().workspace(t.id) / "box.stl")
+    m.run(t.id)
+    res = m.script.calls[2]["messages"][-1]["content"][0]
+    assert res["type"] == "tool_result" and isinstance(res["content"], list)
+    assert res["content"][1]["type"] == "image" and res["content"][1]["source"]["media_type"] == "image/png"
+    assert "100 x 50 x 20" in res["content"][0]["text"]
+    assert (get_store().workspace(t.id) / "_eva_preview" / "box.png").exists()
+    assert "preview_model" not in [f["path"] for f in pc_mod.LocalPC().list_files(t.id)["files"]]
+
+
+def test_pictures_dont_count_as_text_and_old_ones_go(mgr):
+    from core.agent.runner import _compact, _size
+    img = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A" * 200000}}
+    msgs = [{"role": "user", "content": "goal"}]
+    for i in range(12):
+        msgs.append({"role": "assistant", "content": [{"type": "tool_use", "id": f"t{i}", "name": "preview_model",
+                                                       "input": {"path": "a.stl"}}]})
+        msgs.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{i}",
+                                                  "content": [{"type": "text", "text": "ok"}, dict(img)]}]})
+    assert _size(msgs[:5]) < 10000                             # two pictures are not 400 KB of text
+    out, trimmed = _compact(msgs, 30000)
+    check_shape(out)
+    assert trimmed and out[2]["content"][0]["content"][1]["type"] == "text"
+    assert out[-1]["content"][0]["content"][1]["type"] == "image"           # the newest ones stay
+
+
+def test_all_files_are_delivered_with_one_question(mgr):
+    m = mgr([[T("write_file", path="a.stl", content="solid a"), T("write_file", path="b.md", content="# b")],
+             [T("deliver_file", paths=["a.stl", "b.md"])], [T("finish", summary="Done.")]])
+    t = m.start("design me a hook")
+    t = get_store().get(t.id)
+    assert t.waiting["text"] == "copy a.stl and b.md to your E.V.A. folder (" + \
+        f"{pc_mod._cfg()['output_dir']}/hook)"
+    m.answer("yes")
+    t = get_store().get(t.id)
+    assert t.status == "done" and sorted(Path(f).name for f in t.files) == ["a.stl", "b.md"]
+    assert len([x for x in m.told if x[0] == "consent"]) == 1
+
+
+def test_she_says_two_sentences_and_shows_the_rest(mgr):
+    details = "**stand_base.stl** is 210 x 190 mm.\n- PLA, 0.2 mm layers\n- no supports"
+    m = mgr([[T("write_file", path="s.stl", content="solid s")], [T("deliver_file", paths=["s.stl"])],
+             [T("finish", summary="The stand is ready in two parts. Print the base first. Then the post.",
+                details=details)]])
+    t = m.start("design me a guitar stand")
+    m.answer("yes")
+    t = get_store().get(t.id)
+    assert t.details == details
+    kind, said = m.told[-1]
+    assert kind == "done" and said == ("Sir, the guitar stand is done. The stand is ready in two parts. Print the "
+                                       "base first. The files are in your E.V.A. folder, and the model is in the "
+                                       "window: say 'show me' to see it.")
+    assert "**" not in m.status_text(t) and "0 of" not in m.status_text(t)
+
+
+def test_an_old_write_up_in_the_summary_is_spoken_short():
+    from core.agent.runner import spoken
+    long = ("Sir, the guitar stand is ready as two STL files in Documents/E.V.A./guitar stand. I haven't "
+            "test-printed it.\n\n- **stand_base.stl** is 210 x 190 x 43 mm.\n\n**Print settings:**\n- PLA")
+    assert spoken(long) == ("The guitar stand is ready as two STL files in Documents/E.V.A./guitar stand. I haven't "
+                            "test-printed it.")
+
+
+def test_show_me_the_stand(monkeypatch):
+    from core.agent import tools as atools
+    t = get_store().new("design me a guitar stand")
+    t.status, t.summary, t.details = "done", "Ready.", "Base 210 x 190 mm."
+    get_store().save(t)
+    ws = get_store().workspace(t.id)
+    _box_stl(ws / "stand_base.stl")
+    _box_stl(ws / "assembly.stl", 120, 60, 300)
+    opened = []
+    monkeypatch.setattr(atools.os if hasattr(atools, "os") else __import__("os"), "startfile", opened.append,
+                        raising=False)
+    out = atools.tool_task_show("guitar stand", on_pc=True)
+    w = out["widget"]
+    assert w["kind"] == "model" and w["task"] == t.id and w["text"] == "Base 210 x 190 mm."
+    assert [x["name"] for x in w["models"]] == ["assembly.stl", "stand_base.stl"]       # the whole thing first
+    assert w["models"][0]["size_mm"] == [120.0, 60.0, 300.0] and w["models"][0]["png"].startswith("_eva_preview/")
+    assert out["say"].startswith("Here's the guitar stand, sir: 2 models in the window.")
+    assert opened == [str(ws)]
+
+
+def test_show_me_without_models_shows_the_write_up():
+    from core.agent import tools as atools
+    t = get_store().new("plan my week")
+    t.status, t.details = "done", "Monday: gym."
+    get_store().save(t)
+    out = atools.tool_task_show()
+    assert out["widget"] == {"kind": "note", "title": "week", "text": "Monday: gym."} or \
+        out["widget"]["text"] == "Monday: gym."
+    assert "no 3D models" in out["say"]
+
+
+def test_the_window_gets_the_model_files_and_nothing_else(monkeypatch):
+    from fastapi.testclient import TestClient
+    from interfaces.web import server_stream
+    t = get_store().new("design me a guitar stand")
+    ws = get_store().workspace(t.id)
+    _box_stl(ws / "stand.stl")
+    (ws / "secret.py").write_text("x")
+    c = TestClient(server_stream.app)
+    r = c.get(f"/api/tasks/{t.id}/file", params={"path": "stand.stl"})
+    assert r.status_code == 200 and r.headers["content-type"] == "model/stl" and len(r.content) == 84 + 12 * 50
+    assert c.get(f"/api/tasks/{t.id}/file", params={"path": "secret.py"}).status_code == 404
+    assert c.get(f"/api/tasks/{t.id}/file", params={"path": "../task.json"}).status_code == 404
+    assert c.get("/api/tasks/deadbeef/file", params={"path": "stand.stl"}).status_code == 404
+    assert c.get("/api/tasks/..%2F..%2Fx/file", params={"path": "a.stl"}).status_code == 404
+
+
+def test_a_finished_task_shows_its_model_in_the_window():
+    import asyncio
+    from interfaces.web import server_stream as ss
+    t = get_store().new("design me a guitar stand")
+    t.status = "done"
+    get_store().save(t)
+    _box_stl(get_store().workspace(t.id) / "stand.stl")
+
+    class Conn:
+        last_talk, connected_at = 1.0, 0.0
+
+        def __init__(self):
+            self.orch = type("O", (), {"pending": None, "awaiting": None})()
+            self.got = []
+
+        async def proactive(self, text, widget=None, speak=True):
+            self.got.append(widget)
+    c = Conn()
+    ss.CONNECTIONS.add(c)
+    try:
+        asyncio.run(ss.announce_task({"task": t.id, "title": "guitar stand", "kind": "done", "text": "Done."}))
+    finally:
+        ss.CONNECTIONS.remove(c)
+    assert c.got[0]["kind"] == "model" and c.got[0]["models"][0]["name"] == "stand.stl"
+
+
+def test_the_window_can_turn_the_model():
+    html = Path("interfaces/web/eva.html").read_text(encoding="utf-8")
+    assert "function modelViewer(src)" in html and "function parseSTL(buf)" in html
+    assert "model(d) {" in html and "'vision', 'model'].includes(d.kind)" in html
+    assert "d.kind==='model'" in Path("interfaces/web/eva_classic.html").read_text(encoding="utf-8")
+
+
+def test_a_port_in_use_is_found():
+    import socket
+    from interfaces.web import server_stream as ss
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen()
+        port = s.getsockname()[1]
+        assert ss.busy_ports([("127.0.0.1", port)]) == [port]
+    assert ss.busy_ports([("127.0.0.1", port)]) == []
