@@ -26,6 +26,7 @@ def _r(data: dict, say: str = "", widget: Optional[dict] = None, **extra) -> dic
     out = {"result": json.dumps(data, ensure_ascii=False), **extra}
     if say:
         out["say"] = say
+        out["exact"] = True          # Nov 25: the local model read the whole list out instead of this line
     if widget:
         out["widget"] = widget
     return out
@@ -118,8 +119,44 @@ def _item(number: int) -> Optional[dict]:
         return None
 
 
-def tool_open_shown(number: int = 1, on: str = "window", **_):
+_ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8,
+             "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5, "one": 1, "two": 2, "three": 3, "four": 4}
+
+
+def pick_from_words(text: str) -> Optional[dict]:
+    """Nov 25: "play it on my computer" moved the Spotify music while a video was on screen. With pictures or videos
+    on screen (the last 15 minutes), 'play/open/show it, the first one, number 2 (on my PC)' means one of them.
+    -> {"number", "on", "pause_music"} or None."""
+    import re
+    s = shown()
+    if not s or time.time() - s["ts"] > 900:
+        return None
+    t = (text or "").lower()
+    if re.search(r"\b(playlist|song|album|spotify|artist)\b", t):
+        return None
+    verbs = r"\b(play|open|show|watch|start|put on|pull up)\b"
+    if not re.search(verbs, t):
+        return None
+    m = re.search(r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|1st|2nd|3rd|4th|5th|last)\b(?: one| video|"
+                  r" picture| image)?|\b(?:number|video|picture|no\.?)\s*(\d|one|two|three|four)\b|\b(it|that|this|the "
+                  r"video|that video|this video|the picture)\b", t)
+    if not m:
+        return None
+    word = m.group(1) or m.group(2) or ""
+    n = len(s["items"]) if word == "last" else _ORDINALS.get(word, int(word) if word.isdigit() else 1)
+    on = "pc" if re.search(r"\b(pc|computer|laptop|desktop|browser|big screen|monitor)\b", t) else "window"
+    pause = bool(re.search(r"\b(stop|pause|turn off|mute)\b[^.]{0,20}\b(music|spotify|song)\b", t))
+    return {"number": n, "on": on, "pause_music": pause}
+
+
+def tool_open_shown(number: int = 1, on: str = "window", pause_music: bool = False, **_):
     """One of the pictures or videos on screen: big in the window, or on the PC's browser."""
+    if pause_music:                                    # "play the first one on my PC and stop the music"
+        try:
+            from core.tools_native import REGISTRY
+            REGISTRY["media_control"](action="pause")
+        except Exception:
+            pass
     x = _item(number)
     if not x:
         return _r({"error": f"there's no number {number} on the screen"}, f"I don't have a number {number} on the "
@@ -190,7 +227,8 @@ SCHEMAS = [
         "description": "Open one of the pictures or videos on his screen by its number: big in the window "
                        "(on='window') or in the browser on his PC (on='pc').",
         "parameters": {"type": "object", "properties": {"number": {"type": "integer"},
-                                                        "on": {"type": "string", "enum": ["window", "pc"]}},
+                                                        "on": {"type": "string", "enum": ["window", "pc"]},
+                                                        "pause_music": {"type": "boolean"}},
                        "required": ["number"]}}},
     {"type": "function", "function": {
         "name": "look_at_shown",

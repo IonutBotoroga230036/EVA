@@ -29,7 +29,9 @@ DEFAULTS = {"enabled": True, "model": "claude-haiku-5-5", "hard_model": "claude-
 # effort: Haiku 5.5's default. The docs warn that at "low" it skips checks and searches more often, and checking
 # instead of guessing is the point of the mind.
 SKIP_TOOLS = {"work_it_out"}
-MIND_ONLY = {"look_at_shown"}          # needs eyes: a reflex can't look at a picture, so understanding hands it over
+# needs eyes, or a thoughtful answer: understanding hands these to the mind (when it's on), which runs them itself.
+# Nov 25: a project with only reflex answers felt like "nothing was really going on"
+MIND_ONLY = {"look_at_shown", "project_start", "project_note", "project_add_part", "project_answer"}
 
 THINK_HARDER = {"name": "think_harder",
                 "description": "Switch to a stronger model for the rest of this answer, for genuinely hard "
@@ -149,6 +151,11 @@ How you work:
 - Projects last weeks (project_start). With an active project, keep it current as you talk: decisions he makes
   (project_note kind decision), open questions, parts with prices and links (project_add_part); tasks for it get
   project=<its name>. Answer from what's decided before; say when something contradicts it.
+- A project needs work, not just notes. When he starts one or adds a requirement: save it, add one real thought
+  (a trade-off, a number, an option he may not know), and offer the next concrete step, usually a background
+  research task for it (task_start with project) that compares the ways to build it and drafts the parts list.
+  Never say you've "initiated" or "set up" anything a tool didn't do. Don't create a project twice: check the
+  active one in the situation first.
 - Not sure what he means by a thing (a "transparent screen", a style, a part)? Show examples with show_images
   and ask "something like one of these?"; look_at_shown lets you see one yourself. What's on his screen is in
   the situation, so "the second one" means number 2 there. find_videos for how-tos; open_shown plays or opens one.

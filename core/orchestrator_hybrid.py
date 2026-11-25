@@ -722,6 +722,11 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     m = re.match(polite + r"(?:add|put)\s+(.+?)\s+(?:to|in|on)\s+(?:the\s+)?queue$|^queue\s+(?:up\s+)?(.+)$", t, re.I)
     if m and belt.has("spotify_queue"):
         return "spotify_queue", {"what": (m.group(1) or m.group(2)).strip()}
+    if belt.has("open_shown"):                                   # v0.6: a video or picture on screen comes first
+        from core.show import pick_from_words
+        pick = pick_from_words(t)
+        if pick:
+            return "open_shown", pick
     if belt.has("spotify_play") and re.match(r"^\s*(?:play|resume|continue)(?: the music| it| playing)?[.!?]?\s*$", t, re.I):
         return "spotify_play", {"what": ""}                         # bare "play": resume, don't pick liked songs
     m = re.match(r"^(?:and |now )?(?:(?:play|put|move) )?(?:it |the music |this )?(?:to|on)\s+(?:my\s+|the\s+)?"
@@ -1215,6 +1220,16 @@ class HybridOrchestrator:
                     ev = {"type": "final", "text": NOT_DONE}
             yield ev
 
+    def _resolve_vague(self, request: str) -> str:
+        """Nov 25: 'can you develop a skill to open it?' built a skill for "open it?". A request that leans on 'it' or
+        'that' gets the sentence before it."""
+        words = re.findall(r"[a-z']+", (request or "").lower())
+        if len(words) > 6 or not set(words) & {"it", "that", "this", "them", "those", "one"}:
+            return request
+        prev = next((m["content"] for m in reversed(self.history[:-1]) if m.get("role") == "user"
+                     and isinstance(m.get("content"), str)), "")
+        return f"{prev.strip().rstrip('?.!')} ({request.strip().rstrip('?.!')})" if prev else request
+
     # ------------------------------------------------------------ the mind (v0.5): what needs thinking
     def _mind_ready(self, user_input: str) -> bool:
         from core import mind
@@ -1235,8 +1250,25 @@ class HybridOrchestrator:
         if getattr(self, "_mind_tools_for", None) is not self.belt:
             self._mind_tools, self._mind_tools_for = mind.tools_for(self.belt.schemas), self.belt
         self._context(user_input, ctx)
-        msgs = mind.build_messages(self.history, user_input, mind.situation(self), mind.facts_text(ctx.get("facts")),
+        hint, self._mind_hint = getattr(self, "_mind_hint", None), None
+        situation = mind.situation(self)
+        if hint:
+            situation += (f"\nUnderstanding's guess for this sentence: {hint[0]}({json.dumps(hint[1], ensure_ascii=False)}). "
+                          f"Use it if it's right, and answer like a thoughtful assistant, not a form.")
+        msgs = mind.build_messages(self.history, user_input, situation, mind.facts_text(ctx.get("facts")),
                                    int(c["history_turns"]))
+        if hint and hint[0] == "look_at_shown":       # Nov 25: she answered from the caption without looking
+            try:
+                from core.show import tool_look_at_shown
+                out = tool_look_at_shown(**hint[1])
+            except Exception:
+                out = {}
+            if out.get("_image"):
+                img = out["_image"]
+                msgs[-1]["content"] = [{"type": "text", "text": msgs[-1]["content"] + "\n(Here is that picture.)"},
+                                       {"type": "image", "source": {"type": "base64", "media_type": img["media_type"],
+                                                                    "data": img["b64"]}}]
+                logger.info("MIND: looking at the picture he asked about")
         model, effort, claude = c["model"], c.get("effort") or None, get_claude()
         last_text = ""
         for step in range(int(c["max_steps"])):
@@ -1857,6 +1889,8 @@ class HybridOrchestrator:
 
             # 1. fast path: no LLM, no embeddings
             fp = fp_override or fast_path(user_input, self.belt)
+            if fp and fp[0] == "forge_build" and not fp_override:
+                fp = (fp[0], {**fp[1], "request": self._resolve_vague(fp[1].get("request", ""))})
             if fp:
                 tool, args = fp[0], await self._fill(fp[0], fp[1], user_input)
                 if self.belt.needs_confirm(tool):
@@ -1874,9 +1908,14 @@ class HybridOrchestrator:
                 for _ in range(MAX_TOOL_ITERS):
                     decision = await self._decide(client, ctx["skills"], gathered)
                     tool = decision.get("tool", "none")
-                    if tool == "work_it_out" or tool in _MIND_ONLY:
-                        handed = True
-                        break                              # v0.5: it needs thinking: the mind answers below
+                    if (tool == "work_it_out" or tool in _MIND_ONLY) and not gathered and self._mind_ready(user_input):
+                        handed = True                      # v0.5: it needs thinking: the mind answers below
+                        flat = {k: v for k, v in decision.items() if k not in ("tool", "args") and not k.startswith("_")}
+                        self._mind_hint = (tool, {**flat, **dict(decision.get("args") or {})}) \
+                            if tool != "work_it_out" else None
+                        break
+                    if tool == "work_it_out":
+                        break                              # no mind (local only, no key): the old answer
                     if tool == "unavailable" and not gathered and self._mind_ready(user_input):
                         break                              # v0.5: the mind looks for a way (or offers to build it)
                     if tool == "unavailable" and (gathered or not (decision.get("_trusted")

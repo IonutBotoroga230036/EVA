@@ -859,6 +859,8 @@ from core import projects as _projects  # noqa: E402
 TOOL_SCHEMAS += _projects.SCHEMAS
 REGISTRY.update(_projects.FUNCTIONS)
 GUARDS.update(_projects.GUARDS)
+ACTION_TOOLS |= _projects.ACTIONS
+CONFIRM_TOOLS.update(_projects.CONFIRM)           # deleting a project always asks
 
 # ---------------------------------------------------------------- v0.6: places near you, with opening hours
 from core import nearby as _nearby  # noqa: E402

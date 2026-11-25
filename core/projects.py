@@ -150,17 +150,40 @@ def reset_store(root: Optional[Path] = None) -> None:
 
 
 # ---------------------------------------------------------------- tools
-def _r(data: dict, say: str = "", widget: Optional[dict] = None) -> dict:
-    out = {"result": json.dumps(data, ensure_ascii=False)}
+def _r(data: dict, say: str = "", widget: Optional[dict] = None, **extra) -> dict:
+    out = {"result": json.dumps(data, ensure_ascii=False), **extra}
     if say:
         out["say"] = say
+        out["exact"] = True          # Nov 25: her own line; the small local model rephrased it into "I've initiated..."
     if widget:
         out["widget"] = widget
     return out
 
 
+_listed: list[str] = []          # the order of the last "which projects?", for "delete the first three"
+
+
 def _pick(project: str) -> Optional[Project]:
+    project = (project or "").strip()
+    if re.fullmatch(r"[a-f0-9]{8}", project):                 # an id (the mind passes them along)
+        return get_store().get(project)
+    n = _number(project)
+    if n and 1 <= n <= len(_listed):
+        return get_store().get(_listed[n - 1])
     return get_store().find(project)
+
+
+_ORD = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "last": -1}
+
+
+def _number(text: str) -> int:
+    t = (text or "").strip().lower()
+    if t.isdigit():
+        return int(t)
+    for w, n in _ORD.items():
+        if re.search(rf"\b{w}\b", t):
+            return len(_listed) if n == -1 else n
+    return 0
 
 
 def widget(p: Project) -> dict:
@@ -182,8 +205,15 @@ def tool_project_start(name: str = "", goal: str = "", **_):
         return _r({"project": old.id, "existed": True}, f"We already have the {old.name} project, sir. It's the "
                   f"active one again.", widget(old))
     p = get_store().new(name, goal)
-    return _r({"project": p.id, "name": p.name}, f"Started the {p.name} project, sir. I'll keep the decisions, "
-              f"questions and parts for it there.", widget(p))
+    # Nov 25: "nothing was really going on": a project now starts with an offer to do the first real work
+    goal_text = goal or name
+    research = {"tool": "task_start", "desc": f"research how to build the {p.name} and draft a first parts list",
+                "args": {"goal": f"For the project '{p.name}' ({goal_text}): research the ways to build it, compare "
+                                 f"them (cost, difficulty, how it looks), recommend one, and draft a parts list with "
+                                 f"prices and shop links in the Netherlands. Put decisions-to-make as questions, "
+                                 f"and the parts on the project.", "project": p.id}}
+    return _r({"project": p.id, "name": p.name}, f"Started the {p.name} project, sir. Shall I research how to build "
+              f"it and draft a first parts list?", widget(p), confirm_next=research)
 
 
 def tool_project_note(text: str = "", kind: str = "note", project: str = "", **_):
@@ -266,9 +296,42 @@ def tool_project_list(**_):
     if not ps:
         return _r({"projects": []}, "No projects yet, sir.")
     act = get_store().active()
-    names = ", ".join(p.name + (" (active)" if act and p.id == act.id else "") for p in ps[-8:])
-    return _r({"projects": [{"id": p.id, "name": p.name, "status": p.status} for p in ps]},
+    _listed[:] = [p.id for p in ps]
+    names = "; ".join(f"{i}, {p.name}" + (" (the active one)" if act and p.id == act.id else "")
+                      for i, p in enumerate(ps, 1))
+    return _r({"projects": [{"n": i, "id": p.id, "name": p.name, "status": p.status} for i, p in enumerate(ps, 1)]},
               f"Your projects, sir: {names}.")
+
+
+def tool_project_delete(projects: Optional[list] = None, project: str = "", **_):
+    """Delete projects by name or by their number from the last list ('the first three'). Always asks first."""
+    want = [str(x) for x in (projects or [])] + ([project] if project else [])
+    hits, seen = [], set()
+    for w in want:
+        p = _pick(w)
+        if p and p.id not in seen:
+            hits.append(p)
+            seen.add(p.id)
+    if not hits:
+        return _r({"error": "no such project"}, "I couldn't tell which projects you mean, sir.")
+    for p in hits:
+        try:
+            get_store()._path(p.id).unlink()
+        except FileNotFoundError:
+            pass
+    _listed[:] = [x for x in _listed if x not in seen]
+    names = ", ".join(p.name for p in hits)
+    return _r({"deleted": [p.id for p in hits]}, f"Deleted, sir: {names}.")
+
+
+def describe_delete(args: dict) -> str:
+    want = [str(x) for x in (args.get("projects") or [])] + ([args["project"]] if args.get("project") else [])
+    names = []
+    for w in want:
+        p = _pick(w)
+        if p:
+            names.append(p.name)
+    return f"delete {'the project' if len(names) == 1 else 'these projects'}: {', '.join(names) or ', '.join(want)}"
 
 
 def tool_project_switch(project: str = "", **_):
@@ -351,14 +414,23 @@ SCHEMAS = [
         "name": "project_switch", "description": "Make another project the active one ('let's work on the GPS app').",
         "parameters": {"type": "object", "properties": {"project": {"type": "string"}}, "required": ["project"]}}},
     {"type": "function", "function": {
+        "name": "project_delete",
+        "description": "Delete projects, by name or by their number in the last list ('delete the first three "
+                       "projects' -> projects ['1','2','3']). Asks him first.",
+        "parameters": {"type": "object", "properties": {"projects": {"type": "array", "items": {"type": "string"}},
+                                                        "project": {"type": "string"}}}}},
+    {"type": "function", "function": {
         "name": "project_export",
         "description": "Save a project to his E.V.A. folder: the parts list as a spreadsheet and a summary note.",
         "parameters": {"type": "object", "properties": {"project": {"type": "string"}}}}},
 ]
-FUNCTIONS = {"project_start": tool_project_start, "project_note": tool_project_note,
+FUNCTIONS = {"project_delete": tool_project_delete, "project_start": tool_project_start, "project_note": tool_project_note,
              "project_answer": tool_project_answer, "project_add_part": tool_project_add_part,
              "project_show": tool_project_show, "project_list": tool_project_list,
              "project_switch": tool_project_switch, "project_export": tool_project_export}
 GUARDS = {"project_start": r"\bproject\w*\b", "project_switch": r"\b(project|work on|switch|go back)\w*\b",
           "project_add_part": r"\b(part|parts|add|buy|need|component|list)\w*\b",
-          "project_export": r"\b(file|export|save|spreadsheet|excel|csv)\w*\b"}
+          "project_export": r"\b(file|export|save|spreadsheet|excel|csv)\w*\b",
+          "project_delete": r"\b(delete|remove|get rid|clear|drop)\w*\b"}
+ACTIONS = {"project_delete"}
+CONFIRM = {"project_delete": describe_delete}
