@@ -48,9 +48,12 @@ do-not-disturb, briefing), Telegram channel, FORGE v1, Claude Design interface, 
 | 16 | **Location automations** | Arriving home sets your "home" mood; at the store she texts your shopping list. Uses Android geofencing (the phone wakes only when you cross a boundary), not constant GPS, so the battery lasts. |
 | 17 | **Smart home expansion** | More devices, and a Home Assistant bridge. |
 
-Next: v0.4 "Agent" (agreed Nov 23): a task lane for long jobs with a plan, steps and files (the guitar stand
-test), consent tiers with standing permissions, the PC as a device like the phone (so the brain can move to the
-cloud later), and a sandbox before she installs programs.
+v0.4 "Agent" (built Nov 25, docs/AGENT.md): a task lane for long jobs with a plan, steps and files (the guitar
+stand test), consent tiers with standing permissions, the PC as a device like the phone (so the brain can move to
+the cloud later), a process sandbox before she installs anything, tool retrieval for when skills pass 150.
+Next in v0.4: a Docker sandbox for approved programs, a task view in the UI, vision to check rendered models,
+tasks that use the phone. Later: the brain in the cloud, a body (a cube with camera, mic and speaker as another
+device), her own processes like face recognition (only for people who agreed).
 
 ## What the phone app needs first
 The voice pipeline (1) so the app just streams audio to E.V.A., network safety (2) and private remote access (8)

@@ -19,13 +19,13 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
 ## How to work with him (rules that always hold)
 
 1. Check current library versions with a web search before building on them.
-2. Tests first, then the full suite (`python -m pytest -q`, about 1100 tests), plus a run with
+2. Tests first, then the full suite (`python -m pytest -q`, about 1140 tests), plus a run with
    `PYTHONUTF8=0 PYTHONIOENCODING=cp1252` for his Windows console.
 3. Tests never touch his real accounts or files: no real Claude/Jev keys, Google, Spotify, Telegram, Ollama,
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v034c_live_check.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v040_agent.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -95,6 +95,18 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
 
+## State on 25 Nov 2026 (v0.4 "Agent", built overnight)
+
+Branch `claude/v04-agent` (from `claude/commute-focus-findphone`, which isn't merged yet: merge that first),
+zip `eva_v040_agent.zip`. Untested on his PC. See docs/AGENT.md. New: `core/agent/` (tasks, consent tiers and
+standing permissions, the PC as a device with LocalPC/RemotePC and the `/ws/pc` link, `interfaces/pc_agent.py`,
+hands, the loop on Sonnet 5.5 with prompt caching, conversation tools), `core/understand/retrieve.py` (tool
+retrieval past 150 tools), ClaudeClient returns every tool_use and the raw content and counts cache tokens.
+Task questions/consents reach every window (pending/awaiting primed, `on_no` for a task's no), the dark phone
+session and Telegram (Yes/Always/No buttons). The guitar stand is a scripted end-to-end test
+(`tests/test_agent.py`); the real one is VOICE_TESTS section 23.
+Rule from now on: fast-path regexes only for reflexes; everything else goes through understanding.
+
 ## State on 25 Nov 2026 (01:00)
 
 Second run: commute planning from his "Train To Nijmegen" event and "no more trains tonight" worked. FORGE built
@@ -145,10 +157,8 @@ Known open points:
 
 ## Next (agreed list)
 
-1. His test log for v034 (NS key, find my phone with the new app build, focus mode in a real lecture).
-2. v0.4 "Agent" milestone (agreed Nov 23): a task lane (persistent Task: goal, plan, steps, files, consent log;
-   agent loop on a stronger model; resumable), consent tiers with standing permissions, the PC as a device like
-   the phone (so the brain can move to the cloud later), a sandbox before installs, tool retrieval when skills
-   pass ~150, and stop growing fast-path regexes beyond pure reflexes. Acceptance test: "design me a guitar
-   stand I can 3D print" (talk it through, install what's missing with his yes, find a print shop near Breda,
-   write a how-to).
+1. His test logs: v034 (NS key, find my phone with the new app build, focus mode in a real lecture), v034c
+   (currency), and v0.4: the guitar stand for real (VOICE_TESTS 23).
+2. After the real guitar stand run: fix what it shows (prompt, hands, consent wording, costs).
+3. v0.4 follow-ups: a Docker sandbox for approved programs; tasks that use the phone (photos, location);
+   a task view in the UI (plan, files, log); vision for checking a rendered model (OpenSCAD --render to PNG).

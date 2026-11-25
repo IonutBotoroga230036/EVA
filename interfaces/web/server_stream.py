@@ -112,6 +112,33 @@ async def announce_forge(msg: dict) -> None:
             logger.warning(f"FORGE: could not tell a window ({e})")
 
 
+def prime_task(orch, ev: dict) -> None:
+    """v0.4: a task's question takes your next words as the answer; its "may I...?" takes your yes or no."""
+    if ev.get("kind") == "consent":
+        args = {"task": ev["task"], "answer": "yes"}
+        orch.pending = {"tool": "task_answer", "args": args, "desc": ev.get("text", ""), "ts": time.time(),
+                        "on_no": {"tool": "task_answer", "args": {"task": ev["task"]}}}
+    elif ev.get("kind") == "question":
+        orch.awaiting = {"tool": "task_answer", "args": {"task": ev["task"]}, "field": "answer", "ts": time.time()}
+
+
+async def announce_task(ev: dict) -> None:
+    """A task's question, request, progress or result: every open window says it and is ready for your answer."""
+    if not ev.get("text"):
+        return
+    widget = {"kind": "note", "title": f"Task: {ev.get('title', '')}", "text": ev["text"]}
+    for conn in list(CONNECTIONS):
+        try:
+            prime_task(conn.orch, ev)
+            await conn.proactive(ev["text"], widget)
+        except Exception as e:
+            logger.warning(f"AGENT: could not tell a window ({e})")
+    try:
+        prime_task(_dark_session["orch"], ev) if _dark_session.get("orch") else None
+    except Exception:
+        pass
+
+
 async def broadcast(text: str, widget: dict | None = None) -> bool:
     """ORACLE's voice: speak a proactive message in every open E.V.A. window."""
     delivered = False
@@ -196,6 +223,21 @@ async def lifespan(_app: FastAPI):
         asyncio.run_coroutine_threadsafe(announce_forge(data.get("message") or {}), loop)
     get_bus().subscribe("forge.done", _on_forge_done)
 
+    # v0.4: tasks run in their own thread; their questions and results come here
+    def _on_agent(data: dict) -> None:
+        if not loop.is_closed():
+            asyncio.run_coroutine_threadsafe(announce_task(data), loop)
+    get_bus().subscribe("agent.event", _on_agent)
+    from core.agent import pc as agent_pc
+    from core.agent.runner import get_manager
+    agent_pc.LINK["loop"] = loop
+    try:
+        n = get_manager().resume_after_restart()
+        if n:
+            logger.info(f"AGENT: {n} task(s) carry on after the restart")
+    except Exception as e:
+        logger.warning(f"AGENT: couldn't resume tasks ({e})")
+
     # v0.3: the phone as E.V.A.'s hands, and actions later
     from core import device, later as later_mod
     from core.orchestrator_hybrid import ToolBelt
@@ -215,6 +257,7 @@ async def lifespan(_app: FastAPI):
     later_mod.get_later().start(loop, _run_later, _tell)
     yield
     get_bus().unsubscribe("forge.done", _on_forge_done)
+    get_bus().unsubscribe("agent.event", _on_agent)
     oracle.stop()
     oracle_task.cancel()
     if telegram:
@@ -1180,6 +1223,59 @@ async def ws(websocket: WebSocket):
         await conn.run()
     except WebSocketDisconnect:
         logger.info(f"client disconnected (session {conn.session_id})")
+
+
+class PCLink:
+    """v0.4: `python -m interfaces.pc_agent` on your PC. The brain asks it to do a task's work (core/agent/pc.py)."""
+
+    def __init__(self, websocket: WebSocket, name: str):
+        self.ws, self.name = websocket, name
+        self.waits: dict = {}
+
+    async def request(self, method: str, kwargs: dict) -> dict:
+        import uuid
+        rid = uuid.uuid4().hex[:10]
+        fut = asyncio.get_running_loop().create_future()
+        self.waits[rid] = fut
+        await self.ws.send_text(json.dumps({"type": "call", "id": rid, "method": method, "kwargs": kwargs}))
+        try:
+            return await asyncio.wait_for(fut, timeout=float(kwargs.get("timeout", 300)) + 30)
+        except asyncio.TimeoutError:
+            return {"ok": False, "error": "the PC didn't answer in time"}
+        finally:
+            self.waits.pop(rid, None)
+
+
+@app.websocket("/ws/pc")
+async def ws_pc(websocket: WebSocket):
+    """The PC agent's link. Same rules as /ws: this PC, or a device with your token over HTTPS."""
+    from core.agent import pc as agent_pc
+    host = websocket.client.host if websocket.client else None
+    ok, reason, _ = netsec.verdict("GET", host, websocket.headers, websocket.query_params, websocket.cookies,
+                                   websocket=True)
+    if not ok:
+        logger.warning(f"NETSEC: refused the PC link from {host}: {reason}")
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    link = None
+    try:
+        hello = json.loads(await websocket.receive_text())
+        link = PCLink(websocket, str(hello.get("name") or host or "pc")[:40])
+        agent_pc.LINK.update(conn=link, loop=asyncio.get_running_loop())
+        logger.info(f"AGENT: PC link from {link.name} ({', '.join(hello.get('caps') or [])})")
+        while True:
+            data = json.loads(await websocket.receive_text())
+            fut = link.waits.get(str(data.get("id")))
+            if data.get("type") == "result" and fut and not fut.done():
+                fut.set_result({"ok": bool(data.get("ok")), "data": data.get("data"),
+                                "error": str(data.get("error") or "")[:400]})
+    except (WebSocketDisconnect, ValueError, RuntimeError):
+        pass
+    finally:
+        if link is not None and agent_pc.LINK.get("conn") is link:
+            agent_pc.LINK["conn"] = None
+            logger.info("AGENT: PC link closed; tasks work on this machine directly")
 
 
 async def _serve_both(cert: str, key: str) -> None:

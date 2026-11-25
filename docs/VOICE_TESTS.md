@@ -309,3 +309,19 @@ labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-commun
 | 22.2 | "Build me a skill that tells the weather in Bucharest" | A stage "trying it for real" before she offers it | `FORGE live: ... worked against the real service` |
 | 22.3 | "Build me a skill that ..." then "can you do it locally?" | "I'm building it in the background locally, on your GPU, free" | no `CLAUDE claude-sonnet` lines |
 | 22.4 | Nothing playing: "kill my music" | "Nothing is playing on Spotify, sir." and it stays quiet | `SPOTIFY: nothing playing` |
+
+## 23. v0.4 tasks: the final boss test (needs ANTHROPIC_API_KEY; budget about 1 euro)
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 23.1 | "Eva, design me a guitar stand so I can print it on a 3D printer" | Asks to start a task, names the budget; "yes": "On it, sir: the guitar stand." | `AGENT: task ... started` |
+| 23.2 | Wait | A question about the guitar and size, in the window and on Telegram | `AGENT: task ... waits` |
+| 23.3 | Answer it ("electric, 30 cm, minimal") | "Got it, sir. Back to the guitar stand." | `CLAUDE claude-sonnet-5-5 [agent:...]` |
+| 23.4 | "How's the guitar stand going?" | Steps done of total, what's next, the cost so far | |
+| 23.5 | She asks to install OpenSCAD or Python packages | Say "yes" (or "yes, always" for packages) | `AEGIS` / the task's consent log |
+| 23.6 | When she asks to copy the files: "yes, for this task" | The files appear in Documents\E.V.A.\guitar stand | |
+| 23.7 | The end | A summary: size, material, a print shop near Breda; a how-to file among the files | `AGENT: task ... done after N steps, EUR ...` |
+| 23.8 | Restart E.V.A. while a task waits, then answer it | It carries on from the same question | `AGENT: N task(s) carry on` (if it was running) |
+| 23.9 | "Pause the guitar stand" / "resume it" / "cancel it" | Each says what happened | |
+| 23.10 | "What are my permissions?" / "forget your permissions" | Lists the standing yeses / removes them | |
+| 23.11 | Telegram, PC window closed: answer a task's question there | The task carries on | `TELEGRAM: task ... answered` |

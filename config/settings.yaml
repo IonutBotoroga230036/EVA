@@ -83,6 +83,9 @@ understanding:
     provider: "typesafe"    # typesafe (TYPESAFE_API_KEY) | openrouter (OPENROUTER_API_KEY), in config/secrets.env
     model: ""               # empty = the provider's default Jev
     sure: 0.8               # Jev at least this sure: act on it. Below: ask Claude (auto) or act anyway (jev)
+  retrieve:                 # v0.4: past this many tools, only the best `keep` go to understanding (0 = off)
+    above: 150
+    keep: 50
   cache:                    # Nov 23: the same sentence in the same situation reuses its cloud decision, free
     enabled: true
     days: 7                 # personal text (messages, notes) is kept in memory only, never in data/
@@ -269,3 +272,14 @@ calendar:
   sources:
     - "google"
     - "microsoft"
+
+# v0.4 "Agent": long tasks in the background (core/agent, docs/AGENT.md)
+agent:
+  model: "claude-sonnet-5-5"           # plans and works through a task ($2 / $10 per million tokens)
+  budget_eur: 1.0                      # per task; going over it is a question for you
+  budget_step_eur: 1.0                 # how much more each "yes, continue" allows
+  max_steps: 40                        # Claude turns in one go before she asks "shall I keep going?"
+  output_dir: "~/Documents/E.V.A."     # finished files land in <output_dir>/<task>, after your yes
+  pc: "auto"                           # auto: the PC agent if it's connected, else this machine | local | remote
+  programs: ["openscad", "prusa-slicer", "blender"]   # may run on a task's files without asking (+ ones it installed)
+

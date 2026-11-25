@@ -54,6 +54,19 @@ def send_from_thread(text: str, timeout: float = 15, buttons: Optional[list] = N
     return bool(fut.result(timeout))
 
 
+def prime_answer(task_id: str) -> None:
+    """v0.4: a task asked you something: your next Telegram message is the answer (like at the desk)."""
+    if not active():
+        return
+    import time as _t
+    for uid in list(_active.allowed):
+        try:
+            _active._orch(uid).awaiting = {"tool": "task_answer", "args": {"task": task_id}, "field": "answer",
+                                           "ts": _t.time()}
+        except Exception:
+            pass
+
+
 def load_token() -> Optional[str]:
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
         return os.environ["TELEGRAM_BOT_TOKEN"]
@@ -180,6 +193,8 @@ class TelegramBridge:
                 await self.handle_text(cq["message"]["chat"]["id"], cq["data"])
             elif uid in self.allowed and str(cq.get("data", "")).startswith("forge:"):
                 await self.handle_forge_button(cq["message"]["chat"]["id"], cq["data"])
+            elif uid in self.allowed and str(cq.get("data", "")).startswith("task:"):
+                await self.handle_task_button(cq["message"]["chat"]["id"], cq["data"])
             return
         msg = upd.get("message") or {}
         chat, uid = msg.get("chat", {}), msg.get("from", {}).get("id")
@@ -217,6 +232,17 @@ class TelegramBridge:
         fn = forge_tools.forge_install if action == "install" else forge_tools.forge_discard
         out = await asyncio.to_thread(fn, name=name)
         logger.info(f"TELEGRAM: FORGE {action} {name}")
+        await self.send(chat_id, out.get("say") or "Done, sir.")
+
+    async def handle_task_button(self, chat_id: int, data: str) -> None:
+        """[Yes] / [Always] / [No] under a task's request (v0.4). Your tap is the answer (paired users only)."""
+        _, answer, tid = (data.split(":", 2) + ["", ""])[:3]
+        if answer not in ("yes", "always", "no") or not tid:
+            return
+        from core.agent.tools import tool_task_answer
+        out = await asyncio.to_thread(tool_task_answer, answer="yes, always" if answer == "always" else answer,
+                                      task=tid)
+        logger.info(f"TELEGRAM: task {tid} answered {answer}")
         await self.send(chat_id, out.get("say") or "Done, sir.")
 
     async def poll_once(self) -> int:

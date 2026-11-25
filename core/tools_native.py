@@ -818,3 +818,13 @@ REGISTRY.update(_focus.FUNCTIONS)
 GUARDS.update(_focus.GUARDS)
 ACTION_TOOLS |= _focus.ACTIONS
 EXACT_TOOLS |= _focus.EXACT
+
+# ---------------------------------------------------------------- v0.4: tasks (the agent lane) and permissions
+from core.agent import tools as _agent_tools  # noqa: E402
+
+TOOL_SCHEMAS += _agent_tools.SCHEMAS
+REGISTRY.update(_agent_tools.FUNCTIONS)
+GUARDS.update(_agent_tools.GUARDS)
+ACTION_TOOLS |= _agent_tools.ACTIONS
+EXACT_TOOLS |= _agent_tools.EXACT
+CONFIRM_TOOLS.update(_agent_tools.CONFIRM)        # starting a task costs money; a standing yes changes the rules

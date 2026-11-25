@@ -60,7 +60,7 @@ class ClaudeClient:
     def message(self, *, system: str, messages: list[dict], model: Optional[str] = None,
                 max_tokens: int = 1500, thinking_budget: Optional[int] = None, effort: Optional[str] = None,
                 tools: Optional[list[dict]] = None, tool_choice: Optional[dict] = None,
-                purpose: str = "") -> dict:
+                purpose: str = "", cache: bool = False) -> dict:
         if not self.available():
             raise ClaudeUnavailable("no ANTHROPIC_API_KEY (set it in config/secrets.env)")
         model = model or self.model
@@ -74,6 +74,8 @@ class ClaudeClient:
             body["tools"] = tools
         if tool_choice:
             body["tool_choice"] = tool_choice
+        if cache:                                        # v0.4: automatic prompt caching (long agent loops)
+            body["cache_control"] = {"type": "ephemeral"}
         if thinking_budget and not effort:              # legacy callers: map a budget to an effort level
             effort = "high" if thinking_budget >= 8000 else "medium"
         if effort and not tool_choice:                   # forced tool use and thinking don't mix
@@ -89,8 +91,10 @@ class ClaudeClient:
         if data is None:
             raise RuntimeError("Claude API rejected the request")
         usage = data.get("usage", {})
-        cost = self.budget.record_usage(model, int(usage.get("input_tokens", 0)),
-                                        int(usage.get("output_tokens", 0)), purpose=purpose)
+        # cache writes cost 1.25x input, reads 0.1x (counted as input-token equivalents)
+        eff_in = int(usage.get("input_tokens", 0)) + round(1.25 * int(usage.get("cache_creation_input_tokens") or 0)) \
+            + round(0.1 * int(usage.get("cache_read_input_tokens") or 0))
+        cost = self.budget.record_usage(model, eff_in, int(usage.get("output_tokens", 0)), purpose=purpose)
         audit.log("claude_call", "claude", {"model": model, "purpose": purpose, "cost_eur": round(cost, 5),
                                             "input_tokens": usage.get("input_tokens"),
                                             "output_tokens": usage.get("output_tokens")})
@@ -99,15 +103,19 @@ class ClaudeClient:
             from core.budget import USD_TO_EUR
             cost += self.budget.record_extra(searches * 0.01 * USD_TO_EUR, purpose=purpose, what="web_search")
         out = {"text": "", "thinking": "", "tool_input": None, "tool_name": None, "cost_eur": cost, "usage": usage,
-               "stop_reason": data.get("stop_reason"), "searches": searches}
+               "stop_reason": data.get("stop_reason"), "searches": searches,
+               "content": data.get("content", []), "tool_uses": []}     # v0.4: the whole turn, for tool loops
         for block in data.get("content", []):
             if block.get("type") == "text":
                 out["text"] += block.get("text", "")
             elif block.get("type") == "thinking":
                 out["thinking"] += block.get("thinking", "")
-            elif block.get("type") == "tool_use" and out["tool_input"] is None:
-                out["tool_input"] = block.get("input")
-                out["tool_name"] = block.get("name")
+            elif block.get("type") == "tool_use":
+                out["tool_uses"].append({"id": block.get("id"), "name": block.get("name"),
+                                         "input": block.get("input") or {}})
+                if out["tool_input"] is None:
+                    out["tool_input"] = block.get("input")
+                    out["tool_name"] = block.get("name")
         logger.info(f"CLAUDE {model} [{purpose}] EUR {cost:.4f} "
                     f"({usage.get('input_tokens')} in / {usage.get('output_tokens')} out)")
         return out

@@ -197,9 +197,14 @@ async def understand(messages: list[dict], schemas: list[dict], legacy, fill, mo
         logger.info(f"UNDERSTAND {mode}: local only was said by voice, so nothing leaves this PC "
                     f"(say 'Eva, use auto for understanding' to allow Jev and Claude again)")
         mode = "local"
-    names = {t["function"]["name"]: t for t in schemas}
     if mode in ("legacy", "local"):
         return {**await legacy(), "_by": mode}
+    from core.understand import retrieve                  # v0.4: past 150 tools, only the ones that fit
+    every = len(schemas)
+    schemas = retrieve.select(messages, schemas)
+    if len(schemas) < every:
+        logger.info(f"UNDERSTAND: {len(schemas)} of {every} tools fit this sentence")
+    names = {t["function"]["name"]: t for t in schemas}
 
     # Nov 23: said before in the same situation? The decision it got then, free (core/understand/cache.py)
     from core.understand import cache

@@ -213,6 +213,25 @@ def isolate_nov23_afternoon(tmp_path, monkeypatch):
     device.PENDING.clear()
     device.LAST_POLL["ts"] = 0.0
     device.RINGING["ts"] = 0.0
+    import core.activity as _activity
+    monkeypatch.setattr(_activity, "_last", 0.0)                 # a turn in one test never delays the next
+    import core.agent.consent as _consent
+    import core.agent.pc as _apc
+    import core.agent.runner as _arun
+    import core.agent.tasks as _atasks
+    monkeypatch.setattr(_atasks, "_store", _atasks.Store(tmp_path / "tasks"))   # never your real tasks
+    monkeypatch.setattr(_consent, "PATH", tmp_path / "permissions.json")       # or your standing yeses
+    monkeypatch.setattr(_apc, "AGENT_DIR", tmp_path / "agent")
+    monkeypatch.setattr(_apc, "VENV", tmp_path / "agent" / "venv")
+    monkeypatch.setattr(_apc, "PROGRAMS", tmp_path / "agent" / "programs.json")
+    monkeypatch.setattr(_apc, "LINK", {"conn": None, "loop": None})
+    monkeypatch.setattr(_apc, "_cfg", lambda: {"output_dir": str(tmp_path / "out")})   # never your Documents
+    monkeypatch.setattr(_apc.LocalPC, "install_program",                              # tests never install
+                        lambda self, winget_id, exe="": {"ok": False, "output": "tests never install programs"})
+    monkeypatch.setattr(_apc.LocalPC, "pip_install",
+                        lambda self, packages: {"ok": False, "output": "tests never install packages"})
+    monkeypatch.setattr(_arun, "_manager", None)
+    monkeypatch.setattr(_arun, "default_notify", lambda task, kind, text: None)  # no Telegram from tests
     import core.forge_engine as _fe
     monkeypatch.setattr(_fe, "live_check", lambda d, plan: None)  # never a real service from a test
     try:

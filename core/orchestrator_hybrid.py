@@ -1625,6 +1625,10 @@ class HybridOrchestrator:
                 if fresh and p["tool"] == "forge_build" and local_answer(user_input):
                     p["args"] = {**p["args"], "where": "local"}                         # build it, but locally
                     loose_yes = True
+                if fresh and p["tool"] == "task_answer" and (_YES.search(user_input) or loose_yes or
+                                                             re.search(r"\balways\b", user_input, re.I)):
+                    p["args"] = {**p["args"], "answer": user_input}    # v0.4: "yes, always" keeps its words
+                    loose_yes = True
                 if fresh and (_YES.search(user_input) or loose_yes):
                     extra = await self._fill(p["tool"], dict(p["args"]), user_input)      # "At 3 o'clock, yes"
                     p["args"] = {**p["args"], **{k: extra[k] for k in ("day", "time", "when", "hour", "level")
@@ -1654,6 +1658,13 @@ class HybridOrchestrator:
                     self._finish(user_input, text, used)
                     yield {"type": "final", "text": text}
                     return
+                if fresh and _NO.search(user_input) and p.get("on_no"):          # v0.4: a task hears your no
+                    no = p["on_no"]
+                    out = await self.belt.aexecute(no["tool"], {**no["args"], "answer": user_input})
+                    text = out.get("say") or "Alright, sir."
+                    self._finish(user_input, text, used)
+                    yield {"type": "final", "text": text}
+                    return
                 if fresh and _NO.search(user_input):
                     audit.log("confirm_denied", "orchestrator", {"tool": p["tool"]})
                     rest = _NO.sub("", user_input, count=1).lstrip(" ,.!")
@@ -1671,8 +1682,9 @@ class HybridOrchestrator:
             # 0a. the answer to an open question ("What should the email to Muaad say, sir?")
             if self.awaiting:
                 a, self.awaiting = self.awaiting, None
-                if time.time() - a["ts"] < CONFIRM_TTL_S:
-                    if _NO.search(user_input) and len(user_input.split()) <= 4:
+                ttl = 1800 if a["tool"] == "task_answer" else CONFIRM_TTL_S     # v0.4: a task can wait for you
+                if time.time() - a["ts"] < ttl:
+                    if a["tool"] != "task_answer" and _NO.search(user_input) and len(user_input.split()) <= 4:
                         text = "Alright, sir, I won't write it."
                         self._finish(user_input, text, used)
                         yield {"type": "final", "text": text}

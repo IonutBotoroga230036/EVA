@@ -23,6 +23,12 @@ free time without the word "free". Nothing else is skipped: sending, deleting an
 Skills FORGE builds become choices automatically, from their name and description: no patterns to write.
 When the answer is a sure "nothing fits", she offers to build the skill.
 
+## Tool retrieval (v0.4)
+
+Past `understanding.retrieve.above` (150) tools, understanding sees only the best `keep` (50) for the sentence
+(`core/understand/retrieve.py`): its words against each tool's name, description and parameters, the tools used
+in the last turns, and a short always-list. At about 108 tools it isn't active yet.
+
 ## Cache and test mode (Nov 23)
 
 - **Cache** (`core/understand/cache.py`): the decision is kept for 7 days, keyed on the sentence (without "Hey

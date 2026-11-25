@@ -149,6 +149,15 @@ most work with natural variations too. Anything marked **asks first** waits for 
   45 seconds. "Found it" stops it, or the notification's button. Works with only Hands-free on (it checks in
   every 20 seconds).
 
+## Tasks: bigger jobs in the background (v0.4, docs/AGENT.md)
+- "Design me a guitar stand I can 3D print" / "research the best snowboard bindings under 200 euros" / "plan my
+  weekend in Brasov": she asks to start a task (up to 1 euro, then she asks), works in the background with
+  Claude, asks you when a choice matters, asks before installing anything, and tells you when it's done.
+- "How's the guitar stand going?" / "what tasks are you working on?" / "pause / resume / cancel the guitar stand"
+- Her questions: just answer (here, on the phone, or on Telegram). Her "may I...": "yes", "yes, always",
+  "yes, for this task", or "no".
+- Finished files land in Documents\E.V.A.\<task>. "What are my permissions?" / "forget your permissions"
+
 ## Testing cheaply (Nov 23)
 - "Test mode on" (or "test mode on with 50 cents"): cloud spending capped at 10 cents, each turn's cost in the
   log. "Test mode off" says what the session cost. A sentence you said before costs nothing the second time.
