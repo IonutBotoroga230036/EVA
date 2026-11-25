@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>E.V.A.</title>
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="theme-color" content="#08060f">
@@ -315,7 +315,7 @@ function connect(){
       case 'widget': renderWidget(ev.data); break;
       case 'final': {
         const t=ev.text||streamBuf; say(t); streamBuf='';
-        if(ttsMode!=='kokoro'){ speak(t,{then:(lastWasVoice||wakeMode)?startFollowUp:null}); }
+        if(ttsMode!=='kokoro'&&!ev.silent){ speak(t,{then:(lastWasVoice||wakeMode)?startFollowUp:null}); }
         else kick();                                          // never leave the core stuck
         break;
       }

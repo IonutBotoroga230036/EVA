@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v040_agent.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v040b_first_task.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,23 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 25 Nov 2026 (19:15, first real task)
+
+His first guitar stand (log 25 Nov 19:08 to 19:13): task_start with consent worked, she asked bed size and guitar
+(Squier Strat), his answer resumed her. Then a 400 "Invalid `signature` in `thinking` block ... bound to a different
+conversation" killed it. Cause: the task's system prompt held `%H:%M`, so it changed every minute; Sonnet 5.5 binds
+each thinking block to its prefix (system, tools, earlier messages), and the cache never hit either. Fixed (zip
+`eva_v040b_first_task.zip`): the system prompt is written once per task (`Task.system`) and resent unchanged;
+agent calls send adaptive thinking with `block_binding.prefix_mismatch_behavior` "error" plus the beta header
+`thinking-binding-controls-2026-08-01`; the binding error becomes `ThinkingBound`, and the task then switches to
+"drop_block" for good (`Task.drop_thinking`), as after `_compact` trims; `agent.max_tokens` 4000 -> 16000 (the
+third turn was cut at 4000 and read as a question) and a `max_tokens` stop now carries on with a note instead of
+asking him; `agent.effort` medium. Also: "any other questions?" while a task runs gets "Not right now"; "Sir,
+about X: Sir, ..." fixed; a failed task can be resumed ("try again"); task updates are spoken in the window he
+last talked to and only shown in the others (he heard one twice with the phone app and a browser open); Windows
+ConnectionResetError tracebacks from dropped connections are no longer printed; the manifest link sends the
+pairing cookie (`crossorigin="use-credentials"`, it got 401).
 
 ## State on 25 Nov 2026 (v0.4 "Agent", built overnight)
 

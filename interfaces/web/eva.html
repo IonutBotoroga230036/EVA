@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#08060f">
 <title>E.V.A.</title>
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 
@@ -994,7 +994,7 @@ function handle(ev) {
       }
       caption(t, ttsMode === 'kokoro' ? 0 : undefined);
       if (rtOpen()) rtLoad();                                   // "remind me..." shows up in an open panel
-      if (ttsMode !== 'kokoro') speak(t, (lastWasVoice || wakeMode) && !ev.proactive ? followUp : null); else kick();
+      if (ttsMode !== 'kokoro' && !ev.silent) speak(t, (lastWasVoice || wakeMode) && !ev.proactive ? followUp : null); else kick();
       break;
     }
     case 'audio': onAudio(ev); break;

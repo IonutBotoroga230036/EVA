@@ -29,6 +29,11 @@ class Script:
         if not self.turns:
             raise AssertionError("the agent asked Claude more often than scripted")
         blocks = self.turns.pop(0)
+        if isinstance(blocks, Exception):
+            raise blocks
+        stop = None
+        if isinstance(blocks, tuple) and blocks[0] == "cut":     # a reply cut off at max_tokens
+            stop, blocks = "max_tokens", blocks[1]
         content, uses = [], []
         for b in blocks:
             if isinstance(b, str):
@@ -40,7 +45,7 @@ class Script:
                 uses.append({"id": u["id"], "name": u["name"], "input": u["input"]})
         text = "".join(b for b in blocks if isinstance(b, str))
         return {"content": content, "tool_uses": uses, "text": text, "cost_eur": self.cost,
-                "stop_reason": "tool_use" if uses else "end_turn"}
+                "stop_reason": stop or ("tool_use" if uses else "end_turn")}
 
 
 def check_shape(msgs):
@@ -286,7 +291,8 @@ def test_long_conversations_are_trimmed_but_keep_their_shape():
         msgs.append({"role": "assistant", "content": [{"type": "tool_use", "id": f"t{i}", "name": "write_file",
                                                        "input": {"path": "a", "content": "x" * 3000}}]})
         msgs.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{i}", "content": "y" * 3000}]})
-    out = _compact(msgs, 60000)
+    out, trimmed = _compact(msgs, 60000)
+    assert trimmed and _compact(out[:3], 60000)[1] is False
     check_shape(out)
     assert len(json.dumps(out)) < 50000 and out[-1]["content"][0]["content"] == "y" * 3000
     assert out[1]["content"][0]["input"]["content"].endswith("(trimmed: the file is in the task folder)")
@@ -531,3 +537,178 @@ def test_numpy_works_in_the_sandbox():
     t = get_store().new("numbers")
     out = pc_mod.LocalPC().run_python(t.id, "import numpy as np\nnp.save('a.npy', np.arange(3))\nprint(np.load('a.npy').sum())")
     assert out["exit"] == 0 and out["stdout"].strip() == "3", out
+
+
+# ---------------------------------------------------------------- Nov 25 log: the first real guitar stand
+def test_the_instructions_are_written_once_and_resent_unchanged(mgr, monkeypatch):
+    """The system prompt held the time of day, so it changed every minute: every earlier thinking block became
+    invalid (400 'bound to a different conversation') and the prompt cache never hit."""
+    from core.agent import runner
+    m = mgr([[T("ask_user", question="Which guitar?")], [T("update_plan", steps=["a"])], [T("finish", summary="ok")]])
+    t = m.start("design me a guitar stand")
+    monkeypatch.setattr(runner, "_context", lambda: "something new in EVA.md")     # you edit EVA.md meanwhile
+    m.answer("electric")
+    systems = {c["system"] for c in m.script.calls}
+    assert len(systems) == 1 and "started on" in systems.pop()
+    assert get_store().get(t.id).system
+    c = m.script.calls[0]
+    assert c["thinking"] == {"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "error"}}
+    assert "thinking-binding-controls-2026-08-01" in c["betas"] and c["effort"] == "medium"
+    assert c["max_tokens"] == 16000
+
+
+def test_stale_thinking_is_dropped_and_the_task_goes_on(mgr):
+    from core.claude import ThinkingBound
+    m = mgr([[T("ask_user", question="Which guitar?")],
+             ThinkingBound("messages.5.content.0: ... The block is bound to a different conversation."),
+             [T("finish", summary="Done.")]])
+    t = m.start("design me a guitar stand")
+    m.answer("electric")
+    t = get_store().get(t.id)
+    assert t.status == "done" and t.drop_thinking
+    assert m.script.calls[-1]["thinking"]["block_binding"]["prefix_mismatch_behavior"] == "drop_block"
+
+
+def test_a_second_binding_error_fails_the_task_and_resume_tries_again(mgr):
+    from core.claude import ThinkingBound
+    from core.agent.runner import _spoken_error
+    m = mgr([ThinkingBound("bound to a different conversation"), ThinkingBound("bound to a different conversation"),
+             [T("finish", summary="Done.")]])
+    t = get_store().new("design me a guitar stand")
+    with pytest.raises(ThinkingBound):
+        m.run(t.id)
+    t = get_store().get(t.id)
+    t.status = "failed"
+    get_store().save(t)
+    assert m.resume(t) == "Trying the guitar stand again, sir."
+    assert get_store().get(t.id).status == "done"
+    e = RuntimeError('Claude API error 400: {"type":"error","error":{"type":"invalid_request_error","message":'
+                     '"messages.5.content.0: Invalid signature"}}')
+    assert _spoken_error(e) == "messages.5.content.0: Invalid signature"
+
+
+def test_a_cut_off_reply_carries_on_instead_of_asking(mgr):
+    """19:12:33: 4000 tokens out, no tool call, so she asked 'How should I go on with the guitar stand, sir?'"""
+    m = mgr([("cut", ["Here is the OpenSCAD model: module stand() {", T("write_file", path="stand.scad", content="mod")]),
+             [T("finish", summary="Done.")]])
+    t = m.start("design me a guitar stand")
+    assert get_store().get(t.id).status == "done" and not [x for x in m.told if x[0] == "question"]
+    last = m.script.calls[-1]["messages"]
+    assert last[-1]["content"].startswith("(Your last reply hit the length limit")
+    assert [b["type"] for b in last[-2]["content"]] == ["text"]          # the unfinished tool call is gone
+
+
+def test_any_other_questions_while_she_works(mgr):
+    m = mgr([])
+    t = get_store().new("design me a guitar stand")
+    t.status = "running"
+    get_store().save(t)
+    task, say = m.answer("do you have any other questions?")
+    assert task is None and say.startswith("Not right now, sir. I'm working on the guitar stand")
+
+
+def test_her_question_doesnt_say_sir_twice(mgr):
+    m = mgr([[T("ask_user", question="Sir, two quick choices: bed size and guitar?")]])
+    m.start("design me a guitar stand")
+    assert m.told[-1][1] == "Sir, about the guitar stand: Two quick choices: bed size and guitar?"
+
+
+class _Resp:
+    def __init__(self, code, body):
+        self.status_code, self._body = code, body
+        self.text = json.dumps(body)
+
+    def json(self):
+        return self._body
+
+
+class _HTTP:
+    def __init__(self, replies):
+        self.replies, self.sent = list(replies), []
+
+    def post(self, url, json=None, headers=None):
+        import copy
+        self.sent.append((copy.deepcopy(json), dict(headers or {})))
+        return self.replies.pop(0)
+
+
+def _client(replies, tmp_path):
+    from core.budget import BudgetTracker
+    from core.claude import ClaudeClient
+    return ClaudeClient(api_key="test", budget=BudgetTracker(track_file=str(tmp_path / "b.json")), http=_HTTP(replies))
+
+
+OK = {"content": [{"type": "thinking", "thinking": "", "signature": "s"}, {"type": "text", "text": "hi"}],
+      "usage": {"input_tokens": 5, "output_tokens": 5}, "stop_reason": "end_turn",
+      "input_transformations": [{"type": "thinking_dropped", "path": "messages.1.content.0"}]}
+BOUND = {"type": "error", "error": {"type": "invalid_request_error", "message": "messages.1.content.0: Invalid "
+         "`signature` in `thinking` block. The block is bound to a different conversation."}}
+
+
+def test_the_client_sends_the_binding_setting_and_names_the_error(tmp_path):
+    from core.claude import BINDING_BETA, ThinkingBound
+    th = {"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "error"}}
+    c = _client([_Resp(200, OK)], tmp_path)
+    out = c.message(system="s", messages=[{"role": "user", "content": "x"}], thinking=th, betas=[BINDING_BETA])
+    body, headers = c.http.sent[0]
+    assert body["thinking"] == th and headers["anthropic-beta"] == BINDING_BETA
+    assert out["text"] == "hi" and out["input_transformations"][0]["type"] == "thinking_dropped"
+    c = _client([_Resp(400, BOUND)], tmp_path)
+    with pytest.raises(ThinkingBound):
+        c.message(system="s", messages=[{"role": "user", "content": "x"}], thinking=th, betas=[BINDING_BETA])
+    assert len(c.http.sent) == 1                          # never silently retried without thinking
+
+
+def test_without_the_beta_it_goes_on_without_the_setting(tmp_path):
+    from core.claude import BINDING_BETA
+    th = {"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "error"}}
+    no_beta = {"type": "error", "error": {"type": "invalid_request_error",
+                                          "message": "thinking.block_binding: Extra inputs are not permitted"}}
+    c = _client([_Resp(400, no_beta), _Resp(200, OK)], tmp_path)
+    assert c.message(system="s", messages=[{"role": "user", "content": "x"}], thinking=th,
+                     betas=[BINDING_BETA])["text"] == "hi"
+    body, headers = c.http.sent[1]
+    assert body["thinking"] == {"type": "adaptive"} and "anthropic-beta" not in headers
+
+
+# ---------------------------------------------------------------- one window speaks, the others show
+def test_a_task_update_is_spoken_in_one_window_only():
+    import asyncio
+    from interfaces.web import server_stream as ss
+
+    class Conn:
+        def __init__(self, talk):
+            self.last_talk, self.connected_at, self.heard = talk, 0.0, []
+            self.orch = type("O", (), {"pending": None, "awaiting": None})()
+
+        async def proactive(self, text, widget=None, speak=True):
+            self.heard.append((text, speak))
+    phone, pc = Conn(100.0), Conn(200.0)
+    ss.CONNECTIONS.update({phone, pc})
+    try:
+        asyncio.run(ss.announce_task({"task": "abc", "title": "guitar stand", "kind": "question", "text": "Which?"}))
+    finally:
+        for c in (phone, pc):
+            ss.CONNECTIONS.remove(c)
+    assert pc.heard == [("Which?", True)] and phone.heard == [("Which?", False)]
+    assert phone.orch.awaiting["tool"] == "task_answer" and pc.orch.awaiting["tool"] == "task_answer"
+
+
+def test_windows_connection_resets_are_not_logged():
+    from interfaces.web import server_stream as ss
+    seen = []
+
+    class Loop:
+        def default_exception_handler(self, ctx):
+            seen.append(ctx)
+    ss._quiet_resets(Loop(), {"message": "Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)",
+                              "exception": ConnectionResetError(10054, "forcibly closed")})
+    assert seen == []
+    ss._quiet_resets(Loop(), {"message": "Task exception was never retrieved", "exception": ValueError("x")})
+    assert len(seen) == 1
+
+
+def test_the_manifest_is_fetched_with_the_pairing_cookie():
+    for name in ("eva.html", "eva_classic.html"):
+        html = (Path("interfaces/web") / name).read_text(encoding="utf-8")
+        assert 'rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials"' in html

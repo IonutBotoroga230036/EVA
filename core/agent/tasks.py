@@ -41,6 +41,8 @@ class Task:
     summary: str = ""
     files: list = field(default_factory=list)         # files it delivered (outside the workspace)
     error: str = ""
+    system: str = ""            # Nov 25: the instructions, written once at the start and resent unchanged
+    drop_thinking: bool = False  # earlier thinking no longer matches (trimmed or changed): the API drops it
 
     def note(self, what: str) -> None:
         self.log.append({"ts": time.time(), "what": what[:300]})

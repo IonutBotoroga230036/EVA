@@ -34,6 +34,14 @@ class ClaudeUnavailable(RuntimeError):
     pass
 
 
+class ThinkingBound(RuntimeError):
+    """Nov 25: a thinking block no longer matches what came before it (something earlier in the conversation
+    changed). Sonnet/Opus/Haiku 5.5 bind each thinking block to its prefix: system, tools and earlier messages."""
+
+
+BINDING_BETA = "thinking-binding-controls-2026-08-01"
+
+
 def _load_key() -> Optional[str]:
     if os.environ.get("ANTHROPIC_API_KEY"):
         return os.environ["ANTHROPIC_API_KEY"]
@@ -60,7 +68,8 @@ class ClaudeClient:
     def message(self, *, system: str, messages: list[dict], model: Optional[str] = None,
                 max_tokens: int = 1500, thinking_budget: Optional[int] = None, effort: Optional[str] = None,
                 tools: Optional[list[dict]] = None, tool_choice: Optional[dict] = None,
-                purpose: str = "", cache: bool = False) -> dict:
+                purpose: str = "", cache: bool = False, thinking: Optional[dict] = None,
+                betas: Optional[list[str]] = None) -> dict:
         if not self.available():
             raise ClaudeUnavailable("no ANTHROPIC_API_KEY (set it in config/secrets.env)")
         model = model or self.model
@@ -82,6 +91,9 @@ class ClaudeClient:
             body["thinking"] = {"type": "adaptive"}
             body["output_config"] = {"effort": effort}
             body["max_tokens"] = max(max_tokens, 6000)   # room for thinking AND the answer
+        if thinking:                                     # v0.4 tasks: adaptive thinking with block_binding
+            body["thinking"] = dict(thinking)
+            return self._finish(model, purpose, self._post_thinking(body, betas or []))
         data = self._post(body)
         if data is None and "thinking" in body:
             body.pop("thinking")
@@ -90,6 +102,9 @@ class ClaudeClient:
             data = self._post(body)
         if data is None:
             raise RuntimeError("Claude API rejected the request")
+        return self._finish(model, purpose, data)
+
+    def _finish(self, model: str, purpose: str, data: dict) -> dict:
         usage = data.get("usage", {})
         # cache writes cost 1.25x input, reads 0.1x (counted as input-token equivalents)
         eff_in = int(usage.get("input_tokens", 0)) + round(1.25 * int(usage.get("cache_creation_input_tokens") or 0)) \
@@ -104,7 +119,8 @@ class ClaudeClient:
             cost += self.budget.record_extra(searches * 0.01 * USD_TO_EUR, purpose=purpose, what="web_search")
         out = {"text": "", "thinking": "", "tool_input": None, "tool_name": None, "cost_eur": cost, "usage": usage,
                "stop_reason": data.get("stop_reason"), "searches": searches,
-               "content": data.get("content", []), "tool_uses": []}     # v0.4: the whole turn, for tool loops
+               "content": data.get("content", []), "tool_uses": [],     # v0.4: the whole turn, for tool loops
+               "input_transformations": data.get("input_transformations") or []}
         for block in data.get("content", []):
             if block.get("type") == "text":
                 out["text"] += block.get("text", "")
@@ -120,9 +136,31 @@ class ClaudeClient:
                     f"({usage.get('input_tokens')} in / {usage.get('output_tokens')} out)")
         return out
 
+    def _post_thinking(self, body: dict, betas: list[str]) -> dict:
+        """Thinking set by the caller: never silently dropped. The binding error becomes ThinkingBound, so the caller
+        can switch that conversation to drop_block. If the beta isn't accepted, once more without block_binding."""
+        r = self._send(body, betas)
+        if r.status_code == 400 and "bound to a different conversation" in r.text:
+            raise ThinkingBound(r.text[:300])
+        if r.status_code == 400 and "block_binding" in body.get("thinking", {}) and (
+                "anthropic-beta" in r.text or "block_binding" in r.text):
+            logger.warning(f"Claude didn't take the thinking binding setting ({r.text[:160]}); sending without it")
+            body["thinking"] = {k: v for k, v in body["thinking"].items() if k != "block_binding"}
+            r = self._send(body, [b for b in betas if b != BINDING_BETA])
+            if r.status_code == 400 and "bound to a different conversation" in r.text:
+                raise ThinkingBound(r.text[:300])
+        if r.status_code >= 400:
+            raise RuntimeError(f"Claude API error {r.status_code}: {r.text[:300]}")
+        return r.json()
+
+    def _send(self, body: dict, betas: Optional[list[str]] = None):
+        headers = {"x-api-key": self.api_key, "anthropic-version": API_VERSION, "content-type": "application/json"}
+        if betas:
+            headers["anthropic-beta"] = ",".join(betas)
+        return self.http.post(API_URL, json=body, headers=headers)
+
     def _post(self, body: dict) -> Optional[dict]:
-        r = self.http.post(API_URL, json=body, headers={
-            "x-api-key": self.api_key, "anthropic-version": API_VERSION, "content-type": "application/json"})
+        r = self._send(body)
         if r.status_code == 400 and "thinking" in body:
             logger.warning(f"Claude rejected extended thinking ({r.text[:160]}); retrying without it")
             return None

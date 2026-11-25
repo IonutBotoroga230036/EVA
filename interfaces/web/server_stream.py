@@ -122,15 +122,23 @@ def prime_task(orch, ev: dict) -> None:
         orch.awaiting = {"tool": "task_answer", "args": {"task": ev["task"]}, "field": "answer", "ts": time.time()}
 
 
+def _speaker(conns: list):
+    """Nov 25: the window you last talked to says it out loud; the others only show it (no echo from two devices)."""
+    return max(conns, key=lambda c: (getattr(c, "last_talk", 0.0), getattr(c, "connected_at", 0.0)), default=None)
+
+
 async def announce_task(ev: dict) -> None:
-    """A task's question, request, progress or result: every open window says it and is ready for your answer."""
+    """A task's question, request, progress or result: every open window shows it and is ready for your answer; the
+    one you last talked to says it."""
     if not ev.get("text"):
         return
     widget = {"kind": "note", "title": f"Task: {ev.get('title', '')}", "text": ev["text"]}
-    for conn in list(CONNECTIONS):
+    conns = list(CONNECTIONS)
+    loud = _speaker(conns)
+    for conn in conns:
         try:
             prime_task(conn.orch, ev)
-            await conn.proactive(ev["text"], widget)
+            await conn.proactive(ev["text"], widget, speak=conn is loud)
         except Exception as e:
             logger.warning(f"AGENT: could not tell a window ({e})")
     try:
@@ -181,6 +189,16 @@ def _warm_stt() -> None:
         logger.info(f"ECHO: listening ready ({pipeline_status().get('detail')})")
 
 
+def _quiet_resets(loop, context: dict) -> None:
+    """Windows: a phone or browser that drops its connection makes asyncio print a ConnectionResetError traceback
+    (_ProactorBasePipeTransport._call_connection_lost). Harmless, so it isn't logged; everything else is."""
+    exc = context.get("exception")
+    if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)) and "connection_lost" in str(
+            context.get("message", "")) + str(context.get("handle", "")):
+        return
+    loop.default_exception_handler(context)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     bus = get_bus()
@@ -216,6 +234,8 @@ async def lifespan(_app: FastAPI):
                 f"listening: {pipeline_status().get('engine')}")
     # v0.2.5 FORGE jobs: a build finishes in a worker thread; hop onto this loop before touching any window
     loop = asyncio.get_running_loop()
+    if sys.platform == "win32":
+        loop.set_exception_handler(_quiet_resets)
 
     def _on_forge_done(data: dict) -> None:
         if loop.is_closed():
@@ -881,6 +901,7 @@ class Connection:
         self.music_on = False                # E.V.A. started music and nobody stopped it: lyrics aren't commands
         self.device_caps: tuple = ()         # v0.3: the Android app says what it can do (alarm, timer)
         self.connected_at = time.time()      # the newest phone window gets device actions
+        self.last_talk = 0.0                 # when you last said something here: task updates are spoken here
         self._device_waits: dict = {}
         self._listener_lock = asyncio.Lock()
         self._resample = Resampler(16000)
@@ -966,8 +987,9 @@ class Connection:
                 speaker.cancel()
                 await self.send({"type": "audio_end", "turn": turn, "count": speaker.sent})
 
-    async def proactive(self, text: str, widget: dict | None = None) -> None:
-        """A turn E.V.A. starts herself. Waits briefly if she's mid-reply, then speaks like any answer."""
+    async def proactive(self, text: str, widget: dict | None = None, speak: bool = True) -> None:
+        """A turn E.V.A. starts herself. Waits briefly if she's mid-reply, then speaks like any answer.
+        speak=False: shown in this window, not said (another window says it)."""
         if self.current and not self.current.done():
             try:
                 await asyncio.wait_for(asyncio.shield(self.current), timeout=30)
@@ -978,8 +1000,11 @@ class Connection:
         await self.send({"type": "turn_start", "turn": turn})
         if widget:
             await self.send({"type": "widget", "data": widget, "proactive": True})
-        await self.send({"type": "final", "text": text, "proactive": True})
+        await self.send({"type": "final", "text": text, "proactive": True, **({} if speak else {"silent": True})})
         self.orch.history.append({"role": "assistant", "content": text})     # so "snooze it" has context
+        if not speak:
+            logger.info(f"EVA (shown): {text}")
+            return
         if self.listener:
             self.listener.said(text)
         if self.tts:
@@ -1014,6 +1039,7 @@ class Connection:
         if stt:
             await self.send({"type": "heard", "text": text, "stt": True})
         logger.info(f"USER{' (voice)' if stt else ''}: {text}")
+        self.last_talk = time.time()
         self.current = asyncio.create_task(self.reply(text, self.turn))
 
     # ------------------------------------------------------------ server-side listening (v0.2.5)

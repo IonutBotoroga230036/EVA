@@ -146,7 +146,7 @@ SCHEMAS = [
                        "required": ["answer"]}}},
     {"type": "function", "function": {"name": "task_pause", "description": "Pause a background task.",
                                       "parameters": {"type": "object", "properties": WHICH}}},
-    {"type": "function", "function": {"name": "task_resume", "description": "Resume a paused background task.",
+    {"type": "function", "function": {"name": "task_resume", "description": "Resume a paused background task, or try a failed one again.",
                                       "parameters": {"type": "object", "properties": WHICH}}},
     {"type": "function", "function": {"name": "task_cancel", "description": "Cancel a background task.",
                                       "parameters": {"type": "object", "properties": WHICH}}},
@@ -168,7 +168,7 @@ FUNCTIONS = {"task_start": tool_task_start, "task_status": tool_task_status, "ta
              "task_pause": tool_task_pause, "task_resume": tool_task_resume, "task_cancel": tool_task_cancel,
              "task_list": tool_task_list, "permission_grant": tool_permission_grant,
              "permission_revoke": tool_permission_revoke, "permission_list": tool_permission_list}
-GUARDS = {"task_pause": r"\b(pause|hold|wait|stop)\b", "task_resume": r"\b(resume|continue|carry on|go on|unpause)\b",
+GUARDS = {"task_pause": r"\b(pause|hold|wait|stop)\b", "task_resume": r"\b(resume|continue|carry on|go on|unpause|try (?:it )?again|retry)\b",
           "task_cancel": r"\b(cancel|stop|abort|drop|forget)\b",
           "permission_grant": r"\b(always|allow|permission|don'?t ask|without asking|stop asking)\b",
           "permission_revoke": r"\b(forget|revoke|take back|remove|withdraw|reset)\b"}

@@ -63,6 +63,20 @@ Each task has a budget (`agent.budget_eur`, 1 euro). Before each Claude turn she
 instructions and tools are read from the cache at a tenth of the price. Test mode and the daily budget apply as for
 everything else. After `agent.max_steps` (40) turns in one go she asks whether to keep going.
 
+## Thinking (Sonnet 5.5)
+
+She thinks before each step (adaptive thinking, `agent.effort`, medium). Each thinking block is bound to everything
+before it: the instructions, the tool list and the earlier messages. So the instructions are written once when a
+task starts (`Task.system`) and resent unchanged, even if you edit EVA.md meanwhile (the next task sees it). If
+something earlier does change (trimming a long task, a new version of E.V.A. with different tools), the API says
+so, and that task drops its older thinking from then on (`Task.drop_thinking`) instead of failing. A turn can use
+up to `agent.max_tokens` (16000, thinking included); if one is cut off anyway, she carries on from there.
+
+## Which window speaks
+
+A task's question or result shows in every open window and each one takes your answer, but only the window you
+last talked to says it out loud.
+
 ## Moving the brain later
 
 Today the brain runs on your PC and LocalPC does the work. When the brain runs in the cloud:

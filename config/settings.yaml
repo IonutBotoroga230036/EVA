@@ -279,6 +279,8 @@ agent:
   budget_eur: 1.0                      # per task; going over it is a question for you
   budget_step_eur: 1.0                 # how much more each "yes, continue" allows
   max_steps: 40                        # Claude turns in one go before she asks "shall I keep going?"
+  max_tokens: 16000                    # per turn, thinking included; only what she uses is paid for
+  effort: "medium"                     # how hard she thinks per turn: low | medium | high ("" = the model's default)
   output_dir: "~/Documents/E.V.A."     # finished files land in <output_dir>/<task>, after your yes
   pc: "auto"                           # auto: the PC agent if it's connected, else this machine | local | remote
   programs: ["openscad", "prusa-slicer", "blender"]   # may run on a task's files without asking (+ ones it installed)
