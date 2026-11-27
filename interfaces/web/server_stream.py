@@ -198,6 +198,8 @@ def _warm_llm() -> None:
         _h.post(f"{cfg['base_url']}/api/generate", json={"model": cfg["decision_model"],
                                                            "keep_alive": cfg["keep_alive"]}, timeout=120)
         logger.info(f"LLM warm: {cfg['decision_model']} loaded")
+        from core import localcheck                  # v0.9.1: GPU or CPU? the first thing to know when it's slow
+        localcheck.report(cfg["base_url"])
     except Exception as e:
         logger.warning(f"LLM warm-up skipped ({e})")
 

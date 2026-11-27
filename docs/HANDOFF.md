@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v091_stop_tasks.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v092_stop_and_local.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,13 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 27 Nov 2026 (13:00, v0.9.2: local mode diagnostics)
+
+Same branch `claude/v09b-stop-tasks`. His 11:07 log in local mode: 120 s decisions, a 245 s answer. Added
+core/localcheck.py (GPU/CPU placement, Ollama timings), 25/30 s local timeouts with an honest line, a 24-tool menu
+for the local model, colour-mode dimming. The energy saver task wasn't stopped: it finished (Energy Saver on, 11:04).
+Ask him for the `LOCAL:` lines from his next start-up. Full suite 1324 passed, 3 skipped, also cp1252.
 
 ## State on 27 Nov 2026 (12:30, v0.9.1: stopping her work)
 

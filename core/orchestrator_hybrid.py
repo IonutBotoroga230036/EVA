@@ -393,6 +393,13 @@ def _needs_mind(tool: str, decision: dict) -> bool:
 
 _GO_ON_INVITE = re.compile(r"\b(?:say|tell me) [\"']?(?:continue|go on|next)\b|\bwant (?:the|me to) (?:next|go on|"
                            r"continue)|\bshall i (?:go on|continue)\b", re.I)
+LOCAL_TOOLS = 24                 # v0.9.1: tools the local model chooses from in one sentence
+LOCAL_DECISION_S = 25.0          # was the client's 120 s
+LOCAL_ANSWER_S = 30.0            # until the first words of a local answer
+LOCAL_SLOW_SAY = ("My local brain isn't answering in time, sir: Ollama is too slow right now. Say 'Eva, use auto "
+                  "for understanding' to let Claude in, or check the log line that starts with LOCAL.")
+
+
 _ANSWER_WORDS = re.compile(
     r"^(?:(?:hey |ok |okay )?eva,?\s+)?(?:continue|go on|keep going|carry on|next(?: part| one)?|more|and then|"
     r"what happen(?:s|ed) next|yes|yeah|yep|yup|sure|ok(?:ay)?|alright|go ahead|do it|do that|please(?: do)?|"
@@ -1157,15 +1164,28 @@ class HybridOrchestrator:
                                               mode=self._mode(), private=self.understand_mode is None)
 
     async def _decide_local(self, client, skill_bodies, gathered, messages: list[dict]) -> dict:
-        system = build_decision_system(self.belt.list_text(), skill_bodies,
-                                       [out["result"] for _, out in gathered])
+        from core import localcheck
+        from core.understand import retrieve
+        # v0.9.1: the small model reads only the tools that fit this sentence (all 72 made a 3,000 token menu)
+        subset = retrieve.select(messages, self.belt.schemas, used=sorted(self.last_tools), above=LOCAL_TOOLS,
+                                 keep=LOCAL_TOOLS)
+        menu = "\n".join(f"- {t['function']['name']}: {t['function']['description']}" for t in subset)
+        system = build_decision_system(menu, skill_bodies, [out["result"] for _, out in gathered])
+        t0 = time.time()
         try:
             r = await client.post(f"{self.cfg['base_url']}/api/chat", json=self._ollama_body(
-                self._local_model(), format=self.schema,
-                messages=[{"role": "system", "content": system}, *messages]))
-            return json.loads(r.json()["message"]["content"])
+                self._local_model(), format=build_decision_schema(subset) if len(subset) < len(self.belt.schemas)
+                else self.schema, messages=[{"role": "system", "content": system}, *messages]),
+                timeout=httpx.Timeout(LOCAL_DECISION_S, connect=3.0))
+            data = r.json()
+            localcheck.timing("decision", data, time.time() - t0)
+            return json.loads(data["message"]["content"])
         except Exception as e:
-            logger.warning(f"decision failed, answering directly: {e}")
+            waited = time.time() - t0
+            logger.warning(f"decision failed after {waited:.0f} s, answering directly: {type(e).__name__} {e}")
+            if waited >= LOCAL_DECISION_S - 1:
+                localcheck.mark_slow(f"the local model didn't decide in {LOCAL_DECISION_S:.0f} seconds")
+                await asyncio.to_thread(localcheck.report, self.cfg["base_url"])
             return {"tool": "none"}
 
     async def _repair_args(self, client, tool: str, messages: list[dict] | None = None) -> dict:
@@ -1195,8 +1215,15 @@ class HybridOrchestrator:
         system = build_answer_system(persona, STYLE_RULES, facts, skill_bodies,
                                      [out["result"] for _, out in gathered])
         full: list[str] = []
+        from core import localcheck
+        slow = localcheck.recently_slow()
+        if slow and not gathered:                    # v0.9.1: don't wait another two minutes; say what's wrong
+            yield {"type": "final", "text": LOCAL_SLOW_SAY}
+            return
+        t0 = time.time()
         try:
-            async with client.stream("POST", f"{self.cfg['base_url']}/api/chat", json={
+            async with client.stream("POST", f"{self.cfg['base_url']}/api/chat", timeout=httpx.Timeout(
+                    LOCAL_ANSWER_S, connect=3.0), json={
                 "model": self.cfg["answer_model"], "stream": True,
                 "keep_alive": self.cfg["keep_alive"], "options": {"temperature": 0.3},
                 "messages": [{"role": "system", "content": system}, *self.history[-MAX_HISTORY:]],
@@ -1210,9 +1237,15 @@ class HybridOrchestrator:
                         full.append(tok)
                         yield {"type": "token", "text": tok}
                     if chunk.get("done"):
+                        localcheck.timing("answer", chunk, time.time() - t0)
                         break
         except Exception as e:
-            logger.error(f"answer stream failed: {e}")
+            logger.error(f"answer stream failed after {time.time() - t0:.0f} s: {type(e).__name__} {e}")
+            if not full:
+                localcheck.mark_slow("the local model didn't start an answer in time")
+                await asyncio.to_thread(localcheck.report, self.cfg["base_url"])
+                yield {"type": "final", "text": LOCAL_SLOW_SAY}
+                return
         yield {"type": "final", "text": "".join(full).strip() or "I had trouble forming that reply, sir."}
 
     # ------------------------------------------------------------ helpers

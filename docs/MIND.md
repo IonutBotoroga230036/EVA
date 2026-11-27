@@ -113,3 +113,13 @@ On 27 Nov at 10:59 he said "Can you drop the energy saver settings thing?" and "
 | Claims | `claims()` per sentence | "Energy saver settings disabled." / "... stopped, sir." with nothing done is a claim now; "Nothing was stopped" isn't. |
 | The 15-second drops | `computer.jpeg_block` | Every drop in the 10:58 log happened at about 15 s while a computer task's request (several PNG screenshots) was still being sent. Claude now gets JPEG screenshots (a few times smaller; the window keeps the PNG), and a drop logs the request size in KB. |
 | Tests | conftest | httpx.get and httpx.post raise in tests unless a test fakes them (a map test reached Nominatim). |
+
+## v0.9.2: local mode that says what's wrong
+
+27 Nov 11:07 to 11:16, understanding local only: a decision took 120 s and failed, an answer 245 s ("I had trouble forming that reply"). A 3B model on a GPU answers a decision in a second or two, so Ollama was slow, not the code: likely the model partly on the CPU (6 GB of VRAM shared with Whisper, the embedding model and other apps) or models swapping. Now:
+
+- `core/localcheck.py`: at start-up and after a slow call the log says where each model sits (`LOCAL: qwen2.5:3b-instruct is 100% on the GPU (2.4 GB)`, or a warning when part is on the CPU), and every local call logs Ollama's own timings (`LOCAL: decision 1.6 s (load 0.0 s, 2950 prompt tokens in 0.9 s, 24 out)`).
+- Timeouts: 25 s for a local decision, 30 s until a local answer starts (was 120 s each). After a timeout she says so ("My local brain isn't answering in time, sir...") instead of trying another two minutes.
+- The local model chooses from the 24 tools that fit the sentence (`retrieve.select(above=, keep=)`), not all 72.
+- Lights: "dim the lights" on a strip in colour mode (Tuya error 907) dims the colour's V (`set_hsv`, tinytuya 1.21.1).
+- Honest scope: on 6 GB of VRAM a 3B model is fine for one-step commands (music, lights, volume, timers) and weak at multi-step tool use; the mind stays on Claude until a bigger local model fits.
