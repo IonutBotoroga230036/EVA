@@ -88,6 +88,11 @@ _CLAIM = re.compile(r"\b(?:has|have|had) been (?:added|scheduled|created|booked|
                     r"|\badded\b.{0,60}\bto your (?:calendar|list|notes|shopping list|reminders)\b"
                     r"|\blights? (?:are |is )?(?:now )?set to\b"
                     r"|\bi(?:'ve| have| just)? (?:ordered|bought|purchased|paid for|placed (?:the|an|your) order)\b"
+                    # Nov 27 10:59: "Energy saver settings disabled." / "... stopped, sir." with nothing done
+                    r"|\bi(?:'ve| have| just)? (?:disabled|enabled|stopped|turned (?:on|off)|switched (?:on|off)|dropped|"
+                    r"cancel+ed|paused|ended|aborted)\b"
+                    r"|^[^.?!]{0,60}\b(?:disabled|enabled|stopped|turned off|switched off|dropped|cancel+ed|paused|"
+                    r"aborted)(?:,? sir)?[.!]?\s*$"
                     r"|\bi(?:'ve| have| just) (?:set|turned|changed|played|started|opened|put|drafted|sent|made)\b"
                     r"|^\s*i (?:set|turned|changed|played|started|opened|put|drafted|sent)\b"
                     r"|\b(?:e-?mail|message|draft|reminder)s? (?:was |were |has been |have been )?sent\b"
@@ -188,12 +193,17 @@ from core.mind import MIND_ONLY as _MIND_ONLY  # noqa: E402  (tools that need th
 _NEGATED = re.compile(r"(?:\bnothing|\bnot|n't|\bnever|\bno\b|\bwithout|\bwon't|\bcan't|\bwasn't|\bisn't)[^.!?]{0,30}$", re.I)
 
 
+_NEGATION_IN = re.compile(r"\b(?:nothing|not|never|no|none|neither)\b|n't", re.I)
+
+
 def claims(text: str) -> bool:
     """She says she did something (v0.8 _CLAIM), not counting 'Nothing has been moved' (Nov 27 10:01: the guard
     caught her saying nothing changed)."""
-    for m in _CLAIM.finditer(text or ""):
-        if not _NEGATED.search(text[max(0, m.start() - 40):m.start()]):
-            return True
+    for sent in re.split(r"(?<=[.!?])\s+", (text or "").strip()):      # v0.9: each sentence on its own
+        for m in _CLAIM.finditer(sent):
+            before = sent[max(0, m.start() - 40):m.start()]
+            if not (_NEGATED.search(before) or _NEGATION_IN.search(m.group(0))):
+                return True
     return False
 
 
@@ -615,6 +625,40 @@ _MORE_THAN_CALENDAR = re.compile(
     r"\bdiscuss\b|\bhow was (?:my|the) day|\b(?:busy|long|rough|hard|crazy) day\b", re.I)
 
 
+# Nov 27 10:59: "Can you drop the energy saver settings thing?" and "can you stop this?" while a computer task
+# clicked on: the local model said "Energy saver settings disabled." and nothing stopped.
+_STOP_TASK = re.compile(r"\b(?:cancel|stop|drop|abort|kill|end|quit|halt|forget(?: about)?|leave)\b(?:\s+(?:doing|working "
+                        r"on|with))?\s*(?P<what>(?:the|that|this|it|my|your)\b.*?)?\s*(?:\b(?:task|thing|job|search|"
+                        r"research|for now|please|now|eva|sir)\b\s*)*[.!?]*$", re.I)
+_MUSIC_WORDS = re.compile(r"\b(?:music|song|songs|spotify|playing|playlist|track|album|volume|sound|video|"
+                          r"timer|alarm|reminder)\b", re.I)
+
+
+def stop_task(text: str) -> dict | None:
+    """'drop the energy saver thing', 'stop this', 'cancel that task': the running task, if there is one."""
+    t = (text or "").strip()
+    if _MUSIC_WORDS.search(t) or len(t.split()) > 14:
+        return None
+    m = _STOP_TASK.search(t)
+    if not m:
+        return None
+    what = " ".join(re.sub(r"\b(?:the|that|this|it|my|your|task|thing|job|settings? thing)\b", " ",
+                           m.group("what") or "", flags=re.I).split())
+    try:
+        from core.agent.tasks import ACTIVE, get_store
+        tasks = get_store().all()
+    except Exception:
+        return None
+    if what:                                     # a named one: any task that isn't finished
+        words = [w for w in re.findall(r"[a-z0-9]+", what.lower()) if len(w) > 2]
+        named = [x for x in tasks if x.status in ACTIVE and any(w in f"{x.title} {x.goal}".lower() for w in words)]
+        return {"which": what} if named else None
+    # "stop this", "drop it": only while one is actually working (a bare "stop" stays the music's)
+    if not re.search(r"\b(?:this|that|it|doing)\b", m.group(0), re.I):
+        return None
+    return {"which": ""} if any(x.status in ("running", "queued") for x in tasks) else None
+
+
 def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     t = _WAKE_PREFIX.sub("", text).strip()
     polite = r"(?:(?:i want you to|i need you to|can you|could you|would you|please|and|also|now|don't forget|i)\s+)*"
@@ -882,6 +926,10 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
             r"what(?:'s| is) (?:coming )?(?:up )?next|my next (?:meeting|event|appointment|thing|call)|"
             r"what do i have next|what(?:'s| is) coming up\b", t, re.I):
         return "calendar_next", {}
+    if belt.has("task_cancel"):                    # v0.9: stopping her work beats every other reading
+        st = stop_task(t)
+        if st is not None:
+            return "task_cancel", st
     if re.search(r"\b(?:calendar|schedule|agenda|free|time)\b", t, re.I) and _MORE_THAN_CALENDAR.search(t):
         return "work_it_out", {}              # v0.8: "...and do I have time for a makerspace?" needs thinking
     if belt.has("calendar_agenda") and re.search(

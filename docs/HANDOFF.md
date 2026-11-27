@@ -1,6 +1,6 @@
 # E.V.A. handoff (for a new Claude session)
 
-Last updated: Friday 27 November 2026, 11:30 (Europe/Amsterdam). Read this first, then EVA.md, docs/ROADMAP.md,
+Last updated: Friday 27 November 2026, 12:30 (Europe/Amsterdam). Read this first, then EVA.md, docs/ROADMAP.md,
 docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
 
 ## Who and what
@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v090_glance_notes.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v091_stop_tasks.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,16 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 27 Nov 2026 (12:30, v0.9.1: stopping her work)
+
+Branch `claude/v09b-stop-tasks` (from `claude/v09-glance-notes`). His 10:58 log: a computer task resumed after the
+restart, he couldn't stop it by voice (understanding was local only, by his earlier voice command, so the local
+model made up "disabled"/"stopped") nor in the window. Now a stop reflex, stop checks before every action, Pause /
+Resume / Stop on the workbench, Tasks and Projects tabs in the panel, per-sentence claim checks, JPEG screenshots
+for Claude (every drop was a big request at ~15 s; drops now log the KB). His brain mode was Local in the status
+panel: tell him to tap Auto (or say "Eva, use auto for understanding") or the mind stays off. Full suite 1319
+passed, 3 skipped, also cp1252; tests can't reach the internet any more.
 
 ## State on 27 Nov 2026 (11:30, v0.9: the glance, memory panel, her notes)
 

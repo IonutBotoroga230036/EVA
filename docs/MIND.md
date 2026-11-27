@@ -100,3 +100,16 @@ Nothing on the workbench is spoken; she still speaks only at milestones, questio
 | The budget | `claude._tokens_in` | A screenshot counts as about 1,600 tokens, not a third of its base64 (10:03: the computer task "could cost more" than 91 cents). |
 | The line | `claude.FIRST_BYTE_S`, `inference.cloud.http2` | An answer that hasn't started after 9 s is asked again (two calls hung 15 s at 10:02); every drop logs how long it took and in which phase. HTTP/2 is a switch to try. |
 | Small ones | | Heads-ups at the same minute are one sentence; the fact extractor no longer turns requests into preferences ("Prefers Kanye West while working"); she doesn't tack project questions onto a thank-you; `ECHO: first sound N s after you finished` answers "is she faster?"; Kokoro says why it's on the CPU. |
+
+## v0.9.1: stopping her work, and smaller screenshots
+
+On 27 Nov at 10:59 he said "Can you drop the energy saver settings thing?" and "can you stop this?" while a computer task clicked on; understanding was set to local only, the local model answered "Energy saver settings disabled." and nothing stopped. Now:
+
+| Part | Where | What |
+|---|---|---|
+| The reflex | `stop_task()` in the fast path | "Drop / cancel / stop / abort / forget the <task>" cancels the task it names (any unfinished one); "stop this / that / it" cancels the one that's working right now. Music words ("stop the music"), a bare "stop" and no working task leave it alone. Works in local mode too. |
+| A stop is a stop | `Manager._stopped()` | A running task checks before every action and after every retry wait: a cancel or pause from the window or by voice wins even when Claude's answer was already on its way. The skipped calls get "Not done: he cancelled the task." so a paused task can resume cleanly. |
+| The window | the workbench, Settings > Tasks, Settings > Projects | Pause, Resume and Stop on the workbench. Tasks lists what's going on and what came earlier, with Show, Pause, Carry on / Try again and Stop. Projects lists every project with its decisions, open questions and parts (links), and Delete (asks twice). `GET /api/tasks`, `POST /api/tasks/{id}/cancel|pause|resume`, `GET /api/projects`, `POST /api/projects/{id}/delete`, all POSTs with `X-EVA: 1`. |
+| Claims | `claims()` per sentence | "Energy saver settings disabled." / "... stopped, sir." with nothing done is a claim now; "Nothing was stopped" isn't. |
+| The 15-second drops | `computer.jpeg_block` | Every drop in the 10:58 log happened at about 15 s while a computer task's request (several PNG screenshots) was still being sent. Claude now gets JPEG screenshots (a few times smaller; the window keeps the PNG), and a drop logs the request size in KB. |
+| Tests | conftest | httpx.get and httpx.post raise in tests unless a test fakes them (a map test reached Nominatim). |

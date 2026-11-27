@@ -416,3 +416,13 @@ nothing new (pyautogui is already installed).
 | 28.9 | "How did you do today?" (or Settings > Her notes > Review today now) | A headline and her mistakes; "Copy for Claude" | `REVIEW:` |
 | 28.10 | A computer task with screenshots | It runs; no budget pause with most of the budget left | |
 | 28.11 | At start-up | `ECHO: Kokoro loaded (... device cuda)`, or a line saying why it's on the CPU | |
+
+## 29. v0.9.1: stopping her work
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 29.1 | During a task: "Eva, drop the <task name>" | "Cancelled the <task>, sir."; it stops before its next click | `TOOL task_cancel`, `AGENT: task ... cancelled; not doing` |
+| 29.2 | During a computer task: "Eva, stop this" | It stops; music (if any) keeps playing | `TOOL task_cancel` |
+| 29.3 | The workbench: Pause, then Resume, then Stop | Each works at once | `AGENT: pause ... from the window` |
+| 29.4 | Settings > Tasks / Projects | Everything listed; Stop, Carry on, Delete (asks twice) | |
+| 29.5 | A computer task | No "disconnected" lines; if one shows, it says "request N KB" | `CLAUDE: ... request` |

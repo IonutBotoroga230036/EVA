@@ -542,6 +542,9 @@ class Manager:
                         logger.warning(f"AGENT: task {t.id}: {str(e)[:120]}; trying again in {wait:g} s")
                         live.emit(t, "doing", label="The line to Claude dropped; trying again")
                         time.sleep(wait)
+                        if self._stopped(t):
+                            logger.info(f"AGENT: task {t.id} {t.status} while the line was down; stopping")
+                            return
                 t.cost_eur += float(resp.get("cost_eur") or 0.0)
                 t.steps += 1
                 if (resp.get("text") or "").strip() and resp.get("tool_uses"):
@@ -651,10 +654,29 @@ class Manager:
             t.log = fresh.log
         self.store.save(t)
 
+    def _stopped(self, t: Task) -> bool:
+        """v0.9: you stopped it (window, voice) while a call or an action was under way."""
+        fresh = self.store.get(t.id)
+        if fresh and fresh.status in ("paused", "cancelled"):
+            t.status = fresh.status
+            t.log = fresh.log
+            return True
+        return False
+
     def _handle(self, t: Task, hands: Hands, msgs: list, uses: list, results: list) -> bool:
         """Run tool calls in order. False when the task now waits (or ended)."""
         failed_set = set()                                # v0.7: a failed toolset action skips the rest of its batch
         for i, u in enumerate(uses):
+            if self._stopped(t):                          # Nov 27 11:00: "drop it" and she clicked on regardless
+                logger.info(f"AGENT: task {t.id} {t.status}; not doing {u['name']}")
+                for later in uses[i:]:                    # every call gets an answer, so a paused task can resume
+                    results.append({"type": "tool_result", "tool_use_id": later["id"], "is_error": True,
+                                    "content": f"Not done: he {t.status} the task.",
+                                    **({"toolset_name": later["toolset_name"]} if later.get("toolset_name") else {})})
+                msgs.append({"role": "user", "content": results})
+                self.store.save_messages(t.id, msgs)
+                live.emit(t, "status")
+                return False
             if u.get("toolset_name"):
                 res = self._toolset(t, u, failed_set)
                 if res is None:                           # the fail-safe: you pushed the mouse into a corner

@@ -84,6 +84,17 @@ def _keys(text: str) -> list[str]:
     return out
 
 
+JPEG_QUALITY = 72
+
+
+def jpeg_block(img) -> dict:
+    """A screenshot as a JPEG image block (about 100 to 200 KB instead of 1 to 2 MB)."""
+    buf = BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=JPEG_QUALITY, optimize=True)
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                        "data": base64.b64encode(buf.getvalue()).decode()}}
+
+
 class Computer:
     def __init__(self, watch_only: bool = False):
         self.watch_only = watch_only
@@ -104,11 +115,12 @@ class Computer:
         return int(float(c[0]) / self.scale), int(float(c[1]) / self.scale)
 
     def _png(self, img) -> list:
+        """The window keeps a PNG; Claude gets a JPEG, several times smaller (v0.9: on 27 Nov every request with a
+        few PNG screenshots was cut after 15 s while it was still being sent)."""
         buf = BytesIO()
         img.save(buf, "PNG")
         self.last_png = buf.getvalue()
-        return [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                                             "data": base64.b64encode(self.last_png).decode()}}]
+        return [jpeg_block(img)]
 
     def run(self, name: str, inp: dict) -> list:
         if self.watch_only and name not in LOOK_ONLY:

@@ -162,6 +162,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   .bench__side{max-height:30vh} .bench__feed{display:none} .bench__plan{max-height:none}
   .bench__meta{display:none} .bench-pill{top:auto;bottom:calc(var(--safe-b) + 112px)}
   .bench__head{flex-wrap:wrap;row-gap:6px} .bench__title{flex:1;min-width:0} .bench__now{order:9;flex-basis:100%;font-size:14px}
+  .bench__title{flex-basis:calc(100% - 190px)} .bench__head .task-btn{order:8;height:32px} .bench__head .icon-btn{width:40px;height:40px}
 }
 /* full screen for a second monitor (or the desk screen): /stage */
 .eva.stage-mode .eva-top,.eva.stage-mode .eva-bottom,.eva.stage-mode .eva-main{display:none}
@@ -354,6 +355,14 @@ button.glance-chip{cursor:pointer}
 .mem-btn{height:30px;padding:0 12px;border-radius:var(--r-pill);border:1px solid var(--line);background:none;color:var(--ice);font-size:12px;align-self:flex-start}
 .mem-btn:hover{background:var(--tint)}
 .mem-btn.is-armed{background:rgba(192,38,211,.25);border-color:var(--magenta)}
+.task-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.task-ask{color:var(--lilac)!important}
+.proj-more{display:flex;flex-direction:column;gap:4px;padding:6px 0}
+.proj-more a{color:var(--lilac);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-btn{height:34px;padding:0 14px;border-radius:var(--r-pill);border:1px solid var(--line-strong);background:var(--tint);color:var(--ice);font-size:13px;flex:none}
+.task-btn:hover{background:var(--tint-2)}
+.task-btn.is-stop{background:rgba(192,38,211,.22);border-color:var(--magenta)}
+.task-btn.is-stop:hover{background:rgba(192,38,211,.38)}
 .note-day{display:flex;flex-direction:column;gap:8px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
 .note-head{font-size:15px;line-height:1.45}
 .note-item{display:flex;flex-direction:column;gap:3px;padding:8px 10px;border-radius:var(--r-sm);background:var(--glass-row);font-size:13px;line-height:1.4}
@@ -1092,7 +1101,7 @@ var SETTAB = 'settings';                       // v0.9: Settings | What she know
 function setHead(title) {
   return [h('div', { class: 'panel__head' }, h('div', { class: 'panel__title' }, title),
       h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: closeAll }, icon('x'))),
-    h('div', { class: 'set-tabs', role: 'tablist' }, [['settings', 'Settings'], ['memory', 'What she knows'], ['notes', 'Her notes']].map(([k, l]) =>
+    h('div', { class: 'set-tabs', role: 'tablist' }, [['settings', 'Settings'], ['tasks', 'Tasks'], ['projects', 'Projects'], ['memory', 'What she knows'], ['notes', 'Her notes']].map(([k, l]) =>
       h('button', { class: 'set-tab' + (SETTAB === k ? ' is-on' : ''), role: 'tab', 'aria-selected': SETTAB === k ? 'true' : 'false', onclick: () => { SETTAB = k; settingsLoad(); } }, l)))];
 }
 const MEM = { q: '', armed: 0, editing: 0, timer: 0 };
@@ -1157,8 +1166,76 @@ function notesRender(d) {
     h('div', { class: 'set-group' }, h('div', { class: 'panel__help' }, `Every night she reads her own day (kept in memory, never in a log file) and writes down what went wrong. ${d.today_lines || 0} lines from today so far.`), run),
     ...(list.length ? list.map(card) : [h('div', { class: 'panel__help', style: 'padding:12px 0' }, 'No notes yet: the first ones come tonight.')]));
 }
+/* v0.9: her work, where you can see it and stop it */
+async function taskAct(id, action) {
+  try {
+    const r = await fetch(`/api/tasks/${id}/${action}`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } });
+    const out = await r.json().catch(() => ({}));
+    const ok = $('setOk'); if (ok) ok.textContent = out.say || (r.ok ? 'Done.' : "That didn't work.");
+    if (BENCH.t && BENCH.t.task === id && out.status) { BENCH.t.status = out.status; benchRender(); }
+  } catch (_) {}
+  if (SETTAB === 'tasks' && root.classList.contains('settings-open')) tasksLoad();
+}
+const STATUS_WORD = { running: 'Working', queued: 'Starting', waiting: 'Needs you', done: 'Done', paused: 'Paused', failed: 'Stopped', cancelled: 'Cancelled' };
+async function tasksLoad() {
+  try { const r = await fetch('/api/tasks', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'tasks') tasksRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('Tasks'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load the tasks.")); }
+}
+function tasksRender(d) {
+  const box = $('evaSettings'), all = d.tasks || [];
+  const live = all.filter(t => ['running', 'queued', 'waiting', 'paused'].includes(t.status)), rest = all.filter(t => !live.includes(t));
+  const when = ts => { const x = new Date(ts * 1000); return x.toDateString() === new Date().toDateString() ? `${pad2(x.getHours())}:${pad2(x.getMinutes())}` : x.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); };
+  const row = t => h('div', { class: 'mem-row task-row', 'data-s': t.status },
+    h('div', { class: 'task-line' }, h('span', { class: 'bench__status', 'data-s': t.status }, h('i'), STATUS_WORD[t.status] || t.status), h('b', { class: 'mem-text' }, t.title)),
+    h('small', null, `${when(t.updated)} \u00b7 ${t.steps} steps \u00b7 ${Math.round(t.cost_eur * 100)} cents${t.computer ? ' \u00b7 uses your mouse and keyboard' : ''}`),
+    t.waiting ? h('small', { class: 'task-ask' }, t.waiting) : t.summary ? h('small', null, t.summary) : null,
+    h('div', { class: 'mem-actions' },
+      h('button', { class: 'mem-btn', onclick: () => { closeAll(); emit('bench-show', { id: t.id }); } }, 'Show'),
+      ['running', 'queued', 'waiting'].includes(t.status) ? h('button', { class: 'mem-btn', onclick: () => taskAct(t.id, 'pause') }, 'Pause') : null,
+      ['paused', 'failed', 'waiting'].includes(t.status) ? h('button', { class: 'mem-btn', onclick: () => taskAct(t.id, 'resume') }, t.status === 'failed' ? 'Try again' : t.status === 'waiting' ? 'Carry on' : 'Resume') : null,
+      live.includes(t) ? h('button', { class: 'mem-btn is-armed', onclick: () => taskAct(t.id, 'cancel') }, 'Stop') : null));
+  box.textContent = '';
+  box.append(...setHead('Tasks'), h('div', { class: 'set-ok', id: 'setOk' }),
+    h('div', { class: 'bench__label', style: 'padding-top:8px' }, live.length ? `Going on (${live.length})` : 'Nothing going on'),
+    ...live.map(row),
+    rest.length ? h('div', { class: 'bench__label', style: 'padding-top:16px' }, 'Earlier') : null, ...rest.slice(0, 20).map(row));
+}
+const PROJ = { armed: '', open: '' };
+async function projectsLoad() {
+  try { const r = await fetch('/api/projects', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'projects') projectsRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('Projects'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load the projects.")); }
+}
+async function projectDelete(id) {
+  if (PROJ.armed !== id) { PROJ.armed = id; projectsLoad(); return; }
+  PROJ.armed = '';
+  const r = await fetch(`/api/projects/${id}/delete`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } });
+  const out = await r.json().catch(() => ({}));
+  projectsLoad().then(() => { const ok = $('setOk'); if (ok) ok.textContent = r.ok ? `Deleted ${out.deleted}.` : (out.error || "That didn't work."); });
+}
+function projectsRender(d) {
+  const box = $('evaSettings'), list = d.projects || [];
+  const card = p => {
+    const open = PROJ.open === p.id;
+    return h('div', { class: 'mem-row' },
+      h('div', { class: 'task-line' }, p.active ? h('span', { class: 'bench__status', 'data-s': 'running' }, h('i'), 'Active') : null, h('b', { class: 'mem-text' }, p.name)),
+      p.goal ? h('small', null, p.goal) : null,
+      h('small', null, [p.open_questions.length ? `${p.open_questions.length} open question${p.open_questions.length > 1 ? 's' : ''}` : '', p.parts.length ? `${p.parts.length} parts, about ${Math.round(p.total_eur)} euros` : '', p.tasks.length ? `${p.tasks.length} task${p.tasks.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' \u00b7 ') || 'Just started'),
+      open ? h('div', { class: 'proj-more' },
+        p.decisions.length ? [h('div', { class: 'bench__label' }, 'Decided'), ...p.decisions.map(x => h('small', null, x))] : null,
+        p.open_questions.length ? [h('div', { class: 'bench__label' }, 'Open questions'), ...p.open_questions.map(x => h('small', null, x))] : null,
+        p.parts.length ? [h('div', { class: 'bench__label' }, 'Parts'), ...p.parts.map(x => x.link && /^https?:\/\//.test(x.link) ? h('a', { href: x.link, target: '_blank', rel: 'noopener noreferrer' }, `${x.qty || 1} x ${x.name}${x.price_eur ? `, \u20ac${x.price_eur}` : ''}`) : h('small', null, `${x.qty || 1} x ${x.name}${x.price_eur ? `, \u20ac${x.price_eur}` : ''}`))] : null) : null,
+      h('div', { class: 'mem-actions' },
+        h('button', { class: 'mem-btn', onclick: () => { PROJ.open = open ? '' : p.id; projectsRender(d); } }, open ? 'Less' : 'Details'),
+        h('button', { class: 'mem-btn' + (PROJ.armed === p.id ? ' is-armed' : ''), onclick: () => projectDelete(p.id) }, PROJ.armed === p.id ? 'Delete it?' : 'Delete')));
+  };
+  box.textContent = '';
+  box.append(...setHead('Projects'), h('div', { class: 'set-ok', id: 'setOk' }),
+    ...(list.length ? list.map(card) : [h('div', { class: 'panel__help', style: 'padding:12px 0' }, 'No projects yet. Say "start a project for ..." to begin one.')]));
+}
 async function settingsLoad() {
   const box = $('evaSettings');
+  if (SETTAB === 'tasks') return tasksLoad();
+  if (SETTAB === 'projects') return projectsLoad();
   if (SETTAB === 'memory') return memoryLoad();
   if (SETTAB === 'notes') return notesLoad();
   try {
@@ -1286,6 +1363,10 @@ function benchRender() {
     h('span', { class: 'bench__title' }, t.title),
     h('span', { class: 'bench__now' }, t.now),
     h('span', { class: 'bench__meta' }, `${t.steps} steps · ${Math.round(t.cost * 100)} cents`),
+    // v0.9: Nov 27 "I don't have a way to stop them": stop and pause right on the bench
+    ['running', 'queued', 'waiting'].includes(t.status) ? h('button', { class: 'task-btn', onclick: () => taskAct(t.task, 'pause') }, 'Pause') : null,
+    t.status === 'paused' ? h('button', { class: 'task-btn', onclick: () => taskAct(t.task, 'resume') }, 'Resume') : null,
+    ['running', 'queued', 'waiting', 'paused'].includes(t.status) ? h('button', { class: 'task-btn is-stop', onclick: () => taskAct(t.task, 'cancel') }, 'Stop') : null,
     $('eva').classList.contains('stage-mode') ? null : h('a', { class: 'icon-btn', href: '/stage', target: '_blank', rel: 'noopener', 'aria-label': 'Full screen on another monitor', title: 'Full screen' }, icon('expand')),
     $('eva').classList.contains('stage-mode') ? null : h('button', { class: 'icon-btn', 'aria-label': 'Close the workbench', onclick: () => benchOpen(false) }, icon('x')));
   const next = t.plan.findIndex(p => !p.done);
@@ -1331,6 +1412,10 @@ async function benchLoad(open) {
     if (s.ok) { benchState(await s.json()); if (open || ['running', 'queued'].includes(pick.status)) benchOpen(true); }
   } catch (_) {}
 }
+
+addEventListener('eva:bench-show', async e => {           // v0.9: "Show" in the Tasks tab
+  try { const s = await fetch(`/api/tasks/${e.detail.id}/live`, { credentials: 'same-origin' }); if (s.ok) { BENCH.closed.delete(e.detail.id); benchState(await s.json()); benchOpen(true); } } catch (_) {}
+});
 
 /* ---------------- 3D models: an STL from a task, turned with a finger or the mouse (WebGL, no libraries) ---------------- */
 function parseSTL(buf) {

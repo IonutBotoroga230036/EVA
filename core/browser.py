@@ -396,9 +396,11 @@ class Browser:
         return data
 
     def m_screenshot(self, tab_id: str = "", **_) -> list:
-        data = self._png(self._page(tab_id))
-        return [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                                             "data": base64.b64encode(data).decode()}}]
+        from io import BytesIO
+        from PIL import Image
+        from core.computer import jpeg_block
+        data = self._png(self._page(tab_id))                 # the window shows the PNG; Claude gets a JPEG
+        return [jpeg_block(Image.open(BytesIO(data)))]
 
     def m_zoom(self, region=None, **_) -> list:
         from io import BytesIO
@@ -409,10 +411,8 @@ class Browser:
         crop = img.crop((max(0, x0), max(0, y0), min(img.width, x1), min(img.height, y1)))
         scale = min(4.0, 1280 / max(1, crop.width))
         crop = crop.resize((max(1, int(crop.width * scale)), max(1, int(crop.height * scale))))
-        buf = BytesIO()
-        crop.save(buf, "PNG")
-        return [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                                             "data": base64.b64encode(buf.getvalue()).decode()}}]
+        from core.computer import jpeg_block
+        return [jpeg_block(crop)]
 
     def m_wait(self, duration: float = 1, **_) -> list:
         time.sleep(max(0.0, min(float(duration or 1), 10.0)))

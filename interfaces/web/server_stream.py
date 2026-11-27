@@ -1075,6 +1075,67 @@ async def settings_reset(request: Request):
     return JSONResponse(out)
 
 
+@app.get("/api/tasks")
+async def tasks_all():
+    """v0.9: every task, newest first, for the Tasks tab (stop, pause, resume from the window)."""
+    from core.agent.tasks import get_store
+    items = sorted(get_store().all(), key=lambda t: t.updated, reverse=True)[:60]
+    return JSONResponse({"tasks": [{"id": t.id, "title": t.title, "goal": t.goal[:300], "status": t.status,
+                                    "updated": t.updated, "cost_eur": round(t.cost_eur, 3), "steps": t.steps,
+                                    "project": t.project, "summary": (t.summary or "")[:300],
+                                    "waiting": (t.waiting or {}).get("text", "")[:300] if t.status == "waiting"
+                                    else "", "computer": any(str(x).startswith("computer")
+                                                             for x in (getattr(t, "toolsets", None) or []))}
+                                   for t in items]})
+
+
+@app.post("/api/tasks/{tid}/{action}")
+async def task_action(tid: str, action: str, request: Request):
+    """Stop (cancel), pause or resume a task from the window. Header X-EVA: 1."""
+    from core.agent.runner import get_manager
+    from core.agent.tasks import get_store
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    if action not in ("cancel", "pause", "resume") or not re.fullmatch(r"[a-f0-9]{8}", tid):
+        return JSONResponse({"error": "no such action"}, status_code=404)
+    t = get_store().get(tid)
+    if t is None:
+        return JSONResponse({"error": "no such task"}, status_code=404)
+    say = await asyncio.to_thread(getattr(get_manager(), action), t)
+    logger.info(f"AGENT: {action} {tid} from the window: {say}")
+    return JSONResponse({"say": say, "status": (get_store().get(tid) or t).status})
+
+
+@app.get("/api/projects")
+async def projects_all():
+    """v0.9: the projects, for the Projects tab."""
+    from core.projects import get_store
+    st = get_store()
+    act = st.active()
+    return JSONResponse({"projects": [{"id": p.id, "name": p.name, "goal": p.goal, "status": p.status,
+                                       "updated": p.updated, "active": bool(act and act.id == p.id),
+                                       "open_questions": [n["text"] for _, n in p.open_questions()][:6],
+                                       "decisions": [n["text"] for n in p.notes if n["kind"] == "decision"][-6:],
+                                       "parts": [{k: x.get(k) for k in ("name", "qty", "price_eur", "link", "status")}
+                                                 for x in p.parts][:30],
+                                       "total_eur": p.total_eur(), "tasks": p.tasks[-10:]}
+                                      for p in sorted(st.all(), key=lambda p: p.updated, reverse=True)]})
+
+
+@app.post("/api/projects/{pid}/delete")
+async def project_delete(pid: str, request: Request):
+    from core.projects import get_store
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    st = get_store()
+    p = st.get(pid) if re.fullmatch(r"[\w-]{1,40}", pid) else None
+    if p is None:
+        return JSONResponse({"error": "no such project"}, status_code=404)
+    st._path(p.id).unlink(missing_ok=True)
+    logger.info(f"PROJECTS: deleted '{p.name}' from the window")
+    return JSONResponse({"deleted": p.name})
+
+
 @app.get("/api/tasks/live")
 async def tasks_live():
     """The workbench's task list: running and waiting first, then the last finished."""

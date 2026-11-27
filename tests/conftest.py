@@ -297,6 +297,12 @@ def isolate_v07(tmp_path, monkeypatch):
     glance._cache.clear()
     import core.review as review                      # her notes go to the test folder
     monkeypatch.setattr(review, "DIR", tmp_path / "reviews")
+    import httpx as _httpx                            # v0.9b: no test reaches the internet by accident (a map test
+                                                      # reached Nominatim once its search ran in parallel)
+    def _offline(url, *a, **k):
+        raise _httpx.ConnectError(f"tests never reach the internet ({str(url)[:60]})")
+    monkeypatch.setattr(_httpx, "get", _offline)
+    monkeypatch.setattr(_httpx, "post", _offline)
     import core.chats as chats                       # never your real chats; titles inline
     monkeypatch.setattr(chats, "DIR", tmp_path / "chats")
     monkeypatch.setattr(chats, "THREADED", False)

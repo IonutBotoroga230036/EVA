@@ -315,8 +315,13 @@ class ClaudeClient:
                     return _Resp(r.status_code, r.text)
                 return _Resp(r.status_code, data=read_stream(r.iter_lines(), relay))
         except (httpx.TransportError, _StreamError) as e:
+            try:
+                kb = len(json.dumps(body)) // 1024
+            except Exception:
+                kb = -1
             logger.warning(f"CLAUDE: {type(e).__name__} after {time.time() - t0:.1f} s, {phase}"
-                           f"{f', {len(got)} pieces of text in' if got else ''} (model {body.get('model')})")
+                           f"{f', {len(got)} pieces of text in' if got else ''} (model {body.get('model')}, "
+                           f"request {kb} KB)")
             if got:                                       # words were already spoken: can't quietly start over
                 raise ClaudeCut(f"the line broke mid-answer ({e})", "".join(got)) from e
             raise
