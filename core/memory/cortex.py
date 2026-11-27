@@ -39,7 +39,8 @@ EmbedFn = Callable[[Sequence[str]], Optional[list]]
 _SECRET_RX = re.compile(
     r"\b(password|passcode|passwd|pin code|api[ _-]?key|secret key|access token|"
     r"private key|seed phrase|recovery phrase|iban|credit card|cvv)\b"
-    r"|\b(?:\d[ -]?){13,19}\b",       # long digit runs that look like card numbers
+    r"|\b(?:\d[ -]?){13,19}\b"       # long digit runs that look like card numbers
+    r"|\bsk-[a-z]+-[\w-]{8,}|\bgh[pous]_\w{20,}|\bxox[bap]-[\w-]{10,}",   # v0.9: API keys by their shape
     re.I,
 )
 _WORD_RX = re.compile(r"[a-z0-9]+")
@@ -377,6 +378,35 @@ class Cortex:
         logger.info(f"CORTEX: forgot {len(texts)} recent facts")
         return {"status": "forgotten" if texts else "nothing_recent", "forgotten": texts}
 
+    # v0.9: the memory panel edits and forgets one fact by its id
+    def forget_id(self, fact_id: int) -> Optional[str]:
+        with self._lock:
+            row = self._db.execute("SELECT text FROM facts WHERE id=?", (int(fact_id),)).fetchone()
+            if not row:
+                return None
+            self._db.execute("DELETE FROM facts WHERE id=?", (int(fact_id),))
+            self._db.commit()
+        logger.info(f"CORTEX: forgot '{row['text']}' (from the window)")
+        return row["text"]
+
+    def edit(self, fact_id: int, text: str, category: Optional[str] = None) -> dict:
+        text = (text or "").strip().rstrip(".")
+        if len(text) < 3:
+            raise ValueError("a fact needs a few words")
+        if _SECRET_RX.search(text):
+            raise ValueError("that looks like a secret; memory never keeps those")
+        vec = self._vec(text)
+        with self._lock:
+            row = self._db.execute("SELECT * FROM facts WHERE id=?", (int(fact_id),)).fetchone()
+            if not row:
+                raise ValueError("no such fact")
+            self._db.execute("UPDATE facts SET text=?, norm=?, category=?, source='user', updated=?, embedding=? "
+                             "WHERE id=?", (text, _norm(text), (category or row["category"]).strip().lower()[:30],
+                                            time.time(), vec.tobytes() if vec is not None else None, int(fact_id)))
+            self._db.commit()
+        logger.info(f"CORTEX: edited '{row['text']}' -> '{text}' (from the window)")
+        return {"id": int(fact_id), "text": text}
+
     def _semantic(self) -> bool:
         e = self.embed
         return bool(e) and (not hasattr(e, "ready") or e.ready.is_set())
@@ -387,8 +417,12 @@ class Cortex:
 
     @staticmethod
     def _fact(r: sqlite3.Row) -> dict:
-        return {"id": r["id"], "text": r["text"], "category": r["category"],
-                "source": r["source"], "hits": r["hits"]}
+        out = {"id": r["id"], "text": r["text"], "category": r["category"], "source": r["source"], "hits": r["hits"]}
+        try:
+            out["updated"] = r["updated"]
+        except (IndexError, KeyError):
+            pass
+        return out
 
     def stats(self) -> dict:
         f = self._db.execute("SELECT COUNT(*) FROM facts").fetchone()[0]

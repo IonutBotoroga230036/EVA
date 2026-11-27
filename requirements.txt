@@ -44,6 +44,7 @@ loguru==0.7.3
 ddgs                 # web search (renamed from duckduckgo-search)
 pyautogui>=0.9.54    # media keys, screenshots for the vision skill
 pillow>=10.0         # screenshot resizing
+playwright>=1.55      # v0.7 her own browser; then: python -m playwright install chromium
 pycaw; sys_platform == "win32"    # exact system volume (new EndpointVolume API)
 comtypes; sys_platform == "win32"
 kokoro               # local TTS, wired into streaming in the next milestone

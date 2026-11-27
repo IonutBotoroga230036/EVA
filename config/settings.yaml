@@ -63,6 +63,7 @@ inference:
     provider: "anthropic"                 # key: ANTHROPIC_API_KEY in config/secrets.env (git-ignored)
     model_light: "claude-haiku-4-5-20251001"
     model_heavy: "claude-sonnet-5"        # FORGE code generation and deep thinking
+    http2: false                          # v0.9: try true (after pip install h2) if "CLAUDE: ... disconnected" keeps showing
     mode: "local"                         # v0.2.5: local by default, Claude by choice. auto | cloud | local
     features:                             # each follows the default or picks its own: default | local | auto | cloud
       conversation: "default"             # the conversation lane (milestone 4)
@@ -174,7 +175,7 @@ voice:
     beam_size: 5
   acks:
     # "One moment, sir." only when a tool is still busy after this long; quick things stay silent.
-    after_ms: 900                      # 0 = always at once, -1 = never
+    after_ms: 1500                     # v0.8: only when something takes a while; 0 = always at once, -1 = never
   pipeline:
     # Server-side listening: your mic streams to E.V.A.; Silero VAD + Smart Turn v3 (Pipecat, CPU) + Whisper.
     # Off, or packages missing: the interface uses the browser's speech recognition as before.
@@ -200,7 +201,7 @@ voice:
     voice_kira: "am_adam"
     lang_code: "a"                     # a = American English, b = British English
     speed: 1.0
-    device: "cpu"                      # keeps all VRAM for the LLM; try "cuda" if replies feel slow
+    device: "auto"                     # v0.8: the GPU when there is one (Kokoro needs about 0.3 GB); or "cpu" / "cuda"
   romanian:                            # v0.3.2: Romanian parts of her answers (Piper, local, free; male voice)
     voice: "ro_RO-mihai-medium"        # one-time: python -m piper.download_voices ro_RO-mihai-medium --download-dir data/voices
     dir: "data/voices"
@@ -281,6 +282,9 @@ mind:                                  # v0.5 one mind (docs/MIND.md): sentences
   hard_model: "claude-sonnet-5-5"      # when she calls think_harder (designs, tricky plans)
   effort: "medium"                     # Haiku's default; "low" is faster but skips checks more often
   max_steps: 6                         # tool rounds in one answer before she answers with what she has
+  chat_effort: "low"                   # v0.8: plain talk (no tool in sight) thinks briefly, so she answers faster
+  stream: true                         # v0.8: she starts speaking while she still writes the answer
+  ack_after_s: 2.5                     # v0.8: "One moment, sir" only if a working answer is still silent this long
 
 agent:
   model: "claude-sonnet-5-5"           # plans and works through a task ($2 / $10 per million tokens)
@@ -293,3 +297,47 @@ agent:
   pc: "auto"                           # auto: the PC agent if it's connected, else this machine | local | remote
   programs: ["openscad", "prusa-slicer", "blender"]   # may run on a task's files without asking (+ ones it installed)
 
+browser:                               # v0.7 her own browser (core/browser.py): a separate Chromium, none of your sign-ins
+  enabled: true                        # needs: pip install playwright, then python -m playwright install chromium
+  visible: false                       # true = you see her window on the PC while she browses
+
+computer:                              # v0.7 using your computer (core/computer.py), always as a task you said yes to
+  mode: "ask"                          # off | watch (screenshots only) | ask (asks first) | auto (acts without asking)
+
+
+review:                                # v0.9 her nightly self-review (core/review.py); only the review is saved
+  enabled: true
+  after_hour: 23                       # from this hour, once you've been quiet a while
+  quiet_minutes: 20
+  min_turns: 5                         # a quiet day isn't worth a review
+
+greeting:                              # v0.9 the first thing you say in the morning gets a short heads-up first
+  enabled: true
+  from_hour: 5
+  until_hour: 12
+
+one:                                   # v1.0 one brain (docs/ONE_BRAIN.md): one model decides every turn
+  mode: "one"                          # one | classic (the old routing, kept for this version)
+  backend: "local_first"               # local (free, this PC) | cloud (Claude) | local_first (local, Claude when stuck)
+  local_model: "qwen3.5:4b"            # tools + thinking + images, 3.4 GB: ollama pull qwen3.5:4b
+  local_fallback_model: ""             # empty = inference.local.decision_model, used until the one above is pulled
+  local_think: true                    # thinking steps on the local model (slower, better); shown in the window
+  local_tools: 22                      # tools the local model sees per turn (find_tools gives it more)
+  local_timeout_s: 150                 # then Claude takes the turn (local_first) or she says what's wrong
+  cloud_model: "claude-haiku-5-5"
+  hard_model: "claude-sonnet-5-5"      # when she calls think_harder
+  cloud_effort: "low"
+  max_steps: 8                         # tool rounds per answer
+  corrections: 1                       # times she fixes an answer that fails a check before it's spoken
+  journal_days: 30                     # her record of what she did (data/journal), with undo
+
+risk:                                  # v1.0 what may just happen (core/one/risk.py)
+  ask_above_eur: 2.0                   # one action spending more than this asks first
+  messages_ask: true                   # sending anything as you always asks
+  always_ask: []                       # tool names that always ask
+  never_ask: []                        # tool names that never ask (sending, deleting and installing still ask)
+
+jarvis_test:                           # v1.0 automatic JARVIS test runs (core/jarvis_test.py), in a fake world
+  nightly: true                        # once a night when you're quiet, with the local brain (free)
+  hour: 3
+  backend: "local"                     # local | cloud | local_first (cloud costs a few cents per run)

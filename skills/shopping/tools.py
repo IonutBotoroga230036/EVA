@@ -41,14 +41,22 @@ def shopping_add(items: str = "", **_):
         parts.append(f"Added {_and(added)} to your shopping list, sir.")
     if already:
         parts.append(f"{_and(already).capitalize()} {'was' if len(already) == 1 else 'were'} already on it.")
-    return _out({"added": added, "already": already}, " ".join(parts))
+    out = _out({"added": added, "already": already}, " ".join(parts))
+    if added:                                              # v1.0: the journal can take them off again
+        out["changes"] = [{"what": a, "before": "(not on the list)", "after": "on the list"} for a in added]
+        out["undo"] = {"tool": "shopping_remove", "args": {"item": added[0]}, "what": f"take {added[0]} off again"} \
+            if len(added) == 1 else None
+    return out
 
 
 def shopping_remove(item: str = "", **_):
     gone = shopping.remove(item)
     if not gone:
         return {"result": json.dumps({"error": f"{item} is not on the list"}), "say": f"{item} isn't on your shopping list, sir."}
-    return _out({"removed": gone}, f"Took {gone} off your shopping list, sir.")
+    out = _out({"removed": gone}, f"Took {gone} off your shopping list, sir.")
+    out["changes"] = [{"what": gone, "before": "on the list", "after": "(removed)"}]
+    out["undo"] = {"tool": "shopping_add", "args": {"items": gone}, "what": f"put {gone} back on the list"}
+    return out
 
 
 def shopping_tick(item: str = "", **_):

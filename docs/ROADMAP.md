@@ -66,8 +66,12 @@ take on a real project with you (the desk screen) from "what do you mean?" to a 
 | v0.5 | **The workbench** | A live stage in the window while she works: her plan ticking off, what she's doing now, the code as she writes it, each version of the model turning in 3D. Full screen for a second monitor (later the desk screen). Spoken updates at milestones only. |
 | v0.6 (built 25 Nov) | **Showing instead of guessing** | When she isn't sure what you mean, she finds pictures and videos and asks "something like this?"; you point, she goes on from your pick. |
 | v0.6 (built 25 Nov) | **Projects** | Longer than tasks: research, decisions, a parts list with prices and links, wiring and steps, open questions, all kept per project ("how do I connect the display to the Pi?" answered with everything decided before). First project: the transparent desk screen. |
-| v0.7 | **Chats like Gemini** | Named conversations in a sidebar, searchable, one memory across all of them. Ready for local models to replace Claude where they're good enough. |
-| later | **Computer use, local models, body** | She sees the screen and moves the cursor (built in, with consent); local models take over turn by turn; the cube with camera, mic and speaker as another device. |
+| v0.7 (built 26 Nov) | **Chats like Gemini** | Named conversations in the Chats drawer, searchable, renamable, one memory across all of them; she can look through earlier chats. |
+| v0.7 (built 26 Nov) | **Her browser, your computer, settings** | Her own Chromium for pages that need clicking (never pays or types passwords); computer use as a task you said yes to, with the Screen tab and the mouse-in-a-corner stop; Windows settings pages; a settings panel in the window. |
+| v0.8 (built 27 Nov) | **She speaks while she thinks** | Streaming everywhere (the 15-second line drops are retries now, tasks wait instead of crashing), the first sentence spoken while the rest is written, long answers read to the end, acks only when something takes long, Kokoro on the GPU, "Eva, stop"; computer use without asking; the 27 Nov fixes. |
+| v0.9 (built 27 Nov) | **The glance and self-review** | The idle glance in the window and on /stage, her nightly notes on her own day (only the review is saved), memory you can see and edit, the morning heads-up, stories told in full, the 27 Nov morning fixes. |
+| v1.0 | **Hands-free and aware** | Talk over her without the wake word, automatic JARVIS test runs, a latency meter, welcome home, local understanding where it's good enough. |
+| later | **Local models, body** | Local models take over turn by turn where they're good enough; the cube with camera, mic and speaker as another device. |
 
 The checklist with every item's status, the JARVIS test (scored per version) and new proposals are kept as an
 Excel file outside the repo (it's his to fill in); the test scenarios are also in docs/JARVIS_TEST.md.
@@ -76,3 +80,20 @@ Excel file outside the repo (it's his to fill in); the test scenarios are also i
 The voice pipeline (1) so the app just streams audio to E.V.A., network safety (2) and private remote access (8)
 so the phone can reach her securely, and a stable API for cards and push. With 1 and 2 done in v0.2.5,
 the app can start right at the beginning of v0.3.
+
+## v1.0 "One brain" (27 Nov, done)
+
+One loop decides every turn (local first, Claude when stuck), the risk judge instead of "just to confirm", the
+journal with undo, skills she makes herself, the automatic JARVIS test, chats in a sidebar. docs/ONE_BRAIN.md.
+
+## Next, toward JARVIS (proposed 27 Nov)
+
+1. Her own voice in real time: a duplex speech model (talk over each other naturally, hums and "mm-hm") once one
+   runs on 6 GB; until then, faster first words with the local model streaming its first sentence while it thinks.
+2. Initiative from the journal: she notices patterns ("you move standup every Monday; shall I make it 9:15 for
+   good?") and offers once.
+3. Skills she made, reviewed: the nightly review also reads her made skills and retires the unused ones.
+4. A HUD on the second monitor: the journal, live tasks and her thinking as a JARVIS-style overlay.
+5. Presence: knowing you're at the desk (webcam presence, no recording) so she speaks only when you're there.
+6. Local model upgrades without code: pull a bigger model when there's a better GPU, flip one setting; the JARVIS
+   score shows whether it's better.

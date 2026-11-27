@@ -11,14 +11,14 @@ Pipeline per turn (all on this machine):
 Sentence 1 is being synthesized while the model is still generating sentence 2,
 so she starts speaking before she has finished thinking.
 
-Kokoro runs on the CPU by default (voice.tts.device in settings). Kokoro-82M is
-fast on a 12-core CPU, and this keeps all 6 GB of VRAM for the language and
-vision models. Set device: "cuda" to try the GPU.
+Kokoro runs on the GPU when there is one (voice.tts.device: auto, v0.8); it needs
+about 0.3 GB of VRAM. Set device: "cpu" to keep the GPU free.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 import base64
 import io
 import re
@@ -81,6 +81,34 @@ def speakable(text: str) -> str:
 # ------------------------------------------------------------ sentence chunker
 _ABBREV = {"mr", "mrs", "ms", "dr", "st", "prof", "sr", "jr", "vs", "etc", "no", "approx", "min", "max"}
 _BOUNDARY = re.compile(r"([.!?]+)(?=\s)|\n+")
+
+
+def _device(want: str) -> str:
+    """v0.8: "auto" means the GPU when torch sees one (27 Nov: Kokoro ran on the CPU and long answers took so long
+    to voice that the window gave up on them)."""
+    want = (want or "auto").lower()
+    if want != "auto":
+        if want == "cpu":
+            logger.info("ECHO: Kokoro on the CPU because voice.tts.device says cpu (config/settings.local.yaml?)")
+        return want
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        # Nov 27: still "device cpu". Whisper uses the GPU through CTranslate2, Kokoro needs torch with CUDA.
+        logger.info(f"ECHO: Kokoro on the CPU: torch {torch.__version__} sees no GPU (a CPU-only torch build?). "
+                    f"For the GPU: the CUDA build from pytorch.org/get-started/locally (Pip, Windows, CUDA)")
+        return "cpu"
+    except Exception:
+        return "cpu"
+
+
+def sentences(text: str) -> list[str]:
+    """A whole answer as sentences, so the first one is spoken while the rest is still being made (v0.8)."""
+    c = SentenceChunker()
+    out = c.feed((text or "").strip() + " ")
+    rest = c.flush()
+    return [x for x in out + ([rest] if rest else []) if x.strip()]
 
 
 class SentenceChunker:
@@ -156,6 +184,12 @@ class KokoroTTS:
             self._pipe = KPipeline(lang_code=self.lang_code, repo_id=self.repo_id, device=self.device)
         except TypeError:                         # older kokoro without repo_id/device kwargs
             self._pipe = KPipeline(lang_code=self.lang_code)
+        except Exception as e:
+            if self.device == "cpu":
+                raise
+            logger.warning(f"ECHO: Kokoro couldn't use {self.device} ({str(e)[:100]}); using the CPU")
+            self.device = "cpu"
+            self._pipe = KPipeline(lang_code=self.lang_code, repo_id=self.repo_id, device="cpu")
         logger.info(f"ECHO: Kokoro loaded (voice {self.voice}, device {self.device})")
         return self._pipe
 
@@ -230,7 +264,7 @@ def get_tts() -> Optional[KokoroTTS]:
         logger.warning(f"ECHO: Kokoro not available ({e}); browser voice will be used")
         return None
     _tts = KokoroTTS(voice=cfg.get("voice_eva", "af_heart"), lang_code=cfg.get("lang_code", "a"),
-                     speed=float(cfg.get("speed", 1.0)), device=cfg.get("device", "cpu"))
+                     speed=float(cfg.get("speed", 1.0)), device=_device(cfg.get("device", "auto")))
     return _tts
 
 
@@ -245,6 +279,7 @@ class TurnSpeaker:
         self.tts, self.send, self.turn = tts, send, turn
         self.queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
         self.sent = 0
+        self.started = 0.0                       # set by the window turn: when he stopped talking
         self.task = asyncio.create_task(self._worker())
 
     async def say(self, text: str) -> None:
@@ -256,12 +291,18 @@ class TurnSpeaker:
             text = await self.queue.get()
             if text is None:
                 return
+            try:                                  # v0.8: "still talking": the window waits instead of giving up
+                await self.send({"type": "audio_pending", "turn": self.turn, "seq": self.sent})
+            except Exception:
+                pass
             try:
                 wav = await asyncio.to_thread(self.tts.synth, text)
             except Exception as e:
                 logger.error(f"ECHO: synthesis failed for {text[:40]!r}: {e}")
                 wav = None
             if wav:
+                if self.sent == 0 and self.started:        # v0.9: how fast she answers, for him to see
+                    logger.info(f"ECHO: first sound {time.time() - self.started:.1f} s after you finished")
                 await self.send({"type": "audio", "turn": self.turn, "seq": self.sent,
                                  "text": text, "audio": base64.b64encode(wav).decode()})
                 self.sent += 1

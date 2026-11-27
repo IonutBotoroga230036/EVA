@@ -43,6 +43,7 @@ class Task:
     files: list = field(default_factory=list)         # files it delivered (outside the workspace)
     error: str = ""
     project: str = ""           # v0.6: the project it belongs to (its brief goes in the instructions)
+    toolsets: list = field(default_factory=list)   # v0.7: "browser", "computer:act", "computer:watch"
     system: str = ""            # Nov 25: the instructions, written once at the start and resent unchanged
     drop_thinking: bool = False  # earlier thinking no longer matches (trimmed or changed): the API drops it
 
@@ -60,8 +61,11 @@ def short_title(goal: str) -> str:
                r"(?:\s+(?:me|for me|us))?\s+(?:a |an |the |some |my )?", "", g, flags=re.I)
     g = re.split(r"\s(?:so (?:that )?|that i can|which|for my|to print|i can|that can)\b|[,.;]", g, maxsplit=1,
                  flags=re.I)[0]
+    g = re.sub(r"^(?:and|then|also|or)\s+", "", g.strip(), flags=re.I)     # Nov 27: "the and 3D print a skull"
+    g = re.sub(r"^(?:design|build|make|create|print|3d print|draw|model)\s+(?:a |an |the |me a |me an )?", "", g,
+               flags=re.I) if re.match(r"^(?:print|3d print)\b", g, re.I) else g
     words = g.split()[:5]
-    return " ".join(words).strip(" ,.") or "task"
+    return " ".join(words).strip(" ,.?!") or "task"
 
 
 def name_task(goal: str) -> str:
@@ -96,9 +100,10 @@ class Store:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def new(self, goal: str, budget: float = 1.0, title: str = "", project: str = "") -> Task:
+    def new(self, goal: str, budget: float = 1.0, title: str = "", project: str = "",
+            toolsets: Optional[list] = None) -> Task:
         t = Task(id=uuid.uuid4().hex[:8], goal=" ".join(goal.split())[:1000], title=title or short_title(goal),
-                 budget_eur=float(budget), project=project)
+                 budget_eur=float(budget), project=project, toolsets=list(toolsets or []))
         t.note("task created")
         self.save(t)
         self.workspace(t.id)

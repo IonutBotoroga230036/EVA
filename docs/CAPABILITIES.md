@@ -1,4 +1,10 @@
-# What E.V.A. can do (September 25, 2026, afternoon)
+# What E.V.A. can do (September 25, 2026, afternoon; v1.0 notes 27 November)
+
+**v1.0, one brain:** one model decides every turn (local qwen3.5:4b first, Claude when it gets stuck; Settings >
+Her brain). Changes you can undo just happen; sending as you, deleting, installing and spending more than 2 euros
+in one go ask first, in her own words. Settings > What she did shows every decision with an Undo; "Eva, undo that"
+works too. When no tool does what you ask she writes a small skill, dry-runs it and uses it. The JARVIS test runs
+by itself every night. Chats are in a sidebar on the left. See docs/ONE_BRAIN.md.
 
 Say "Eva" (wake word on), tap the core, or type. Examples are phrasings she handles directly;
 most work with natural variations too. Anything marked **asks first** waits for your "yes".
@@ -255,3 +261,27 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - "Show me pictures of ..." / "find me a video on ..." / "the second one" / "play it on my PC" / "what is the third one?"
 - "Start a project for ...", "let's go with ...", "add ... to the parts", "what's still open?", "put the parts list in a file"
 - "Is the Jumbo still open?", "a pharmacy open now", "a café near me", "how long until ... closes"
+
+
+## Her browser, your computer, settings, chats (v0.7)
+- "Check what ... costs on the ... website": she opens it in her own browser and shows you the page. She never pays,
+  orders or types passwords; she hands those steps to you.
+- "Open the Bluetooth settings" (any Windows settings page) / "turn on Bluetooth on my PC" (asks first, then uses the
+  mouse and keyboard; push the mouse into a corner to stop her). Off / watch only / ask in the settings.
+- The gear button: budget limits, test mode, brain switches, the mind, tasks, her browser, computer use, focus.
+- Chats (bottom of the window): named conversations, search, rename, delete, "New chat". "What did we decide in the
+  other chat?" works: she looks through them.
+
+
+## Speaking and speed (v0.8)
+- She starts talking while she still thinks; long answers are read to the end. "Eva, stop" while she talks stops her.
+- Settings: "How hard plain talk thinks" (low is fastest); computer use can "Act without asking".
+- "Show me the links" after a research task; "check my screen" reads the real page; "yesterday" and "the 26th" in the calendar.
+
+
+## The glance, memory and her notes (v0.9)
+- Leave the window alone: weather, next event, train and a task or project show under the orb; /stage shows the day full screen.
+- Settings > What she knows: everything she remembers about you; edit or forget each.
+- Settings > Her notes, or "how did you do today?": her own review of her mistakes, with a copy button for Claude.
+- Mornings: the first thing you say gets a short heads-up first.
+- "Tell me a story for 10 minutes", then "continue". "Move the items from 9 until now 30 minutes later."

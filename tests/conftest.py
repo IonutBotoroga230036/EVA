@@ -20,6 +20,20 @@ def isolate_personal_settings(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def classic_routing_unless_marked(request, monkeypatch, tmp_path):
+    """v1.0: the one brain is the shipped default. Tests written for the classic routing keep it; tests marked
+    one_brain get the new loop. Either way her journal, made skills and risk verdicts live in a temp folder."""
+    import core.one as one
+    from core.one import journal, made, risk
+    monkeypatch.setattr(journal, "DIR", tmp_path / "journal")
+    monkeypatch.setattr(made, "DIR", tmp_path / "skills_made")
+    monkeypatch.setattr(risk, "STORE", tmp_path / "risk_judgments.json")
+    if not request.node.get_closest_marker("one_brain"):
+        monkeypatch.setattr(one, "mode", lambda: "classic")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def live_event_bus():
     """A server test's shutdown stops the global bus; every test starts with it running."""
     from core.events.bus import get_bus
@@ -259,3 +273,52 @@ def isolate_later(tmp_path, monkeypatch):
     monkeypatch.setattr(later, "STORE", tmp_path / "later.json")
     monkeypatch.setattr(later, "_later", None)
     yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_v07(tmp_path, monkeypatch):
+    """v0.7: never your real data/settings_ui.json, her real browser profile, or your real screen and mouse."""
+    import core.settings as st
+    monkeypatch.setattr(st, "UI_PATH", tmp_path / "settings_ui.json")
+    st.get_settings.cache_clear()
+    import core.browser as browser
+    monkeypatch.setattr(browser, "PROFILE", tmp_path / "browser_profile")
+    monkeypatch.setattr(browser, "SHOT", tmp_path / "browser" / "shot.png")
+    monkeypatch.setattr(browser, "installed", lambda: False)        # tests that want her browser give a fake one
+    monkeypatch.setattr(browser, "_browser", None)
+    import core.computer as computer
+
+    def no_screen():
+        raise AssertionError("tests never move your real mouse")
+    monkeypatch.setattr(computer, "_gui", no_screen)
+    import core.claude as claude_mod                  # v0.8: a failing fake call fails at once (no waiting)
+    monkeypatch.setattr(claude_mod, "RETRY_WAITS", ())
+    import core.agent.runner as runner_mod
+    monkeypatch.setattr(runner_mod, "LINE_WAITS", ())
+    import types as _types                            # v0.8: never a screenshot of your real screen
+    fake_gui = _types.ModuleType("pyautogui")
+
+    def _no_shot(*a, **k):
+        raise RuntimeError("tests never look at your real screen")
+    fake_gui.screenshot = _no_shot
+    monkeypatch.setitem(__import__("sys").modules, "pyautogui", fake_gui)
+    import core.glance as glance                      # v0.9: no weather or train calls; already greeted today
+    from datetime import date as _date
+    monkeypatch.setattr(glance, "GREETED", tmp_path / "greeted.txt")
+    (tmp_path / "greeted.txt").write_text(_date.today().isoformat())
+    monkeypatch.setattr(glance, "weather", lambda: None)
+    monkeypatch.setattr(glance, "train", lambda now: None)
+    glance._cache.clear()
+    import core.review as review                      # her notes go to the test folder
+    monkeypatch.setattr(review, "DIR", tmp_path / "reviews")
+    import httpx as _httpx                            # v0.9b: no test reaches the internet by accident (a map test
+                                                      # reached Nominatim once its search ran in parallel)
+    def _offline(url, *a, **k):
+        raise _httpx.ConnectError(f"tests never reach the internet ({str(url)[:60]})")
+    monkeypatch.setattr(_httpx, "get", _offline)
+    monkeypatch.setattr(_httpx, "post", _offline)
+    import core.chats as chats                       # never your real chats; titles inline
+    monkeypatch.setattr(chats, "DIR", tmp_path / "chats")
+    monkeypatch.setattr(chats, "THREADED", False)
+    yield
+    st.get_settings.cache_clear()

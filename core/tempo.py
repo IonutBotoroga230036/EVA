@@ -52,7 +52,15 @@ def next_up(google, now: Optional[datetime] = None) -> dict:
                        "events": [{"time": _hm(e["start"]), "title": e["title"]} for e in widget_events]}}
 
 
-def agenda(google, day: str = "today", now: Optional[datetime] = None, everything: bool = False) -> dict:
+def _late(label: str, now: datetime) -> str:
+    """After midnight, 'today' is easy to mishear as the day that just ended: name it (Nov 27, 00:39)."""
+    if label == "today" and now.hour < 4:
+        return f"today, {now.strftime('%A')} the {now.day}{'th' if 11 <= now.day % 100 <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(now.day % 10, 'th')},"
+    return label
+
+
+def agenda(google, day: str = "today", now: Optional[datetime] = None, everything: bool = False,
+           include_past: bool = False) -> dict:
     now = now or datetime.now()
     start, end, label = day_window(day, now.date())
     events = google.list_events(start, end)
@@ -60,13 +68,13 @@ def agenda(google, day: str = "today", now: Optional[datetime] = None, everythin
     if routine and not everything:              # your daily routine only when you ask for everything
         main = [e for e in events if not e.get("routine")]
         if main:
-            out = agenda(_Fixed(main), day, now, everything=True)
+            out = agenda(_Fixed(main), day, now, everything=True, include_past=include_past)
             r = len(routine)
             out["say"] = out["say"].rstrip(".") + f". Plus your daily routine ({r} item{'s' if r != 1 else ''})."
             out["routine"] = r
             return out
         events = routine
-    if label == "today":                           # today: what's still coming matters, not what's done
+    if label == "today" and not include_past:      # today: what's still coming matters, not what's done
         remaining = [e for e in events if e["all_day"] or not e["start"] or (e["end"] or e["start"]) > now]
         if len(remaining) < len(events):
             done = len(events) - len(remaining)
@@ -78,8 +86,8 @@ def agenda(google, day: str = "today", now: Optional[datetime] = None, everythin
             parts = [f"all day {r['title']}" if r["time"] == "all day" else f"{r['time']} {r['title']}" for r in rows[:5]]
             more = f", plus {len(rows) - 5} more" if len(rows) > 5 else ""
             return {"events": rows, "widget": widget,
-                    "say": f"You have {len(rows)} thing{'s' if len(rows) != 1 else ''} still to come today, sir: "
-                           f"{_join(parts)}{more}."}
+                    "say": f"You have {len(rows)} thing{'s' if len(rows) != 1 else ''} still to come "
+                           f"{_late('today', now).rstrip(',')}, sir: {_join(parts)}{more}."}
     rows = [{"time": "all day" if e["all_day"] else _hm(e["start"]), "title": e["title"],
              "day": e["start"].strftime("%a") if e["start"] else ""} for e in events]
     widget = {"kind": "calendar", "title": label.capitalize(), "events": rows}
@@ -90,8 +98,11 @@ def agenda(google, day: str = "today", now: Optional[datetime] = None, everythin
                                                      else f"{r['time']} {r['title']}") for r in rows[:6]]
     more = f", plus {len(rows) - 6} more" if len(rows) > 6 else ""
     n = len(rows)
+    past = "yesterday" in label or (start.date() < now.date())
     return {"events": rows, "widget": widget,
-            "say": f"You have {n} thing{'s' if n != 1 else ''} {label}, sir: {_join(parts)}{more}."}
+            "say": (f"You had {n} thing{'s' if n != 1 else ''} {label}, sir: {_join(parts)}{more}." if past else
+                    f"You have {n} thing{'s' if n != 1 else ''} {_late(label, now).rstrip(',')}, sir: "
+                    f"{_join(parts)}{more}.")}
 
 
 class _Fixed:
@@ -120,7 +131,7 @@ def free_slots(google, day: str = "today", duration_minutes: int = 30, now: Opti
     if window_end - cursor >= timedelta(minutes=duration_minutes):
         gaps.append((cursor, window_end))
     gaps = [(a, b) for a, b in gaps if b > a]
-    span = f"{label} {'in the ' + ('evening' if lo >= 18 else 'afternoon' if lo >= 12 else 'morning') if part_of_day(day) else ''}".strip()
+    span = f"{_late(label, now).rstrip(',')} {'in the ' + ('evening' if lo >= 18 else 'afternoon' if lo >= 12 else 'morning') if part_of_day(day) else ''}".strip()
     if not gaps:
         return {"gaps": [], "say": f"I don't see a free {duration_minutes} minutes {span}, sir."}
     words = [f"from {_hm(a)} to {_hm(b)}" for a, b in gaps[:3]]
@@ -128,23 +139,56 @@ def free_slots(google, day: str = "today", duration_minutes: int = 30, now: Opti
             "say": f"You're free {span} {_join(words)}, sir."}
 
 
-def shift_events(google, minutes: int = 60, day: str = "today", now: Optional[datetime] = None) -> dict:
-    """Move every timed event still ahead (today, or the given day) by N minutes."""
+def clock_on(day_start: datetime, text: str, now: datetime) -> Optional[datetime]:
+    """'9', '09:30', '3pm', 'now' on that day (v0.9: "move the items from 9 until now")."""
+    t = (text or "").strip().lower()
+    if not t:
+        return None
+    if re.fullmatch(r"(?:until |till |to )?now|right now", t):
+        return now
+    if re.fullmatch(r"\d{1,2}", t):
+        t = f"{int(t):02d}:00"
+    c = parse_clock(t)
+    if not c:
+        return None
+    h = c[0]
+    if len(c) > 2 and c[2] and h >= 12 and day_start.date() == now.date() and h - 12 <= now.hour < h:
+        h -= 12                                     # "from 9" at 09:52 is this morning, not 21:00
+    return day_start.replace(hour=h, minute=c[1])
+
+
+def shift_events(google, minutes: int = 60, day: str = "today", now: Optional[datetime] = None,
+                 from_time: str = "", until_time: str = "") -> dict:
+    """Move every timed event still ahead (today, or the given day) by N minutes; or only those starting between
+    from_time and until_time ("from 9 until now", v0.9)."""
     now = now or datetime.now()
     start, end, label = day_window(day, now.date())
+    lo, hi = clock_on(start, from_time, now), clock_on(start, until_time, now)
+    ranged = bool(lo or hi)
     events = [e for e in google.list_events(start, end, max_results=50)
-              if not e["all_day"] and e["start"] and not e.get("readonly") and (label != "today" or e["start"] > now)]
+              if not e["all_day"] and e["start"] and not e.get("readonly")
+              and ((lo or start) <= e["start"] < (hi or end) if ranged else (label != "today" or e["start"] > now))]
     if not events:
-        return {"moved": 0, "say": f"There's nothing left to move {label}, sir."}
+        span = f"between {_hm(lo) if lo else 'the start of the day'} and {'now' if hi == now else _hm(hi) if hi else 'the end of the day'}"
+        return {"moved": 0, "say": f"There's nothing {span if ranged else 'left'} to move {label}, sir." if ranged else
+                f"There's nothing left to move {label}, sir."}
     delta = timedelta(minutes=int(minutes))
+    changes = [{"what": e["title"], "before": _hm(e["start"]), "after": _hm(e["start"] + delta),
+                "day": e["start"].date().isoformat()} for e in events]      # v1.0: before anything moves
+    undo = {"tool": "calendar_restore", "what": f"put {len(events)} event{'s' if len(events) != 1 else ''} back",
+            "args": {"events": [{"id": e["id"], "title": e["title"], "start": e["start"].isoformat(),
+                                 "end": (e["end"] or e["start"]).isoformat()} for e in events]}}
+    starts = [e["start"] for e in events]
     for e in events:
         google.move_event(e["id"], e["start"] + delta, (e["end"] or e["start"]) + delta)
-    first = events[0]
+    first = {**events[0], "start": starts[0]}
     amount = f"{abs(int(minutes)) // 60} hour{'s' if abs(int(minutes)) >= 120 else ''}" if int(minutes) % 60 == 0 \
         else f"{abs(int(minutes))} minutes"
-    return {"moved": len(events), "say": f"Moved {len(events)} event{'s' if len(events) != 1 else ''} {amount} "
-                                         f"{'later' if minutes > 0 else 'earlier'}, sir. {first['title']} is now at "
-                                         f"{_hm(first['start'] + delta)}."}
+    names = ", ".join(e["title"] for e in events[:4]) + (f" and {len(events) - 4} more" if len(events) > 4 else "")
+    return {"moved": len(events), "titles": [e["title"] for e in events], "changes": changes, "undo": undo,
+            "say": f"Moved {len(events)} event{'s' if len(events) != 1 else ''} {amount} "
+                   f"{'later' if minutes > 0 else 'earlier'}, sir{f' ({names})' if ranged else ''}. {first['title']} is now at "
+                   f"{_hm(first['start'] + delta)}."}
 
 
 def resolve_start(day: str, time_text: str, now: Optional[datetime] = None) -> Optional[datetime]:
@@ -162,9 +206,14 @@ def add_event(google, title: str, day: str, time_text: str, duration_minutes: in
     if not start:
         return {"error": "no time given", "say": f"What time should I put {title} in, sir?"}
     end = start + timedelta(minutes=int(duration_minutes or 60))
-    google.insert_event(title, start, end)
-    return {"added": title, "start": start.isoformat(),
-            "say": f"Added {title} on {start:%A} at {_hm(start)}, sir."}
+    made = google.insert_event(title, start, end)
+    eid = made.get("id") if isinstance(made, dict) else None
+    out = {"added": title, "start": start.isoformat(),
+           "changes": [{"what": title, "before": "(not there)", "after": f"{start:%a} {_hm(start)}"}],
+           "say": f"Added {title} on {start:%A} at {_hm(start)}, sir."}
+    if eid:
+        out["undo"] = {"tool": "calendar_restore", "what": f"remove {title} again", "args": {"remove": [eid]}}
+    return out
 
 
 def find_event(google, title: str, day: str = "today") -> Optional[dict]:
@@ -196,8 +245,15 @@ def move_event_to(google, title: str, time_text: str, day: str = "") -> dict:
         return {"error": "no time given", "say": f"What time should {e['title']} move to, sir?"}
     start = base if day else e["start"].replace(hour=base.hour, minute=base.minute, second=0, microsecond=0)
     length = (e["end"] - e["start"]) if e.get("end") else timedelta(hours=1)
+    before = dict(e)
     google.move_event(e["id"], start, start + length)
+    e = before
     return {"moved": e["title"], "start": start.isoformat(),
+            "changes": [{"what": e["title"], "before": f"{e['start']:%a} {_hm(e['start'])}",
+                         "after": f"{start:%a} {_hm(start)}"}],
+            "undo": {"tool": "calendar_restore", "what": f"put {e['title']} back at {_hm(e['start'])}",
+                     "args": {"events": [{"id": e["id"], "title": e["title"], "start": e["start"].isoformat(),
+                                          "end": (e.get("end") or e["start"] + length).isoformat()}]}},
             "say": f"Moved {e['title']} to {start:%A} at {_hm(start)}, sir."}
 
 
@@ -210,7 +266,32 @@ def delete_event(google, title: str, day: str = "today") -> dict:
                                              f"can only read, sir."}
     google.delete_event(e["id"])
     when = "" if e["all_day"] else f" at {_hm(e['start'])}"
-    return {"deleted": e["title"], "say": f"Removed {e['title']} on {e['start']:%A}{when}, sir."}
+    out = {"deleted": e["title"], "say": f"Removed {e['title']} on {e['start']:%A}{when}, sir.",
+           "changes": [{"what": e["title"], "before": f"{e['start']:%a}{when}", "after": "(removed)"}]}
+    if not e["all_day"] and e.get("start"):
+        out["undo"] = {"tool": "calendar_restore", "what": f"put {e['title']} back",
+                       "args": {"recreate": [{"title": e["title"], "start": e["start"].isoformat(),
+                                              "end": (e.get("end") or e["start"] + timedelta(hours=1)).isoformat()}]}}
+    return out
+
+
+def restore(google, events: Optional[list] = None, remove: Optional[list] = None,
+            recreate: Optional[list] = None) -> dict:
+    """v1.0 undo: events back at their old times, added ones removed, removed ones put back."""
+    done = []
+    for e in events or []:
+        google.move_event(e["id"], datetime.fromisoformat(e["start"]), datetime.fromisoformat(e["end"]))
+        done.append(f"{e.get('title', 'an event')} back at {_hm(datetime.fromisoformat(e['start']))}")
+    for eid in remove or []:
+        google.delete_event(eid)
+        done.append("the added event removed")
+    for e in recreate or []:
+        google.insert_event(e["title"], datetime.fromisoformat(e["start"]), datetime.fromisoformat(e["end"]))
+        done.append(f"{e['title']} put back")
+    if not done:
+        return {"error": "nothing to restore", "say": "There was nothing to put back, sir."}
+    return {"restored": len(done), "say": "Done: " + "; ".join(done[:4]) + (f" and {len(done) - 4} more" if len(done) > 4
+                                                                           else "") + "."}
 
 
 _LEAD = re.compile(r"^(?:please |can you |could you |i want you to )*(?:add|put|create|schedule|book|make|plan)"

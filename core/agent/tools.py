@@ -28,14 +28,16 @@ def _ok(say: str, **data) -> dict:
     return {"result": json.dumps(data or {"ok": True}), "say": say, "exact": True}
 
 
-def tool_task_start(goal: str = "", budget_euros: float = 0.0, project: str = "", **_):
+def tool_task_start(goal: str = "", budget_euros: float = 0.0, project: str = "", title: str = "", **_):
     goal = " ".join((goal or "").split())
     if len(goal) < 8:
         return _ok("What should the task be, sir?", error="no goal")
     from core.agent.tasks import name_task
     from core.projects import get_store as projects
     pr = projects().find(project) if project else None     # v0.6: part of a project (its brief goes along)
-    t = _m().start(goal, float(budget_euros or 0), name_task(goal), pr.id if pr else "")
+    title = " ".join(re.sub(r"[^\w\s'-]", " ", title or "").split()).lower()[:40]
+    t = _m().start(goal, float(budget_euros or 0), title if 1 <= len(title.split()) <= 5 else name_task(goal),
+                   pr.id if pr else "")
     return _ok(f"On it, sir: the {t.title}. I'll work on it in the background with Claude, ask you when a choice "
                f"matters or before I install anything, and tell you when it's done. Ask me 'how's the {t.title} "
                f"going?' any time.", task=t.id, title=t.title)
@@ -87,6 +89,32 @@ def _open_on_pc(t) -> str:
     return str(folder)
 
 
+_URL = re.compile(r"https?://[^\s)\]>\"']+")
+
+
+def _links(text: str) -> list[dict]:
+    """The links in a task's result, with the words before each one as its title."""
+    out, seen = [], set()
+    for m in _URL.finditer(text or ""):
+        url = m.group(0).rstrip(".,;:")
+        if url in seen:
+            continue
+        seen.add(url)
+        before = (text[max(0, m.start() - 80):m.start()].splitlines() or [""])[-1]
+        title = re.sub(r"[\[\]()*_:\-|]+", " ", before).strip()[-60:] or ""
+        out.append({"url": url, "title": title})
+    return out[:12]
+
+
+def _files(t) -> list[str]:
+    try:
+        from core.agent.tasks import get_store
+        ws = get_store().workspace(t.id)
+        return sorted(str(p.relative_to(ws)).replace("\\", "/") for p in ws.rglob("*") if p.is_file())[:40]
+    except Exception:
+        return []
+
+
 def tool_task_show(which: str = "", on_pc: bool = False, **_):
     from core.agent.tasks import get_store
     t = _find(which)
@@ -98,10 +126,21 @@ def tool_task_show(which: str = "", on_pc: bool = False, **_):
     opened = _open_on_pc(t) if on_pc else ""
     w = models_widget(t)
     if not w:
-        say = f"The {t.title} has no 3D models to show, sir." + (" I opened its folder." if opened else "")
-        out = _ok(say, task=t.id, shown=0, opened=opened)
-        if t.details or t.summary:
-            out["widget"] = {"kind": "note", "title": t.title, "text": (t.details or t.summary)[:4000]}
+        # v0.8: Nov 27 "can you show me the links" -> "has no 3D models to show". Show what it did make.
+        text = (t.details or t.summary or "")
+        links = _links(text)
+        files = [f for f in _files(t) if not f.startswith("_eva_")][:12]
+        if links or text or files:
+            bits = ([f"{len(links)} link{'s' if len(links) != 1 else ''}"] if links else []) + \
+                   ([f"{len(files)} file{'s' if len(files) != 1 else ''}"] if files else [])
+            say = (f"Here's what the {t.title} found, sir" + (f": {' and '.join(bits)}" if bits else "") +
+                   ", in the window." + (" I opened its folder too." if opened else ""))
+        else:
+            say = f"The {t.title} has nothing to show yet, sir." + (" I opened its folder." if opened else "")
+        out = _ok(say, task=t.id, shown=0, opened=opened, links=[l["url"] for l in links], files=files)
+        if text or links or files:
+            body = text[:4000] + (("\n\nFiles: " + ", ".join(files)) if files else "")
+            out["widget"] = {"kind": "note", "title": t.title, "text": body, "links": links}
         return out
     n = len(w["models"])
     say = (f"Here's the {t.title}, sir: {n} {'model' if n == 1 else 'models'} in the window. Drag to turn it."
@@ -198,6 +237,7 @@ SCHEMAS = [
         "parameters": {"type": "object", "properties": {
             "goal": {"type": "string", "description": "The job in the user's words, with every detail they gave."},
             "budget_euros": {"type": "number", "description": "Only if the user names a budget."},
+            "title": {"type": "string", "description": "two to four words naming the thing, e.g. '3d skull model'"},
             "project": {"type": "string", "description": "The project it's for, if any (its brief goes along)."}},
             "required": ["goal"]}}},
     {"type": "function", "function": {
@@ -218,7 +258,8 @@ SCHEMAS = [
         "name": "task_show",
         "description": "Show what a task made: its 3D models as a 3D view and pictures in the window, its files. "
                        "For 'show me the stand', 'can I see it in 3D / before I print it', 'show me the files "
-                       "rendered', 'open the files'. on_pc: also open the folder on the PC.",
+                       "rendered', 'open the files', 'show me the links you found'. Without models it shows the result, "
+                       "its links and its files. on_pc: also open the folder on the PC.",
         "parameters": {"type": "object", "properties": {**WHICH, "on_pc": {"type": "boolean"}}}}},
     {"type": "function", "function": {"name": "task_list", "description": "Which tasks E.V.A. is working on.",
                                       "parameters": {"type": "object", "properties": {}}}},

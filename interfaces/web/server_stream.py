@@ -85,7 +85,7 @@ from core.telegram_bridge import TelegramBridge, active as telegram_active, set_
 from core.orchestrator_hybrid import HybridOrchestrator
 from skills.registry import get_registry
 from voice.listen import Resampler, build_listener, pipeline_status
-from voice.speech import SentenceChunker, TurnSpeaker, get_tts, speakable
+from voice.speech import SentenceChunker, TurnSpeaker, get_tts, sentences, speakable
 
 UI_FILE = Path(__file__).parent / "eva.html"
 STATIC = Path(__file__).parent / "static"
@@ -113,7 +113,12 @@ async def announce_forge(msg: dict) -> None:
 
 
 def prime_task(orch, ev: dict) -> None:
-    """v0.4: a task's question takes your next words as the answer; its "may I...?" takes your yes or no."""
+    """v0.4: a task's question takes your next words as the answer; its "may I...?" takes your yes or no.
+    v1.0: with the one brain nothing is primed: the waiting task is in her situation and she decides whether your
+    next sentence answers it (Nov 27: "Stop the task." was taken as the task's answer)."""
+    from core import one
+    if one.enabled():
+        return
     if ev.get("kind") == "consent":
         args = {"task": ev["task"], "answer": "yes"}
         orch.pending = {"tool": "task_answer", "args": args, "desc": ev.get("text", ""), "ts": time.time(),
@@ -198,6 +203,8 @@ def _warm_llm() -> None:
         _h.post(f"{cfg['base_url']}/api/generate", json={"model": cfg["decision_model"],
                                                            "keep_alive": cfg["keep_alive"]}, timeout=120)
         logger.info(f"LLM warm: {cfg['decision_model']} loaded")
+        from core import localcheck                  # v0.9.1: GPU or CPU? the first thing to know when it's slow
+        localcheck.report(cfg["base_url"])
     except Exception as e:
         logger.warning(f"LLM warm-up skipped ({e})")
 
@@ -254,6 +261,8 @@ async def lifespan(_app: FastAPI):
         return on_screen or on_phone
     oracle.deliver = deliver
     oracle_task = asyncio.create_task(oracle.run(), name="oracle")
+    from core import review as _review                    # v0.9: her day, in memory only, for tonight's review
+    _review.start()
     logger.info(f"E.V.A. online: {cortex.stats()['facts']} facts, {len(registry.enabled())} skills, "
                 f"{sum(s.connected for s in mcp.servers.values())} MCP servers, "
                 f"voice: {'Kokoro' if tts else 'browser'}, "
@@ -896,6 +905,304 @@ async def classic():
     return HTMLResponse(path.read_text(encoding="utf-8")) if path.exists() else Response(status_code=404)
 
 
+@app.get("/api/memory")
+async def memory_list(q: str = ""):
+    """v0.9: what she knows about you (CORTEX facts), newest first, or the ones matching q."""
+    cx = get_cortex()
+    facts = await asyncio.to_thread(cx.all_facts, 500)
+    words = [w for w in re.findall(r"\w+", q.lower()) if len(w) > 1]
+    if words:
+        facts = [f for f in facts if all(w in (f["text"] + " " + f["category"]).lower() for w in words)]
+    return JSONResponse({"facts": facts, "stats": cx.stats()})
+
+
+@app.post("/api/memory/{fid}/forget")
+async def memory_forget(fid: int, request: Request):
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    text = await asyncio.to_thread(get_cortex().forget_id, fid)
+    return JSONResponse({"forgotten": text}, status_code=200 if text else 404)
+
+
+@app.post("/api/memory/{fid}/edit")
+async def memory_edit(fid: int, request: Request):
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        body = await request.json()
+        return JSONResponse(await asyncio.to_thread(get_cortex().edit, fid, str((body or {}).get("text") or ""),
+                                                    (body or {}).get("category")))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/review")
+async def review_list():
+    """v0.9: her notes on her own days (the latest first), with a copy-ready text for each."""
+    from core import review as rv
+    items = await asyncio.to_thread(rv.listing)
+    return JSONResponse({"reviews": [{**r, "text": rv.as_text(r)} for r in items],
+                         "today_lines": len(rv.today_lines())})
+
+
+@app.post("/api/review/run")
+async def review_run(request: Request):
+    from core import review as rv
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        out = await asyncio.to_thread(rv.run, None, True)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+    return JSONResponse(out, status_code=200 if not out.get("error") else 400)
+
+
+@app.post("/api/review/{day}/read")
+async def review_read(day: str, request: Request):
+    from core import review as rv
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        ok = await asyncio.to_thread(rv.mark_read, day)
+    except ValueError:
+        ok = False
+    return JSONResponse({"read": ok}, status_code=200 if ok else 404)
+
+
+@app.get("/api/glance")
+async def glance():
+    """v0.9: the idle screen (time, weather, next event, train, project, tasks). Cached; no cloud model."""
+    from core import glance as g
+    return JSONResponse(await asyncio.to_thread(g.snapshot))
+
+
+@app.get("/api/chats")
+async def chats_list(q: str = ""):
+    """v0.7: the chats, newest first, or the ones matching q."""
+    from core import chats
+    if q.strip():
+        items = await asyncio.to_thread(chats.search, q[:100])
+    else:
+        items = await asyncio.to_thread(chats.listing)
+    return JSONResponse({"chats": items})
+
+
+@app.get("/api/chats/{cid}")
+async def chats_get(cid: str):
+    from core import chats
+    try:
+        chat = await asyncio.to_thread(chats.get, cid)
+    except ValueError:
+        chat = None
+    if not chat:
+        return PlainTextResponse("no such chat", status_code=404)
+    return JSONResponse(chats.public(chat))
+
+
+@app.post("/api/chats/{cid}/rename")
+async def chats_rename(cid: str, request: Request):
+    from core import chats
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        body = await request.json()
+        return JSONResponse(await asyncio.to_thread(chats.rename, cid, str((body or {}).get("title") or "")))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/chats/{cid}/delete")
+async def chats_delete(cid: str, request: Request):
+    from core import chats
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        ok = await asyncio.to_thread(chats.delete, cid)
+    except ValueError:
+        ok = False
+    for conn in list(CONNECTIONS):               # a window on that chat starts fresh
+        if conn.chat_id == cid:
+            conn.chat_id = None
+    return JSONResponse({"deleted": ok}, status_code=200 if ok else 404)
+
+
+@app.get("/api/browser/shot.png")
+async def browser_shot():
+    """v0.7: the last thing her browser showed (a page she looked at for you)."""
+    from core import browser
+    if not browser.SHOT.exists():
+        return PlainTextResponse("nothing yet", status_code=404)
+    return Response(browser.SHOT.read_bytes(), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/settings")
+async def settings_get():
+    """v0.7: the switches for the window's settings panel."""
+    from core import ui_settings
+    return JSONResponse(ui_settings.snapshot())
+
+
+class _NotTheWindow(Exception):
+    pass
+
+
+async def _settings_body(request: Request) -> dict:
+    if request.headers.get("x-eva") != "1":          # a page on another site can't send this header (no CSRF)
+        raise _NotTheWindow("missing X-EVA header")
+    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get("key"), str):
+        raise ValueError("send {key, value}")
+    return body
+
+
+@app.post("/api/settings")
+async def settings_set(request: Request):
+    from core import ui_settings
+    try:
+        body = await _settings_body(request)
+        out = ui_settings.change(body["key"], body.get("value"))
+    except _NotTheWindow as e:
+        return JSONResponse({"error": str(e)}, status_code=403)
+    except (ValueError, TypeError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    logger.info(f"SETTINGS: {out['key']} = {out['value']!r} (from the window)")
+    return JSONResponse(out)
+
+
+@app.post("/api/settings/reset")
+async def settings_reset(request: Request):
+    from core import ui_settings
+    try:
+        body = await _settings_body(request)
+        out = ui_settings.reset(body["key"])
+    except _NotTheWindow as e:
+        return JSONResponse({"error": str(e)}, status_code=403)
+    except (ValueError, TypeError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse(out)
+
+
+@app.get("/api/tasks")
+async def tasks_all():
+    """v0.9: every task, newest first, for the Tasks tab (stop, pause, resume from the window)."""
+    from core.agent.tasks import get_store
+    items = sorted(get_store().all(), key=lambda t: t.updated, reverse=True)[:60]
+    return JSONResponse({"tasks": [{"id": t.id, "title": t.title, "goal": t.goal[:300], "status": t.status,
+                                    "updated": t.updated, "cost_eur": round(t.cost_eur, 3), "steps": t.steps,
+                                    "project": t.project, "summary": (t.summary or "")[:300],
+                                    "waiting": (t.waiting or {}).get("text", "")[:300] if t.status == "waiting"
+                                    else "", "computer": any(str(x).startswith("computer")
+                                                             for x in (getattr(t, "toolsets", None) or [])),
+                                    # v1.0: its decision trail (what it did, what it asked, your answers)
+                                    "trail": [{"ts": x.get("ts"), "what": x.get("what", "")} for x in (t.log or [])[-60:]],
+                                    "plan": [{"step": p.get("step", ""), "done": bool(p.get("done"))}
+                                             for p in (t.plan or [])[:30]],
+                                    "consents": [{"ts": c.get("ts"), "what": c.get("what", ""),
+                                                  "decision": c.get("decision", "")} for c in (t.consents or [])[-20:]]}
+                                   for t in items]})
+
+
+# ---------------------------------------------------------------- v1.0: what she did, and undo
+def _any_belt():
+    for conn in list(CONNECTIONS):
+        if getattr(conn, "orch", None) is not None:
+            return conn.orch.belt
+    from core.orchestrator_hybrid import ToolBelt
+    from skills.registry import get_registry
+    return ToolBelt(get_registry())
+
+
+@app.get("/api/journal")
+async def journal_list(limit: int = 60, actions: int = 0):
+    """Her decisions, newest first: every turn with its steps (risk, what changed, how to undo it)."""
+    from core.one import journal
+    recs = await asyncio.to_thread(journal.recent, max(1, min(int(limit), 200)), 7, bool(actions))
+    return JSONResponse({"turns": recs})
+
+
+@app.post("/api/journal/{step}/undo")
+async def journal_undo(step: str, request: Request):
+    from core.one import journal
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    if not re.fullmatch(r"[a-f0-9]{10}-\d{1,3}", step):
+        return JSONResponse({"error": "no such step"}, status_code=404)
+    out = await asyncio.to_thread(journal.undo, step, _any_belt().execute)
+    logger.info(f"JOURNAL: undo {step} from the window: {out.get('say')}")
+    return JSONResponse(out, status_code=200 if out.get("ok") else 400)
+
+
+@app.get("/api/jarvis")
+async def jarvis_runs():
+    """The automatic JARVIS test runs: the latest first, with each scenario's result."""
+    from core import jarvis_test
+    return JSONResponse({"runs": await asyncio.to_thread(jarvis_test.listing, 10),
+                         "running": jarvis_test.running(), "scenarios": len(jarvis_test.scenarios())})
+
+
+@app.post("/api/jarvis/run")
+async def jarvis_run(request: Request):
+    from core import jarvis_test
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    backend = str((body or {}).get("backend") or "").strip() or None
+    if backend not in (None, "local", "cloud", "local_first"):
+        return JSONResponse({"error": "backend: local, cloud or local_first"}, status_code=400)
+    started = jarvis_test.run_in_background(backend)
+    return JSONResponse({"started": started, "running": jarvis_test.running()})
+
+
+@app.post("/api/tasks/{tid}/{action}")
+async def task_action(tid: str, action: str, request: Request):
+    """Stop (cancel), pause or resume a task from the window. Header X-EVA: 1."""
+    from core.agent.runner import get_manager
+    from core.agent.tasks import get_store
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    if action not in ("cancel", "pause", "resume") or not re.fullmatch(r"[a-f0-9]{8}", tid):
+        return JSONResponse({"error": "no such action"}, status_code=404)
+    t = get_store().get(tid)
+    if t is None:
+        return JSONResponse({"error": "no such task"}, status_code=404)
+    say = await asyncio.to_thread(getattr(get_manager(), action), t)
+    logger.info(f"AGENT: {action} {tid} from the window: {say}")
+    return JSONResponse({"say": say, "status": (get_store().get(tid) or t).status})
+
+
+@app.get("/api/projects")
+async def projects_all():
+    """v0.9: the projects, for the Projects tab."""
+    from core.projects import get_store
+    st = get_store()
+    act = st.active()
+    return JSONResponse({"projects": [{"id": p.id, "name": p.name, "goal": p.goal, "status": p.status,
+                                       "updated": p.updated, "active": bool(act and act.id == p.id),
+                                       "open_questions": [n["text"] for _, n in p.open_questions()][:6],
+                                       "decisions": [n["text"] for n in p.notes if n["kind"] == "decision"][-6:],
+                                       "parts": [{k: x.get(k) for k in ("name", "qty", "price_eur", "link", "status")}
+                                                 for x in p.parts][:30],
+                                       "total_eur": p.total_eur(), "tasks": p.tasks[-10:]}
+                                      for p in sorted(st.all(), key=lambda p: p.updated, reverse=True)]})
+
+
+@app.post("/api/projects/{pid}/delete")
+async def project_delete(pid: str, request: Request):
+    from core.projects import get_store
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    st = get_store()
+    p = st.get(pid) if re.fullmatch(r"[\w-]{1,40}", pid) else None
+    if p is None:
+        return JSONResponse({"error": "no such project"}, status_code=404)
+    st._path(p.id).unlink(missing_ok=True)
+    logger.info(f"PROJECTS: deleted '{p.name}' from the window")
+    return JSONResponse({"deleted": p.name})
+
+
 @app.get("/api/tasks/live")
 async def tasks_live():
     """The workbench's task list: running and waiting first, then the last finished."""
@@ -956,6 +1263,11 @@ async def status():
     })
 
 
+_SHUSH = re.compile(r"^\W*(?:(?:hey|ok|okay)\W+)?(?:eva\W*)?(?:(?:ok(?:ay)?|alright)\W+)?(?:stop(?: talking| it| there)?|skip"
+                    r"(?: it| that)?|enough|that'?s enough|quiet|be quiet|shush|hush|never ?mind|got it|thanks?(?: you)?)"
+                    r"(?:\W+(?:eva|sir|please))*\W*$", re.I)
+
+
 class Connection:
     """One browser tab: its orchestrator, its send lock, and the reply in progress."""
 
@@ -977,6 +1289,7 @@ class Connection:
         self._listener_lock = asyncio.Lock()
         self._resample = Resampler(16000)
         self._audio_errors = 0
+        self.chat_id: str | None = None      # v0.7: the chat this window writes to (made on the first sentence)
 
     async def send(self, msg: dict) -> None:
         async with self._send_lock:
@@ -993,15 +1306,82 @@ class Connection:
             self.stt = await asyncio.to_thread(pipeline_status)
         except Exception as e:                    # listening is optional; the browser can always listen
             self.stt = {"engine": "browser", "reason": str(e)}
-        await self.send({"type": "stt", **self.stt})
+        await self.open_chat(None, continue_recent=True, quiet=True)   # the page asks with chat_current
+        await self.send({"type": "stt", **self.stt})     # last: after it the window counts as fully connected
+
+    # ------------------------------------------------------------ chats (v0.7)
+    async def open_chat(self, cid: str | None, continue_recent: bool = False, quiet: bool = False) -> None:
+        """Switch this window to a chat (None: a fresh one). Her recent turns become that chat's; memory stays."""
+        from core import chats
+        chat = None
+        if cid:
+            chat = await asyncio.to_thread(chats.get, cid)
+        elif continue_recent:
+            chat = await asyncio.to_thread(chats.latest_recent)
+        self.chat_id = chat["id"] if chat else None
+        self.orch.chat_id = self.chat_id or ""           # v1.0: her journal knows which chat a decision was in
+        self.orch.history = chats.history(chat) if chat else []
+        if not quiet:
+            await self.send_chat(chat)
+        if chat:
+            logger.info(f"CHATS: window on '{chat['title']}' ({self.chat_id})")
+
+    async def send_chat(self, chat: dict | None = None) -> None:
+        from core import chats
+        if chat is None and self.chat_id:
+            chat = await asyncio.to_thread(chats.get, self.chat_id)
+        await self.send({"type": "chat", "chat": chats.public(chat) if chat else
+                         {"id": None, "title": "New chat", "turns": []}})
+
+    async def _chat_add(self, role: str, text: str, proactive: bool = False) -> None:
+        from core import chats
+        try:
+            if not self.chat_id:
+                if proactive:
+                    return                       # a reminder alone doesn't start a chat
+                chat = await asyncio.to_thread(chats.new)
+                self.chat_id = chat["id"]
+            chat = await asyncio.to_thread(chats.add, self.chat_id, role, text, proactive)
+            if chat is None:                     # deleted meanwhile: start a new one
+                chat = await asyncio.to_thread(chats.new)
+                self.chat_id = chat["id"]
+                chat = await asyncio.to_thread(chats.add, self.chat_id, role, text, proactive)
+            if chat is None:
+                return
+            self.orch.chat_id = self.chat_id or ""
+            if role == "you" and len(chat["turns"]) == 1:
+                await self.send({"type": "chat_meta", "id": chat["id"], "title": chat["title"]})
+            if role == "eva" and not chat.get("titled") and len(chat["turns"]) >= 2:
+                loop = asyncio.get_running_loop()
+
+                def titled(cid, title):
+                    asyncio.run_coroutine_threadsafe(self.send({"type": "chat_meta", "id": cid, "title": title}), loop)
+                chats.make_title(chat["id"], titled)
+        except Exception as e:                   # the chat log must never break a turn
+            logger.warning(f"CHATS: couldn't save a line ({e})")
 
     async def reply(self, text: str, turn: int) -> None:
         from core import device as _device
         _device.CURRENT.set(self)                    # device actions go to the window you're talking to
         await self.send({"type": "turn_start", "turn": turn})
         speaker = TurnSpeaker(self.tts, self.send, turn) if self.tts else None
+        if speaker:
+            speaker.started = getattr(self, "_heard_at", 0.0) or time.time()
+        self._heard_at = 0.0
         chunker, streamed = SentenceChunker(), False
         last_final = ""
+        await self._chat_add("you", text)
+        try:
+            from core import glance as _glance              # v0.9: the first words of the morning get a heads-up
+            hello = await asyncio.to_thread(_glance.greeting_once)
+            if hello:
+                logger.info(f"EVA (morning): {hello}")
+                await self.send({"type": "ack", "text": hello})
+                if speaker:
+                    for sentence in sentences(hello):
+                        await speaker.say(sentence)
+        except Exception as e:
+            logger.debug(f"no morning heads-up ({e})")
         try:
             async for event in self.orch.process_stream(text):
                 await self.send(event)
@@ -1025,7 +1405,8 @@ class Connection:
                         rest = event["text"]
                     else:
                         rest = chunker.flush() if streamed else event["text"]
-                    await speaker.say(rest)
+                    for sentence in sentences(rest):          # v0.8: the first sentence plays while the rest is made
+                        await speaker.say(sentence)
             tools = set(getattr(self.orch, "last_tools", ()) or ())
             if tools & MUSIC_TOOLS or ("media_control" in tools and re.search(r"\b(play|resume)\b", text, re.I)):
                 self.music_on = True
@@ -1043,6 +1424,7 @@ class Connection:
                 if ms:
                     meta["listen_ms"] = ms                 # she asked you something: more time to think
             await self.send(meta)
+            await self._chat_add("eva", last_final)
             if speaker:
                 await speaker.finish()
         except asyncio.CancelledError:
@@ -1073,6 +1455,7 @@ class Connection:
             await self.send({"type": "widget", "data": widget, "proactive": True})
         await self.send({"type": "final", "text": text, "proactive": True, **({} if speak else {"silent": True})})
         self.orch.history.append({"role": "assistant", "content": text})     # so "snooze it" has context
+        await self._chat_add("eva", text, proactive=True)
         if not speak:
             logger.info(f"EVA (shown): {text}")
             return
@@ -1155,13 +1538,21 @@ class Connection:
             self._device_waits.pop(rid, None)
 
     async def voice_command(self, text: str) -> None:
+        self._heard_at = time.time()
         _romanian_hint(self.orch)
+        if _SHUSH.match(text or "") and time.time() - getattr(self, "_barged_at", 0.0) < 8:
+            # v0.8: "Eva, stop" over her own voice only stops her talking (not the music, not a new turn)
+            logger.info(f"ECHO: '{text}' while she talked: stopped, nothing else")
+            await self.send({"type": "heard", "text": text, "stt": True})
+            await self.send({"type": "quiet"})
+            return
         await self.submit(text, voice=True, stt=True)
 
     async def on_wake(self) -> None:
         await self.send({"type": "wake", "text": WAKE_PHRASE})
 
     async def on_barge_in(self) -> None:
+        self._barged_at = time.time()
         await self.interrupt()
 
     async def on_device_state(self, locked: bool) -> None:
@@ -1266,6 +1657,15 @@ class Connection:
                     await self.interrupt()
                 elif kind == "message":
                     await self.submit(data.get("text") or "", voice=bool(data.get("voice")))
+                elif kind == "chat_open":                  # v0.7: carry on in an old chat
+                    await self.interrupt()
+                    cid = str(data.get("id") or "")
+                    await self.open_chat(cid if re.fullmatch(r"[a-f0-9]{10}", cid) else None)
+                elif kind == "chat_current":               # the page just connected: what's this window on?
+                    await self.send_chat()
+                elif kind == "chat_new":
+                    await self.interrupt()
+                    await self.open_chat(None)
                 elif kind == "device":
                     self.device_caps = tuple(str(c) for c in (data.get("caps") or [])[:20])
                     self.connected_at = time.time()

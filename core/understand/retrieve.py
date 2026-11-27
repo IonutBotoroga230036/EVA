@@ -47,9 +47,11 @@ def tool_words(t: dict) -> set[str]:
     return words(f"{f['name']} {f['name']} {f.get('description', '')} {params}")
 
 
-def select(messages: list[dict], schemas: list[dict], used: Optional[list[str]] = None) -> list[dict]:
+def select(messages: list[dict], schemas: list[dict], used: Optional[list[str]] = None,
+           above: Optional[int] = None, keep: Optional[int] = None) -> list[dict]:
     c = cfg()
-    above, keep = int(c.get("above") or 0), int(c.get("keep") or 50)
+    above = int(c.get("above") or 0) if above is None else above
+    keep = int(c.get("keep") or 50) if keep is None else keep
     if not above or len(schemas) <= above:
         return schemas
     turns = [m for m in messages if m.get("role") in ("user", "assistant") and m.get("content")]

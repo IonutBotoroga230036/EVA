@@ -73,6 +73,8 @@ def set_reminder(text: str = "", when: str = "", **_):
     r = get_oracle().store.add(text, due)
     return {"result": json.dumps({"id": r["id"], "due": due.isoformat()}),
             "widget": {"kind": "note", "title": f"Reminder · {due:%a %H:%M}", "text": text},
+            "changes": [{"what": f"reminder: {text}", "before": "(none)", "after": f"{due:%a %H:%M}"}],
+            "undo": {"tool": "cancel_reminder", "args": {"query": text}, "what": f"cancel the reminder to {text}"},
             "say": f"I'll remind you {when_words(due)} to {text}, sir."}
 
 

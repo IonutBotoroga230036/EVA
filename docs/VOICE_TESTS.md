@@ -364,3 +364,86 @@ labels: `pip install pyannote.audio`, accept pyannote/speaker-diarization-commun
 | 25.10 | "Is the Jumbo still open?" / "a pharmacy open now" | Nearest with distance and closing time | `TOOL nearby` |
 | 25.11 | Start a task | Its name is a real name ("3d printer prices") | `AGENT: task ... '<name>'` |
 | 25.12 | Start a skill build, "stop it", then "how is the build going?" | "I stopped the build of ..." (not "ready") | |
+
+## 26. v0.7: her browser, your computer, settings, chats
+
+First: `pip install playwright` and `python -m playwright install chromium` (her browser). Computer use needs
+nothing new (pyautogui is already installed).
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 26.1 | "Start a project for a transparent screen on my desk" | Started, and she offers research and a parts list. Say "yes" | `TOOL project_start`, then `AGENT: task ... started` |
+| 26.2 | "Show me videos of Pepper's ghost displays", then "play the second one on my computer" | The video opens in the PC browser; Spotify pauses if it was playing | `TOOL open_shown` |
+| 26.3 | "Is the Albert Heijn still open?" | The nearest with its closing time, in a few seconds even when Overpass is slow | `TOOL nearby` (maybe `NEARBY: nominatim`) |
+| 26.4 | "Check what the Prusa MINI costs on the Prusa website" | "Let me look it up", then the price, and a picture of the page in the window | `MIND: step 1: navigate`, `BROWSER: navigate ... ok` |
+| 26.5 | Ask her browser to buy something | She stops before paying and asks you to do that step | `BROWSER: left_click failed: That button ... would buy` |
+| 26.6 | "Open the Bluetooth settings" | The Windows Bluetooth page opens | `TOOL open_settings` |
+| 26.7 | "Turn on Bluetooth on my PC" | "Just to confirm, sir: use your mouse and keyboard to ...". Say yes; the workbench Screen tab shows her view; she clicks | `TOOL use_computer`, `COMPUTER: left_click` |
+| 26.8 | During 26.7, push the mouse into a top corner | "Stopped, sir. You took over the mouse..." | `stopped: mouse pushed into a corner` |
+| 26.9 | Gear button: set the daily limit to 2 euros, computer use to Watch only | Saved at once; say 26.7 again: she only looks | `SETTINGS: budget.daily_limit_euros = 2` |
+| 26.10 | Open Chats (bottom), talk a bit, then "New chat", then open the first chat again and ask about it | The list has both with titles; the old one carries on where you left it | `CHATS: window on '...'` |
+| 26.11 | In a new chat: "What did we decide about the desk screen in the other chat?" | She looks through earlier chats | `MIND: step 1: find_in_chats` |
+| 26.12 | Search chats for a word, rename one (tap its title), delete one (tap x twice) | Works without reloading | |
+
+## 27. v0.8: speaking while she thinks, and the 27 Nov fixes
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 27.1 | "Should I print the stand at the library or buy a printer?" | She starts talking within about two seconds; no "let me check" | `MIND: answered`, effort low |
+| 27.2 | Ask something long ("explain how a Pepper's ghost works") | Read out to the end, sentence by sentence | `ECHO: Kokoro loaded (... device cuda)` at start |
+| 27.3 | While she talks: "Eva, stop" | She stops; the music (if any) keeps playing | `ECHO: 'Eva, stop' while she talked` |
+| 27.4 | "Check my screen, is this listing legit?" (an eBay page) | She reads the real price, seller and address | `MIND: looking at his screen` |
+| 27.5 | After "Shall I open it in Notepad?": "Yes" | It opens (no `open_file('""')`) | `MIND: his answer to her question` |
+| 27.6 | "Is the Albert Heijn still open?" at night | "None is open right now, sir. The nearest Albert Heijn, ... opens tomorrow 08:00", in a few seconds | `TOOL nearby` |
+| 27.7 | "What's on my calendar yesterday?" / after midnight "am I free today?" | "You had ..." / "today, Friday the 27th" | |
+| 27.8 | "What's on my calendar tomorrow and do I have time to go to a makerspace?" | Both answered together | `MIND: step 1: calendar_agenda`, then `nearby` |
+| 27.9 | After a research task: "show me the links" | A card with the links, clickable | `TOOL task_show` |
+| 27.10 | Settings: computer use to "Act without asking", then "turn on Bluetooth" | No question; the Bluetooth page opens first, then she clicks | `TOOL use_computer`, `COMPUTER:` |
+| 27.11 | Pull the network cable during a task, plug it back | The task says it lost the line; "carry on" goes on | `CLAUDE: ...; trying again`, `AGENT: ... waiting` |
+
+## 28. v0.9: the glance, her notes, the morning fixes
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 28.1 | Leave the window alone for a minute | Chips under the orb: weather, next event, train, a task or project | |
+| 28.2 | Open /stage on the second monitor with no task running | A big clock and tiles for the day | |
+| 28.3 | Tomorrow, first thing: any sentence | "Good morning, sir. It's ... First up: ..." then the answer | `EVA (morning):` |
+| 28.4 | "Tell me a story for 10 minutes" | The whole story, read out; no "I haven't done that" | `ECHO: first sound ... s` |
+| 28.5 | After a story that ends with "say continue": "Continue" | The story goes on (no Spotify) | `MIND: his answer to her question` |
+| 28.6 | Music on, ask her to move calendar items, then "stop the music" during "Shall I go ahead?" | The music stops | `ORCH: 'stop the music' is a new command` |
+| 28.7 | "Move the items from 9 until now 30 minutes later" | "move the events today from 9:00 until now 30 minutes later. Shall I go ahead?", then exactly those | `TOOL calendar_shift` |
+| 28.8 | Settings > What she knows: search, edit a fact, forget one | Works; forget asks "Forget it?" first | `CORTEX: edited` / `forgot` |
+| 28.9 | "How did you do today?" (or Settings > Her notes > Review today now) | A headline and her mistakes; "Copy for Claude" | `REVIEW:` |
+| 28.10 | A computer task with screenshots | It runs; no budget pause with most of the budget left | |
+| 28.11 | At start-up | `ECHO: Kokoro loaded (... device cuda)`, or a line saying why it's on the CPU | |
+
+## 29. v0.9.1: stopping her work
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 29.1 | During a task: "Eva, drop the <task name>" | "Cancelled the <task>, sir."; it stops before its next click | `TOOL task_cancel`, `AGENT: task ... cancelled; not doing` |
+| 29.2 | During a computer task: "Eva, stop this" | It stops; music (if any) keeps playing | `TOOL task_cancel` |
+| 29.3 | The workbench: Pause, then Resume, then Stop | Each works at once | `AGENT: pause ... from the window` |
+| 29.4 | Settings > Tasks / Projects | Everything listed; Stop, Carry on, Delete (asks twice) | |
+| 29.5 | A computer task | No "disconnected" lines; if one shows, it says "request N KB" | `CLAUDE: ... request` |
+
+## 30. v1.0: one brain
+
+First: `ollama pull qwen3.5:4b`, restart, and check the start-up has no `BRAIN: qwen3.5:4b isn't on this PC`.
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 30.1 | "Look into my calendar and move all the tasks between 9 and 9:45 15 minutes later" | Done without a question; she says what moved; a chip with "undo" under the orb | `BRAIN: step 1: calendar_shift` |
+| 30.2 | "Undo that" (or the chip, or Settings > What she did > Undo) | They're back at their old times | `JOURNAL: undid calendar_shift` |
+| 30.3 | "What's the NVIDIA stock price today?" | A real number from a search or page; never "not available without a specific query" | `TOOL web_search`, maybe `web_read` |
+| 30.4 | "Tell Muaad I'm running 10 minutes late" | A question in her own words (no "Just to confirm"); "yes" sends it | `decision asked`, then `confirm_granted` |
+| 30.5 | During a waiting task: "Stop the task." / "Raise the daily limit to 5 euros" | The task stops / the limit changes; never "Back to the ..." | `REFLEX: task_cancel` / `TOOL change_setting` |
+| 30.6 | "Can you design me a 3D skull?" | A task starts at once (within your 2 euro limit), with a sensible name | `TOOL task_start` |
+| 30.7 | "Start a task to research 3D printers with a budget of 20 euros" | She asks first (more than 2 euros) | `decision asked` |
+| 30.8 | Something no tool does ("how many days until Christmas?", "what's the average of my meetings' lengths today?") | Answered; maybe a skill she made (Settings > What she did shows `make_skill`) | `SKILLS: made ...` |
+| 30.9 | Settings > Her brain > Who thinks: Local only; ask something hard | Slower, her thinking shows under the orb, a soft tone when she starts thinking | `BRAIN: answered ... (qwen3.5:4b ...)` |
+| 30.10 | Local first; ask something the local model gets wrong | Claude takes over without you noticing much; the journal says "handed to Claude" | `BRAIN: the local model handed over` |
+| 30.11 | Settings > JARVIS test > Run now (free) | A score after a few minutes; each scenario PASS/FAIL with the reason | `JARVIS TEST:` |
+| 30.12 | The chats sidebar: open an old chat, start a new one, hide it, search | Like ChatGPT; your memory carries over | |
+| 30.13 | Settings > Tasks > Decisions on a task | Its plan, what it asked you, every step | |
+| 30.14 | Settings > Her brain > How she decides: The old routing | Everything as in v0.9 | |

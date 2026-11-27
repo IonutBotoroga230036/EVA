@@ -48,6 +48,23 @@ KINDS = {
 }
 
 
+# Nov 25: Whisper heard "Albert Hain". Shop names in the Netherlands, as he says them, to how OSM spells them
+BRANDS = {r"albert h\w*[nm]\b|albert hijn|albert heyn|albert hein|\bah\b|appie": "Albert Heijn", r"jumbo": "Jumbo", r"lidl": "Lidl",
+          r"aldi": "Aldi", r"plus\b": "PLUS", r"dirk": "Dirk", r"action\b": "Action", r"kruidvat": "Kruidvat",
+          r"etos": "Etos", r"hema\b": "HEMA", r"gamma\b": "GAMMA", r"praxis": "Praxis", r"karwei": "Karwei",
+          r"media ?markt": "MediaMarkt", r"coolblue": "Coolblue", r"blokker": "Blokker", r"primark": "Primark",
+          r"ikea": "IKEA", r"spar\b": "Spar", r"coop\b": "Coop", r"mcdonald'?s?|mac ?donalds": "McDonald's",
+          r"burger ?king": "Burger King", r"starbucks": "Starbucks", r"bol\.?com": "bol"}
+
+
+def brand(what: str) -> str:
+    w = (what or "").lower()
+    for rx, name in BRANDS.items():
+        if re.search(rx, w):
+            return name
+    return ""
+
+
 def _kind(what: str) -> Optional[tuple[str, str]]:
     w = (what or "").lower().strip()
     for word in sorted(KINDS, key=len, reverse=True):
@@ -176,7 +193,12 @@ def status(hours: str, now: Optional[datetime] = None) -> Optional[dict]:
 def query(what: str, centre: tuple[float, float], radius: int) -> str:
     lat, lon = centre
     kind = _kind(what)
-    if kind:
+    b = brand(what)
+    if b:
+        safe = re.sub(r"([.^$*+?()\[\]{}|\\])", r"\\\1", b)
+        return (f"[out:json][timeout:20];(nwr[\"brand\"~\"^{safe}\",i](around:{radius},{lat},{lon});"
+                f"nwr[\"name\"~\"^{safe}\",i](around:{radius},{lat},{lon}););out center tags 40;")
+    elif kind:
         sel = f'["{kind[0]}"="{kind[1]}"]'
     else:
         name = re.sub(r"[^\w\s'&.-]", "", what).strip()[:60] or "shop"
@@ -185,8 +207,35 @@ def query(what: str, centre: tuple[float, float], radius: int) -> str:
             f"out center tags 40;")
 
 
+NOMINATIM = "https://nominatim.openstreetmap.org/search"
+OVERPASS_TIMEOUT_S = 7.0          # v0.8: per server, all asked at once
+OVERPASS_HEAD_START_S = 2.5       # Nominatim's answer waits this long for Overpass
+
+
+def nominatim(what: str, centre: tuple[float, float], radius: int) -> list[dict]:
+    """The second route (Nov 25: both Overpass servers timed out after 50 s): OSM's own search, bounded to a box
+    around you, with extratags for the opening hours. Same element shape as Overpass."""
+    import httpx
+    lat, lon = centre
+    d_lat = radius / 111000.0
+    d_lon = radius / (111000.0 * max(0.2, math.cos(math.radians(lat))))
+    kind = _kind(what)
+    q = brand(what) or (f"[{kind[1].replace('_', ' ')}]" if kind and not brand(what) else what)
+    r = httpx.get(NOMINATIM, params={"q": q, "format": "jsonv2", "extratags": 1, "limit": 20, "bounded": 1,
+                                     "viewbox": f"{lon - d_lon},{lat + d_lat},{lon + d_lon},{lat - d_lat}"},
+                  headers={k: v for k, v in HEADERS.items() if k != "Content-Type"}, timeout=10)
+    r.raise_for_status()
+    out = []
+    for x in r.json():
+        tags = dict(x.get("extratags") or {})
+        tags.setdefault("name", x.get("name") or (x.get("display_name") or "").split(",")[0])
+        out.append({"lat": float(x["lat"]), "lon": float(x["lon"]), "tags": tags})
+    return out
+
+
 def search(what: str, centre: tuple[float, float], radius: int) -> list[dict]:
     import httpx
+    from loguru import logger
     q = query(what, centre, radius)
     key = (q, int(time.time() // 600))                 # ten minutes of cache
     if key in _cache:
@@ -194,23 +243,57 @@ def search(what: str, centre: tuple[float, float], radius: int) -> list[dict]:
     wait = 2.0 - (time.time() - _last_call["ts"])      # never two calls in quick succession
     if wait > 0:
         time.sleep(wait)
-    last = None
-    for url in SERVERS:
-        try:
-            _last_call["ts"] = time.time()
-            r = httpx.post(url, data={"data": q}, headers=HEADERS, timeout=25)
-            if r.status_code == 200:
-                els = r.json().get("elements", [])
+    problems: list[str] = []
+    _last_call["ts"] = time.time()
+
+    def overpass(url):
+        r = httpx.post(url, data={"data": q}, headers=HEADERS, timeout=httpx.Timeout(OVERPASS_TIMEOUT_S, connect=4.0))
+        if r.status_code != 200:
+            raise RuntimeError(f"answered {r.status_code}")
+        return r.json().get("elements", [])
+    # v0.8: all three at once (27 Nov: two Overpass timeouts in a row took 20 s); Overpass has the better data, so
+    # it gets a head start; Nominatim answers when Overpass is slow or down
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait as fwait
+    pool = ThreadPoolExecutor(max_workers=3)
+    try:
+        jobs = {pool.submit(overpass, url): url.split("/")[2] for url in SERVERS}
+        nomi = pool.submit(nominatim, what, centre, radius)
+        jobs[nomi] = "nominatim"
+        deadline = time.time() + OVERPASS_TIMEOUT_S + 1
+        pending = set(jobs)
+        while pending and time.time() < deadline:
+            done, pending = fwait(pending, timeout=max(0.05, deadline - time.time()), return_when=FIRST_COMPLETED)
+            for f in done:
+                try:
+                    els = f.result()
+                except Exception as e:
+                    problems.append(f"{jobs[f]}: {e.__class__.__name__}")
+                    continue
+                if f is nomi and any(j not in (nomi,) and not j.done() for j in jobs) and \
+                        time.time() < _last_call["ts"] + OVERPASS_HEAD_START_S:
+                    pending.add(f)                     # hold Nominatim's answer a moment for Overpass
+                    time.sleep(0.1)
+                    continue
+                if f is nomi:
+                    logger.info(f"NEARBY: Nominatim answered first ({'; '.join(problems) or 'Overpass slow'})")
                 _cache[key] = els
                 return els
-            last = f"{url.split('/')[2]} answered {r.status_code}"
-        except Exception as e:
-            last = f"{url.split('/')[2]}: {e}"
-    raise RuntimeError(last or "no map server answered")
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    raise RuntimeError("; ".join(problems) or "no map server answered in time")
+
+
+def _clean_what(what: str) -> str:
+    """'Is the Albert Heim still open?' -> 'Albert Heijn' (27 Nov: the whole question went in as the name)."""
+    w = " ".join((what or "").split()).strip(" ?.!")
+    w = re.sub(r"^(?:is|are|was)\s+(?:the|a|an|there\s+(?:a|an|any))?\s*", "", w, flags=re.I)
+    w = re.sub(r"\s+(?:still\s+)?open(?:\s+(?:now|today|tonight|right now))?$", "", w, flags=re.I)
+    w = re.sub(r"\s+(?:near(?:by| me)?|around (?:here|me)|close by)$", "", w, flags=re.I)
+    return brand(w) or w.strip() or what
 
 
 def tool_nearby(what: str = "", radius_m: int = 1500, open_now: bool = False, **_):
-    what = " ".join((what or "").split())
+    what = _clean_what(what)
     if not what:
         return {"result": json.dumps({"error": "what are you looking for?"})}
     centre, how = where()
@@ -218,8 +301,8 @@ def tool_nearby(what: str = "", radius_m: int = 1500, open_now: bool = False, **
     try:
         els = search(what, centre, radius)
     except Exception as e:
-        return {"result": json.dumps({"error": f"the map search failed: {e}"}),
-                "say": "The map search isn't answering just now, sir."}
+        return {"result": json.dumps({"error": f"the map search failed: {e}"}), "exact": True,
+                "say": "The map search isn't answering just now, sir, so I can't tell you what's open."}
     now = datetime.now()
     places = []
     for el in els:
@@ -237,12 +320,21 @@ def tool_nearby(what: str = "", radius_m: int = 1500, open_now: bool = False, **
                        "opens": st.get("opens") if st else None, "address": addr or None,
                        "map": f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=18/{lat}/{lon}"})
     places.sort(key=lambda p: p["distance_m"])
+    closed = [p for p in places if p["open_now"] is False]
     if open_now:
         places = [p for p in places if p["open_now"] is not False]
     places = places[:8]
+    if not places and closed:                         # v0.8: found, but all closed: say so, with when they open
+        p0 = closed[0]
+        d = f"{p0['distance_m']} metres" if p0["distance_m"] < 1000 else f"{p0['distance_m'] / 1000:.1f} kilometres"
+        when = f"; it opens {p0['opens']}" if p0.get("opens") else ""
+        return {"result": json.dumps({"what": what, "near": how, "open_now": [], "closed": closed[:5]},
+                                     ensure_ascii=False), "exact": True,
+                "say": f"None is open right now, sir. The nearest {what}, {d} away, is closed{when}."}
     if not places:
-        return {"result": json.dumps({"what": what, "near": how, "places": []}),
-                "say": f"I couldn't find {what} within {radius / 1000:g} kilometres of {how}, sir."}
+        return {"result": json.dumps({"what": what, "near": how, "places": []}), "exact": True,
+                "say": f"I couldn't find {what} within {radius / 1000:g} kilometres of {how}, sir, so I can't say "
+                       f"whether one is open."}
 
     def line(p):
         d = f"{p['distance_m']} metres" if p["distance_m"] < 1000 else f"{p['distance_m'] / 1000:.1f} kilometres"
@@ -257,7 +349,7 @@ def tool_nearby(what: str = "", radius_m: int = 1500, open_now: bool = False, **
     rows = "\n".join(f"{i}. {line(p)}" + (f" ({p['address']})" if p["address"] else "") for i, p in enumerate(places, 1))
     return {"result": json.dumps({"what": what, "near": how, "now": now.strftime("%a %H:%M"), "places": places},
                                  ensure_ascii=False),
-            "say": say, "widget": {"kind": "note", "title": f"{what.capitalize()} near {how}", "text": rows}}
+            "say": say, "exact": True, "widget": {"kind": "note", "title": f"{what.capitalize()} near {how}", "text": rows}}
 
 
 SCHEMAS = [{"type": "function", "function": {

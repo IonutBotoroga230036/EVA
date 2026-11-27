@@ -33,6 +33,28 @@ TOOLS = [{"type": "function", "function": {
         "question": {"type": "string", "description": "What the user wants to know about the screen."}}}}}]
 
 
+def grab_screen() -> dict | None:
+    """v0.8: the screen for the mind to look at itself (Claude sees far more than the small local model: on 27 Nov
+    it answered 'the screen is good' and named 'Claude Platform' as an eBay seller)."""
+    try:
+        import pyautogui
+        img = pyautogui.screenshot()
+    except Exception as e:
+        logger.warning(f"see_screen: no screenshot ({e})")
+        return None
+    img.thumbnail((MAX_EDGE, MAX_EDGE))
+    SHOT_DIR.mkdir(parents=True, exist_ok=True)
+    path = SHOT_DIR / f"screen_{datetime.now():%Y%m%d_%H%M%S}.png"
+    try:
+        img.save(path)
+    except Exception:
+        pass
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=85)
+    audit.log("see_screen", "vision", {"screenshot": str(path), "by": "mind"})
+    return {"b64": base64.b64encode(buf.getvalue()).decode(), "media_type": "image/jpeg", "path": str(path)}
+
+
 def see_screen(question: str = "", **_):
     try:
         import pyautogui

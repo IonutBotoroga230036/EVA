@@ -143,6 +143,9 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .bench__view .model__view{height:100%;min-height:240px}
 .bench__code{margin:0;padding:14px 16px;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:#d9ccff;white-space:pre;tab-size:4}
 .bench__code.is-bad{color:#ffb3c1}
+.card__links{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.card__links a{color:var(--lilac,#c4a4ff);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bench__screen{display:block;max-width:100%;max-height:100%;margin:auto;object-fit:contain;border-radius:8px;cursor:zoom-in}
 .bench__empty{display:grid;place-items:center;height:100%;color:var(--dim-text);font-size:14px;text-align:center;padding:24px}
 .bench__scan{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,transparent 0,rgba(168,85,247,.12) 50%,transparent 100%);
   background-size:100% 220px;background-repeat:no-repeat;animation:benchScan 2.6s linear infinite;opacity:0;transition:opacity .4s}
@@ -159,11 +162,31 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   .bench__side{max-height:30vh} .bench__feed{display:none} .bench__plan{max-height:none}
   .bench__meta{display:none} .bench-pill{top:auto;bottom:calc(var(--safe-b) + 112px)}
   .bench__head{flex-wrap:wrap;row-gap:6px} .bench__title{flex:1;min-width:0} .bench__now{order:9;flex-basis:100%;font-size:14px}
+  .bench__title{flex-basis:calc(100% - 190px)} .bench__head .task-btn{order:8;height:32px} .bench__head .icon-btn{width:40px;height:40px}
 }
 /* full screen for a second monitor (or the desk screen): /stage */
 .eva.stage-mode .eva-top,.eva.stage-mode .eva-bottom,.eva.stage-mode .eva-main{display:none}
 .eva.stage-mode .eva-bench{inset:max(18px,var(--safe-t)) 18px 18px 18px;opacity:1;transform:none;visibility:visible}
 .eva.stage-mode .bench__title{font-size:28px} .eva.stage-mode .bench__now{font-size:19px}
+
+/* ===== The glance (v0.9): what she shows when nothing is going on ===== */
+.eva-glance{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;max-width:760px;margin-top:var(--s4);opacity:0;transform:translateY(6px);transition:opacity var(--dur-in) var(--ease-out),transform var(--dur-in) var(--ease-out);pointer-events:none}
+.eva.glance-on .eva-glance{opacity:1;transform:none;pointer-events:auto}
+.glance-chip{display:inline-flex;align-items:center;gap:8px;max-width:min(100%,380px);padding:7px 14px;border-radius:var(--r-pill);background:var(--glass-row);border:1px solid var(--line-soft);color:var(--ice);font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.glance-chip b{font-weight:600;color:var(--lilac);font-family:var(--font-display);letter-spacing:.04em}
+.glance-chip.is-soon{border-color:var(--line-strong);box-shadow:var(--glow-btn)}
+button.glance-chip{cursor:pointer}
+.glance-full{display:none;position:fixed;inset:0;z-index:5;padding:max(40px,var(--safe-t)) 56px 48px;grid-template-rows:auto 1fr;gap:32px;background:radial-gradient(ellipse at 30% 20%,rgba(109,40,217,.18),transparent 60%),var(--void-0)}
+.eva.stage-mode.stage-idle .glance-full{display:grid}
+.eva.stage-mode.stage-idle .eva-bench{visibility:hidden}
+.gf-clock{font-family:var(--font-display);font-size:clamp(72px,12vw,168px);line-height:1;letter-spacing:.02em;color:var(--ice)}
+.gf-date{font-size:clamp(18px,2.2vw,28px);color:var(--dim-text);margin-top:8px}
+.gf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-content:start}
+.gf-tile{padding:22px 24px;border-radius:var(--r-card);background:var(--glass);border:1px solid var(--line);backdrop-filter:var(--blur-card)}
+.gf-tile h3{margin:0 0 10px;font:600 12px var(--font-display);letter-spacing:.16em;text-transform:uppercase;color:var(--lilac)}
+.gf-big{font-size:clamp(22px,2.4vw,34px);line-height:1.25}
+.gf-small{font-size:15px;color:var(--dim-text);margin-top:6px;line-height:1.45}
+@media (prefers-reduced-motion: reduce){.eva-glance{transition:none}}
 
 /* ===== Main: stage + rail ===== */
 .eva-main{position:relative;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 0px;gap:0;align-items:center;justify-content:center;
@@ -317,6 +340,42 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .seg.seg--sm button{font-size:12px;padding:0 2px}
 .brain-feat{display:flex;flex-direction:column;gap:6px;padding-top:8px}
 
+/* ===== Settings panel (v0.7) ===== */
+.eva.settings-open .eva-scrim{opacity:1;pointer-events:auto}
+.eva.settings-open #evaSettings{transform:none;visibility:visible}
+.set-group{display:flex;flex-direction:column;gap:10px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
+.set-tabs{display:flex;gap:6px;padding:4px 0 10px;flex-wrap:wrap}
+.set-tab{height:32px;padding:0 14px;border-radius:var(--r-pill);border:1px solid var(--line);background:none;color:var(--dim-text);font-size:13px}
+.set-tab.is-on{background:var(--tint-2);color:var(--ice);border-color:var(--line-strong)}
+.mem-list{display:flex;flex-direction:column;gap:2px;padding:8px 0}
+.mem-row{display:flex;flex-direction:column;gap:4px;padding:10px 4px;border-bottom:1px solid var(--line-soft)}
+.mem-row small{color:var(--dim-text);font-size:12px}
+.mem-text{font-size:14px;line-height:1.4}
+.mem-actions{display:flex;gap:6px}
+.mem-btn{height:30px;padding:0 12px;border-radius:var(--r-pill);border:1px solid var(--line);background:none;color:var(--ice);font-size:12px;align-self:flex-start}
+.mem-btn:hover{background:var(--tint)}
+.mem-btn.is-armed{background:rgba(192,38,211,.25);border-color:var(--magenta)}
+.task-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.task-ask{color:var(--lilac)!important}
+.proj-more{display:flex;flex-direction:column;gap:4px;padding:6px 0}
+.proj-more a{color:var(--lilac);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-btn{height:34px;padding:0 14px;border-radius:var(--r-pill);border:1px solid var(--line-strong);background:var(--tint);color:var(--ice);font-size:13px;flex:none}
+.task-btn:hover{background:var(--tint-2)}
+.task-btn.is-stop{background:rgba(192,38,211,.22);border-color:var(--magenta)}
+.task-btn.is-stop:hover{background:rgba(192,38,211,.38)}
+.note-day{display:flex;flex-direction:column;gap:8px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
+.note-head{font-size:15px;line-height:1.45}
+.note-item{display:flex;flex-direction:column;gap:3px;padding:8px 10px;border-radius:var(--r-sm);background:var(--glass-row);font-size:13px;line-height:1.4}
+.note-item small,.note-good{color:var(--dim-text);font-size:12px;line-height:1.4}
+.set-field{display:flex;flex-direction:column;gap:6px}
+.set-field .rt-in,.set-group > .rt-in,.mem-row .rt-in{flex:none;height:40px;width:100%}
+.set-field label{font-size:14px;color:var(--ice);display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.set-field small{font-size:11px;color:var(--dim-text)} .set-field small button{color:var(--lilac);background:none;border:0;font-size:11px;padding:0;text-decoration:underline;cursor:pointer}
+.set-toggle{align-self:flex-start;min-width:64px;height:32px;border-radius:16px;border:1px solid var(--line);background:rgba(8,6,15,.6);color:var(--dim-text);font:600 12px var(--font-display);letter-spacing:.08em}
+.set-toggle[aria-pressed="true"]{background:var(--violet-deep);border-color:var(--violet-bright);color:var(--ice)}
+.set-spend{font-size:13px;color:var(--dim-text);line-height:1.6}
+.set-ok{font-size:12px;color:#9fe3b8;min-height:16px}
+
 /* ===== Routines panel (v0.2.5) ===== */
 .eva.routines-open .eva-scrim{opacity:1;pointer-events:auto}
 .eva.routines-open #evaRoutines{transform:none;visibility:visible}
@@ -358,6 +417,91 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .turn--you .turn__text{color:var(--dim-text)}
 .turn__tag{display:inline-block;font-size:11px;padding:1px 8px;margin-right:8px;border-radius:var(--r-pill);background:rgba(192,38,211,.18);border:1px solid rgba(192,38,211,.45);vertical-align:1px}
 .drawer__type{padding:0 32px;flex:none}
+/* ===== Chats (v0.7): named conversations beside the transcript, one memory across them ===== */
+.eva-drawer{width:min(1040px,100vw)}
+.drawer__head{gap:10px}
+.drawer__title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:18px;background:none;border:0;color:var(--ice);text-align:left;padding:0;cursor:text}
+.drawer__title input{width:100%;font:inherit;color:var(--ice);background:rgba(8,6,15,.6);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+.drawer__body{flex:1;min-height:0;display:grid;grid-template-columns:260px minmax(0,1fr)}
+.chats{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line-soft);padding:14px 10px 0 18px}
+.chats__search input{width:100%;height:36px;border-radius:18px;border:1px solid var(--line);background:rgba(8,6,15,.6);color:var(--ice);padding:0 14px;font-size:14px}
+.chats__list{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:10px 0}
+.chats__day{font:600 11px var(--font-display);letter-spacing:.14em;color:var(--dim-text);padding:10px 8px 4px;text-transform:uppercase}
+.chat-item{position:relative;display:flex;flex-direction:column;gap:2px;text-align:left;width:100%;border:0;border-radius:10px;background:none;color:var(--ice);padding:8px 34px 8px 10px;cursor:pointer}
+.chat-item:hover,.chat-item:focus-visible{background:rgba(196,164,255,.08)}
+.chat-item.is-on{background:rgba(139,92,246,.22)}
+.chat-item b{font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item small{font-size:12px;color:var(--dim-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item__del{position:absolute;right:4px;top:6px;width:28px;height:28px;border-radius:14px;border:0;background:none;color:var(--dim-text);opacity:0;cursor:pointer;font-size:11px}
+.chat-item:hover .chat-item__del,.chat-item:focus-within .chat-item__del,.chat-item__del.is-armed{opacity:1}
+.chat-item__del.is-armed{width:auto;padding:0 8px;background:rgba(192,38,211,.25);color:var(--ice)}
+.chats__empty{color:var(--dim-text);font-size:13px;padding:12px 8px}
+.chat-new{height:32px;border-radius:16px;border:1px solid var(--line-strong);background:rgba(139,92,246,.18);color:var(--ice);padding:0 14px;font-size:13px;cursor:pointer;white-space:nowrap}
+#evaChatsBtn{display:none}
+/* ===== v1.0: chats in a sidebar on the left, like ChatGPT and Gemini ===== */
+.eva-side{position:fixed;top:0;bottom:0;left:0;width:280px;z-index:4;display:flex;flex-direction:column;gap:10px;
+  padding:calc(var(--safe-t) + 18px) 10px calc(var(--safe-b) + 16px) calc(var(--safe-l) + 12px);background:rgba(10,7,22,.78);
+  border-right:1px solid var(--line-soft);backdrop-filter:var(--blur-chrome);-webkit-backdrop-filter:var(--blur-chrome);
+  transition:transform var(--dur-layout) var(--ease-out),visibility var(--dur-layout)}
+.eva-side__head{display:flex;align-items:center;gap:8px;padding-right:4px}
+.eva-side__head .chat-new{flex:1;height:36px;border-radius:18px;text-align:left;padding:0 16px}
+.eva .eva-side .chats{display:flex;position:static;inset:auto;z-index:auto;background:none;border:0;padding:0;flex:1;min-height:0}
+.eva-side .chats__list{padding-top:6px}
+.eva-side__foot{font-size:12px;color:var(--dim-text);padding:4px 8px 0;line-height:1.4}
+.side-btn{flex:none}
+.eva-top .side-btn + .eva-conn{margin-right:auto;margin-left:6px}
+.eva .drawer__body{grid-template-columns:minmax(0,1fr)}
+.eva-drawer .chats{display:none!important}
+@media (min-width:1100px){
+  .eva{padding-left:calc(var(--safe-l) + 312px);transition:padding-left var(--dur-layout) var(--ease-out)}
+  .eva-side{z-index:12}                       /* above the scrim: pick another chat while one is open */
+  .eva.side-closed{padding-left:calc(var(--safe-l) + 32px)}
+  .eva.side-closed .eva-side{transform:translateX(-100%);visibility:hidden}
+  .eva:not(.side-closed) .eva-drawer{left:calc(50% + 140px);width:min(860px,calc(100vw - 320px))}
+  .eva:not(.side-closed) #evaSideBtn{display:none}
+}
+@media (max-width:1099px){
+  .eva-side{z-index:13;width:min(320px,86vw);background:var(--glass-solid);transform:translateX(-100%);visibility:hidden}
+  .eva.side-open .eva-side{transform:none;visibility:visible}
+  .eva.side-open .eva-scrim{opacity:1;pointer-events:auto}
+}
+@media (prefers-reduced-motion: reduce){.eva-side,.eva{transition:none}}
+/* ===== v1.0: her thinking and her decisions, live ===== */
+.eva-think{max-width:620px;width:100%;margin-top:6px;font-size:12.5px;line-height:1.45;color:var(--dim-text);opacity:0;max-height:0;overflow:hidden;
+  transition:opacity var(--dur-in) var(--ease-out),max-height var(--dur-in) var(--ease-out);text-align:left;white-space:pre-wrap;
+  mask-image:linear-gradient(180deg,transparent,#000 30%);-webkit-mask-image:linear-gradient(180deg,transparent,#000 30%)}
+.eva.is-thinking .eva-think.has-text{opacity:.85;max-height:4.4em}
+.eva-steps{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;max-width:680px;margin-top:8px}
+.step-chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;border:1px solid var(--line);
+  background:var(--glass-row);font-size:12.5px;color:var(--ice);animation:benchIn .3s var(--ease-out)}
+.step-chip i{width:7px;height:7px;border-radius:50%;background:var(--violet-bright)}
+.step-chip[data-r="free"] i{background:#5eead4}.step-chip[data-r="ask"] i{background:var(--magenta)}
+.step-chip[data-d="failed"]{border-color:rgba(240,80,110,.5)}
+.step-chip button{border:0;background:none;color:var(--lilac);font-size:12px;padding:0 0 0 4px;text-decoration:underline}
+.did-turn{display:flex;flex-direction:column;gap:6px;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.did-said{font-size:14px;color:var(--ice)}
+.did-ans{font-size:13px;color:var(--dim-text)}
+.did-meta{display:flex;flex-wrap:wrap;gap:6px;font-size:11.5px;color:var(--dim-text)}
+.did-meta span{border:1px solid var(--line-soft);border-radius:10px;padding:1px 8px}
+.did-step{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:start;font-size:13px;padding:6px 8px;border-radius:10px;background:var(--glass-row)}
+.did-step small{display:block;color:var(--dim-text);font-size:12px;margin-top:2px}
+.risk{font:600 10.5px var(--font-display);letter-spacing:.08em;text-transform:uppercase;border-radius:8px;padding:2px 7px;border:1px solid var(--line)}
+.risk[data-r="free"]{color:#5eead4}.risk[data-r="tell"]{color:var(--lilac)}.risk[data-r="ask"]{color:#f0abfc;border-color:rgba(192,38,211,.5)}
+.did-think{font-size:12px;color:var(--dim-text)}
+.did-think summary{cursor:pointer;color:var(--lilac)}
+.did-think pre{white-space:pre-wrap;font:12px/1.45 var(--font-body);margin:6px 0 0;max-height:220px;overflow:auto}
+.jv-score{display:flex;align-items:baseline;gap:12px;padding:10px 0}
+.jv-score b{font:600 40px var(--font-display);color:var(--ice)}
+.jv-row{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:start;font-size:13px;padding:7px 0;border-bottom:1px solid var(--line-soft)}
+.jv-row .pf{font:600 11px var(--font-display);letter-spacing:.08em}
+.jv-row .pf[data-ok="true"]{color:#5eead4}.jv-row .pf[data-ok="false"]{color:#f0abfc}
+.jv-row small{display:block;color:var(--dim-text);font-size:12px}
+.jv-hist{display:flex;gap:4px;align-items:flex-end;height:44px;padding:6px 0}
+.jv-hist i{flex:1;max-width:22px;border-radius:4px 4px 0 0;background:var(--violet)}
+.task-trail{display:flex;flex-direction:column;gap:3px;margin-top:6px;font-size:12px;color:var(--dim-text)}
+.task-trail b{color:var(--ice);font-weight:500}
+.set-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+.set-tab{flex:none}
 
 /* ===== Phone ===== */
 @media (max-width:899px){
@@ -384,6 +528,10 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   .eva-typebar{width:100%}
   .eva-drawer{height:min(640px,86vh)}
   .transcript,.drawer__head,.drawer__type{padding-left:20px;padding-right:20px}
+  .drawer__body{grid-template-columns:minmax(0,1fr);position:relative}
+  .chats{position:absolute;inset:0;z-index:2;background:var(--glass-solid);border-right:0;padding:12px 20px 0;display:none}
+  .eva-drawer.chats-open .chats{display:flex}
+  #evaChatsBtn{display:inline-flex}
   .turn{grid-template-columns:1fr;gap:2px}
 }
 @media (max-width:899px) and (max-height:700px){ .eva.has-card .eva-caption{-webkit-line-clamp:2} }
@@ -420,17 +568,31 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
   <symbol id="i-note" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
 </svg>
 
 <div class="eva" id="eva">
+  <aside class="eva-side" id="evaSide" aria-label="Your chats">
+    <div class="eva-side__head">
+      <button class="chat-new" id="evaSideNew">New chat</button>
+      <button class="icon-btn side-btn" id="evaSideClose" aria-label="Hide chats"><svg class="i"><use href="#i-panel"/></svg></button>
+    </div>
+    <nav class="chats" id="evaChats" aria-label="Your chats">
+      <label class="chats__search"><span class="sr">Search chats</span><input id="evaChatSearch" type="search" placeholder="Search chats" autocomplete="off"></label>
+      <div class="chats__list" id="evaChatList"></div>
+    </nav>
+    <div class="eva-side__foot">What she knows about you carries over to every chat.</div>
+  </aside>
   <header class="eva-top">
+    <button class="icon-btn side-btn" id="evaSideBtn" aria-label="Chats" aria-controls="evaSide" aria-expanded="false"><svg class="i"><use href="#i-panel"/></svg></button>
     <div class="eva-conn" id="evaConn" data-live="false" role="status">
       <span class="eva-conn__dot"></span><span class="eva-brand">E.V.A.</span><span class="eva-conn__text">Offline, reconnecting</span>
     </div>
     <div class="eva-top__right">
       <div class="eva-clock" aria-hidden="true"><div class="eva-clock__time" id="evaTime">--:--</div><div class="eva-clock__date" id="evaDate"></div></div>
+      <button class="icon-btn" id="evaSettingsBtn" aria-label="Settings" aria-controls="evaSettings" aria-expanded="false"><svg class="i"><use href="#i-gear"/></svg></button>
       <button class="icon-btn" id="evaBenchBtn" aria-label="Workbench" aria-controls="evaBench" aria-expanded="false"><svg class="i"><use href="#i-wrench"/></svg></button>
       <button class="icon-btn" id="evaRoutinesBtn" aria-label="Routines and lists" aria-controls="evaRoutines" aria-expanded="false"><svg class="i"><use href="#i-clock"/></svg></button>
       <button class="icon-btn" id="evaStatusBtn" aria-label="Status" aria-controls="evaPanel" aria-expanded="false"><svg class="i"><use href="#i-panel"/></svg></button>
@@ -441,12 +603,20 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
     <section class="eva-stage">
       <canvas class="eva-core" id="evaCore" aria-hidden="true"></canvas>
       <p class="eva-caption is-muted" id="evaCaption" aria-live="polite"></p>
+      <div class="eva-think" id="evaThink" aria-hidden="true"></div>
+      <div class="eva-steps" id="evaSteps" aria-label="What she did this turn"></div>
+      <div class="eva-glance" id="evaGlance" aria-label="At a glance"></div>
     </section>
     <aside class="eva-rail" id="evaRail" aria-label="Cards"></aside>
   </main>
 
+  <section class="glance-full" id="evaGlanceFull" aria-label="At a glance">
+    <div><div class="gf-clock" id="gfClock">--:--</div><div class="gf-date" id="gfDate"></div></div>
+    <div class="gf-grid" id="gfGrid"></div>
+  </section>
+
   <footer class="eva-bottom">
-    <button class="eva-history-btn" id="evaHistoryBtn" aria-controls="evaDrawer" aria-expanded="false"><svg class="i"><use href="#i-up"/></svg>History</button>
+    <button class="eva-history-btn" id="evaHistoryBtn" aria-controls="evaDrawer" aria-expanded="false"><svg class="i"><use href="#i-up"/></svg>Chats</button>
     <form class="eva-typebar" id="evaTypebar"><label class="typefield"><span class="sr">Message</span><input id="evaInput" autocomplete="off" placeholder="Type to E.V.A."><button class="send-btn" aria-label="Send"><svg class="i"><use href="#i-send"/></svg></button></label></form>
     <nav class="eva-dock" aria-label="Controls">
       <button class="dock-btn" id="evaWake" aria-pressed="true" aria-label="Wake word"><svg class="i"><use href="#i-ear"/></svg></button>
@@ -458,12 +628,20 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
   <div class="eva-scrim" id="evaScrim"></div>
   <aside class="eva-panel" id="evaPanel" aria-label="Status" aria-hidden="true"></aside>
   <aside class="eva-panel" id="evaRoutines" aria-label="Routines and lists" aria-hidden="true"></aside>
+  <aside class="eva-panel" id="evaSettings" aria-label="Settings" aria-hidden="true"></aside>
   <section class="eva-bench" id="evaBench" aria-label="Workbench" aria-hidden="true"></section>
   <button class="bench-pill" id="evaBenchPill" hidden></button>
-  <section class="eva-drawer" id="evaDrawer" aria-label="Conversation" aria-hidden="true">
+  <section class="eva-drawer" id="evaDrawer" aria-label="Chats" aria-hidden="true">
     <div class="drawer__handle"></div>
-    <div class="drawer__head"><span class="panel__title" style="font-size:18px">Today</span><button class="icon-btn" id="evaHistoryClose" aria-label="Close history"><svg class="i"><use href="#i-down"/></svg></button></div>
-    <div class="transcript" id="evaTranscript"><div class="transcript__empty">Nothing said yet today.</div></div>
+    <div class="drawer__head">
+      <button class="icon-btn" id="evaChatsBtn" aria-label="All chats" aria-controls="evaChats" aria-expanded="false"><svg class="i"><use href="#i-panel"/></svg></button>
+      <button class="panel__title drawer__title" id="evaChatTitle" title="Rename this chat">New chat</button>
+      <button class="chat-new" id="evaChatNew">New chat</button>
+      <button class="icon-btn" id="evaHistoryClose" aria-label="Close chats"><svg class="i"><use href="#i-down"/></svg></button>
+    </div>
+    <div class="drawer__body">
+      <div class="transcript" id="evaTranscript"><div class="transcript__empty">Nothing said yet in this chat.</div></div>
+    </div>
   </section>
 </div>
 
@@ -580,6 +758,8 @@ document.addEventListener('visibilitychange', () => document.hidden ? cancelAnim
 
 function setState(s) {
   core.state = s;
+  root.classList.toggle('is-thinking', s === 'thinking');      // v1.0: her thinking shows while she thinks
+  if (s !== 'idle') glanceBusy();
   const mic = $('evaMic');
   mic.dataset.mode = s;
   mic.setAttribute('aria-label', s === 'speaking' ? 'Stop' : s === 'listening' ? 'Stop listening' : 'Talk');
@@ -589,6 +769,7 @@ function setState(s) {
 
 /* ---------- caption ---------- */
 function setCaption(text, spoken) {
+  if (text) glanceBusy();
   caption.textContent = '';
   caption.classList.toggle('is-muted', false);
   if (!text) return;
@@ -669,7 +850,10 @@ const RENDER = {
       h('div', { class: 'card__hint' }, 'Or just say "go ahead"')];
   },
   nowplaying(d) { return [head('Now playing'), h('div', { class: 'card__title' }, d.what)]; },
-  note(d) { return [head(d.title || 'Note'), h('div', { class: 'card__text' }, d.text)]; },
+  note(d) { const out = [head(d.title || 'Note'), h('div', { class: 'card__text' }, d.text)];
+    const links = (d.links || []).filter(l => /^https?:\/\//.test(l.url || '')).slice(0, 12);      // v0.8: links she found
+    if (links.length) out.push(h('div', { class: 'card__links' }, ...links.map(l => h('a', { href: l.url, target: '_blank', rel: 'noopener noreferrer' }, l.title || l.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)))));
+    return out; },
   vision(d) { return [head(d.title || 'Vision'), h('div', { class: 'card__text' }, d.text)]; },
   project(d) {                                         // v0.6: a project: decided, open, parts
     const sec = (title, kids) => kids && kids.length ? h('div', { class: 'proj__sec' }, h('div', { class: 'bench__label' }, title), kids) : null;
@@ -887,9 +1071,108 @@ function addTranscript({ role, text, time, proactive }) {
 
 /* ---------- overlays ---------- */
 function openPanel() { closeAll(); renderPanel(); root.classList.add('panel-open'); $('evaPanel').setAttribute('aria-hidden', 'false'); $('evaStatusBtn').setAttribute('aria-expanded', 'true'); }
-function openHistory() { closeAll(); root.classList.add('history-open'); $('evaDrawer').setAttribute('aria-hidden', 'false'); $('evaHistoryBtn').setAttribute('aria-expanded', 'true'); transcript.scrollTop = transcript.scrollHeight; }
+function openHistory() { closeAll(); root.classList.add('history-open'); $('evaDrawer').setAttribute('aria-hidden', 'false'); $('evaHistoryBtn').setAttribute('aria-expanded', 'true'); transcript.scrollTop = transcript.scrollHeight; chatsLoad(); }
+
+/* ---------- chats (v0.7): named conversations, like Gemini; what she knows about you is shared by all ---------- */
+const CHATS = { id: null, title: 'New chat', q: '', list: [], armed: '' };
+const two = n => String(n).padStart(2, '0');
+function chatWhen(ts) {
+  const d = new Date(ts * 1000), now = new Date(), day = 864e5;
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (d.getTime() >= start) return `${two(d.getHours())}:${two(d.getMinutes())}`;
+  if (d.getTime() >= start - day) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+function chatDay(ts) {
+  const d = new Date(ts * 1000), now = new Date(), start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return d.getTime() >= start ? 'Today' : d.getTime() >= start - 864e5 ? 'Yesterday' : d.getTime() >= start - 6 * 864e5 ? 'This week' : 'Earlier';
+}
+function chatTitle(t) { CHATS.title = t || 'New chat'; const b = $('evaChatTitle'); if (!b.querySelector('input')) b.textContent = CHATS.title; }
+function chatLoaded(chat) {
+  CHATS.id = chat.id || null; chatTitle(chat.title);
+  transcript.textContent = '';
+  const turns = chat.turns || [];
+  if (!turns.length) transcript.append(h('div', { class: 'transcript__empty' }, 'Nothing said yet in this chat. What she knows about you carries over from every chat.'));
+  let lastDay = '';
+  turns.forEach(t => {
+    const d = new Date(t.ts * 1000), day = d.toDateString();
+    const time = (day !== lastDay && day !== new Date().toDateString() ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' ' : '') + `${two(d.getHours())}:${two(d.getMinutes())}`;
+    lastDay = day;
+    addTranscript({ role: t.role === 'you' ? 'you' : 'eva', text: t.text, time, proactive: !!t.proactive });
+  });
+  transcript.scrollTop = transcript.scrollHeight;
+  chatsRender();
+}
+function chatMeta(m) {
+  if (m.id && (!CHATS.id || CHATS.id === m.id)) { CHATS.id = m.id; chatTitle(m.title); }
+  clearTimeout(chatsTimer); chatsTimer = setTimeout(chatsLoad, 300);          // v1.0: the sidebar is always there
+}
+let chatsTimer = 0;
+async function chatsLoad() {
+  try {
+    const r = await fetch('/api/chats' + (CHATS.q ? '?q=' + encodeURIComponent(CHATS.q) : ''), { credentials: 'same-origin' });
+    if (r.ok) { CHATS.list = (await r.json()).chats || []; chatsRender(); }
+  } catch (_) {}
+}
+function chatsRender() {
+  const box = $('evaChatList'); box.textContent = '';
+  if (!CHATS.list.length) { box.append(h('div', { class: 'chats__empty' }, CHATS.q ? 'No chat mentions that.' : 'Your chats show up here.')); return; }
+  let day = '';
+  CHATS.list.forEach(c => {
+    const d = CHATS.q ? '' : chatDay(c.updated);
+    if (d && d !== day) { box.append(h('div', { class: 'chats__day' }, d)); day = d; }
+    const del = h('button', { class: 'chat-item__del' + (CHATS.armed === c.id ? ' is-armed' : ''), 'aria-label': `Delete the chat ${c.title}`,
+      onclick: e => { e.stopPropagation(); chatDelete(c.id); } }, CHATS.armed === c.id ? 'Delete?' : '\u2715');
+    box.append(h('div', { class: 'chat-item' + (c.id === CHATS.id ? ' is-on' : ''), role: 'button', tabindex: '0', 'aria-current': c.id === CHATS.id ? 'true' : 'false',
+      onclick: () => chatOpen(c.id), onkeydown: e => { if (e.key === 'Enter') chatOpen(c.id); } },
+      h('b', null, c.title), h('small', null, `${chatWhen(c.updated)} \u00b7 ${c.match || c.preview || ''}`), del));
+  });
+}
+const wideMQ = matchMedia('(min-width: 1100px)');
+function sideShown() { return wideMQ.matches ? !root.classList.contains('side-closed') : root.classList.contains('side-open'); }
+function sideSet(open) {
+  if (wideMQ.matches) { root.classList.toggle('side-closed', !open); try { localStorage.setItem('eva.side', open ? 'open' : 'closed'); } catch (_) {} }
+  else root.classList.toggle('side-open', open);
+  $('evaSideBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) chatsLoad();
+}
+function chatsPanel(open) { sideSet(open); }
+try { if (localStorage.getItem('eva.side') === 'closed') root.classList.add('side-closed'); } catch (_) {}
+function chatOpen(id) { CHATS.armed = ''; if (!wideMQ.matches) sideSet(false); if (id !== CHATS.id) emit('chat-open', { id }); openHistory(); }
+async function chatDelete(id) {
+  if (CHATS.armed !== id) { CHATS.armed = id; chatsRender(); setTimeout(() => { if (CHATS.armed === id) { CHATS.armed = ''; chatsRender(); } }, 4000); return; }
+  CHATS.armed = '';
+  try { await fetch(`/api/chats/${id}/delete`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } }); } catch (_) {}
+  if (id === CHATS.id) emit('chat-new');
+  chatsLoad();
+}
+function chatRename() {
+  const b = $('evaChatTitle'); if (!CHATS.id || b.querySelector('input')) return;
+  const inp = h('input', { value: CHATS.title, 'aria-label': 'Chat name', maxlength: '60' });
+  let over = false;
+  const done = async save => {
+    if (over) return; over = true;                     // Enter, then the blur as the input goes: save once
+    const t = inp.value.trim(); b.textContent = CHATS.title;
+    if (save && t && t !== CHATS.title) {
+      try { const r = await fetch(`/api/chats/${CHATS.id}/rename`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ title: t }) });
+        if (r.ok) { chatTitle((await r.json()).title); chatsLoad(); } } catch (_) {}
+    }
+  };
+  inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } else if (e.key === 'Escape') done(false); };
+  inp.onblur = () => done(true);
+  b.textContent = ''; b.append(inp); inp.focus(); inp.select();
+}
+$('evaChatTitle').onclick = chatRename;
+$('evaChatNew').onclick = () => { emit('chat-new'); };
+$('evaSideNew').onclick = () => { if (!wideMQ.matches) sideSet(false); emit('chat-new'); openHistory(); };
+$('evaChatsBtn').onclick = () => sideSet(!sideShown());
+$('evaSideBtn').onclick = () => sideSet(!sideShown());
+$('evaSideClose').onclick = () => sideSet(false);
+setTimeout(chatsLoad, 800);
+$('evaChatSearch').oninput = e => { CHATS.q = e.target.value.trim(); clearTimeout(chatsTimer); chatsTimer = setTimeout(chatsLoad, 200); };
 function closeAll() {
-  root.classList.remove('panel-open', 'history-open', 'routines-open');
+  root.classList.remove('panel-open', 'history-open', 'routines-open', 'settings-open', 'side-open');
+  $('evaSettings').setAttribute('aria-hidden', 'true'); $('evaSettingsBtn').setAttribute('aria-expanded', 'false');
   $('evaPanel').setAttribute('aria-hidden', 'true'); $('evaDrawer').setAttribute('aria-hidden', 'true');
   $('evaRoutines').setAttribute('aria-hidden', 'true'); $('evaRoutinesBtn').setAttribute('aria-expanded', 'false');
   $('evaStatusBtn').setAttribute('aria-expanded', 'false'); $('evaHistoryBtn').setAttribute('aria-expanded', 'false');
@@ -897,6 +1180,258 @@ function closeAll() {
 function openRoutines() { closeAll(); root.classList.add('routines-open'); $('evaRoutines').setAttribute('aria-hidden', 'false');
   $('evaRoutinesBtn').setAttribute('aria-expanded', 'true'); emit('routines', { open: true }); }
 $('evaRoutinesBtn').onclick = () => root.classList.contains('routines-open') ? closeAll() : openRoutines();
+function openSettings() { closeAll(); root.classList.add('settings-open'); $('evaSettings').setAttribute('aria-hidden', 'false');
+  $('evaSettingsBtn').setAttribute('aria-expanded', 'true'); settingsLoad(); }
+$('evaSettingsBtn').onclick = () => root.classList.contains('settings-open') ? closeAll() : openSettings();
+addEventListener('eva:review-open', () => { SETTAB = 'notes'; openSettings(); });
+addEventListener('eva:journal', () => { if (SETTAB === 'did' && root.classList.contains('settings-open')) didLoad(); });
+/* v0.7 settings: what you'd otherwise say or edit in YAML; saved on top of your settings files */
+var SETTAB = 'settings';                       // v0.9: Settings | What she knows | Her notes; v1.0: What she did, JARVIS test
+function setHead(title) {
+  return [h('div', { class: 'panel__head' }, h('div', { class: 'panel__title' }, title),
+      h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: closeAll }, icon('x'))),
+    h('div', { class: 'set-tabs', role: 'tablist' }, [['settings', 'Settings'], ['did', 'What she did'], ['tasks', 'Tasks'], ['projects', 'Projects'], ['memory', 'What she knows'], ['notes', 'Her notes'], ['jarvis', 'JARVIS test']].map(([k, l]) =>
+      h('button', { class: 'set-tab' + (SETTAB === k ? ' is-on' : ''), role: 'tab', 'aria-selected': SETTAB === k ? 'true' : 'false', onclick: () => { SETTAB = k; settingsLoad(); } }, l)))];
+}
+const MEM = { q: '', armed: 0, editing: 0, timer: 0 };
+async function memoryLoad() {
+  const box = $('evaSettings');
+  try {
+    const r = await fetch('/api/memory' + (MEM.q ? '?q=' + encodeURIComponent(MEM.q) : ''), { credentials: 'same-origin' });
+    const d = await r.json(); if (SETTAB === 'memory') memoryRender(d);      // a late answer never covers another tab
+  } catch (_) { box.textContent = ''; box.append(...setHead('What she knows'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load my memory.")); }
+}
+async function memoryPost(id, what, body) {
+  const r = await fetch(`/api/memory/${id}/${what}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-EVA': '1' }, body: JSON.stringify(body || {}) });
+  const out = await r.json().catch(() => ({}));
+  const ok = $('setOk'); if (ok) { ok.textContent = r.ok ? (what === 'forget' ? 'Forgotten.' : 'Saved.') : (out.error || "That didn't work."); ok.style.color = r.ok ? '' : 'var(--magenta)'; }
+  MEM.armed = 0; MEM.editing = 0; memoryLoad();
+}
+function memoryRender(d) {
+  const box = $('evaSettings'), facts = d.facts || [];
+  const focused = document.activeElement && document.activeElement.id === 'memSearch';
+  const search = h('input', { class: 'rt-in', id: 'memSearch', type: 'search', placeholder: 'Search what she knows', value: MEM.q, 'aria-label': 'Search what she knows',
+    oninput: e => { MEM.q = e.target.value.trim(); clearTimeout(MEM.timer); MEM.timer = setTimeout(memoryLoad, 250); } });
+  const row = f => {
+    const meta = `${f.category}${f.source === 'auto' ? ' \u00b7 she picked it up' : ' \u00b7 you told her'}`;
+    if (MEM.editing === f.id) {
+      const inp = h('input', { class: 'rt-in', value: f.text, 'aria-label': 'Edit this fact', onkeydown: e => { if (e.key === 'Enter') memoryPost(f.id, 'edit', { text: e.target.value }); if (e.key === 'Escape') { MEM.editing = 0; memoryLoad(); } } });
+      setTimeout(() => inp.focus(), 0);
+      return h('div', { class: 'mem-row is-editing' }, inp, h('div', { class: 'mem-actions' }, h('button', { class: 'mem-btn', onclick: () => memoryPost(f.id, 'edit', { text: inp.value }) }, 'Save'), h('button', { class: 'mem-btn', onclick: () => { MEM.editing = 0; memoryLoad(); } }, 'Cancel')));
+    }
+    return h('div', { class: 'mem-row' }, h('div', { class: 'mem-text' }, f.text), h('small', null, meta),
+      h('div', { class: 'mem-actions' }, h('button', { class: 'mem-btn', onclick: () => { MEM.editing = f.id; memoryLoad(); } }, 'Edit'),
+        h('button', { class: 'mem-btn' + (MEM.armed === f.id ? ' is-armed' : ''), onclick: () => { if (MEM.armed === f.id) memoryPost(f.id, 'forget'); else { MEM.armed = f.id; memoryRender(d); } } }, MEM.armed === f.id ? 'Forget it?' : 'Forget')));
+  };
+  box.textContent = '';
+  box.append(...setHead('What she knows'), h('div', { class: 'set-ok', id: 'setOk' }),
+    h('div', { class: 'set-group' }, search, h('div', { class: 'panel__help' }, `${facts.length} thing${facts.length === 1 ? '' : 's'}${MEM.q ? ' match' : ' she remembers about you'}. Every chat shares them.`)),
+    h('div', { class: 'mem-list' }, facts.length ? facts.map(row) : h('div', { class: 'panel__help' }, MEM.q ? 'Nothing matches.' : 'Nothing yet.')));
+  if (focused) { const el = $('memSearch'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+async function notesLoad() {
+  try { const r = await fetch('/api/review', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'notes') notesRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('Her notes'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load my notes.")); }
+}
+function notesRender(d) {
+  const box = $('evaSettings'), list = d.reviews || [];
+  const run = h('button', { class: 'mem-btn', onclick: async e => {
+    e.target.textContent = 'Reading my day...'; e.target.disabled = true;
+    const r = await fetch('/api/review/run', { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) { const ok = $('setOk'); if (ok) { ok.textContent = out.say || out.error || "I couldn't review today."; ok.style.color = 'var(--magenta)'; } e.target.textContent = 'Review today now'; e.target.disabled = false; return; }
+    notesLoad(); } }, 'Review today now');
+  const card = r => {
+    if (!r.read) fetch(`/api/review/${r.date}/read`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } }).catch(() => {});
+    return h('div', { class: 'note-day' },
+      h('div', { class: 'bench__label' }, `${r.date} \u00b7 ${r.turns || 0} turns`),
+      h('div', { class: 'note-head' }, r.headline || ''),
+      (r.mistakes || []).map(m => h('div', { class: 'note-item' }, h('div', null, h('b', null, m.time ? m.time + ' ' : ''), m.what), m.why ? h('small', null, 'Why: ' + m.why) : null, m.fix ? h('small', null, 'Fix: ' + m.fix) : null)),
+      (r.good || []).length ? h('small', { class: 'note-good' }, 'Went well: ' + r.good.join('; ')) : null,
+      h('button', { class: 'mem-btn', onclick: e => { navigator.clipboard && navigator.clipboard.writeText(r.text).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Copy failed'; }); } }, 'Copy for Claude'));
+  };
+  box.textContent = '';
+  box.append(...setHead('Her notes'), h('div', { class: 'set-ok', id: 'setOk' }),
+    h('div', { class: 'set-group' }, h('div', { class: 'panel__help' }, `Every night she reads her own day (kept in memory, never in a log file) and writes down what went wrong. ${d.today_lines || 0} lines from today so far.`), run),
+    ...(list.length ? list.map(card) : [h('div', { class: 'panel__help', style: 'padding:12px 0' }, 'No notes yet: the first ones come tonight.')]));
+}
+/* v0.9: her work, where you can see it and stop it */
+async function taskAct(id, action) {
+  try {
+    const r = await fetch(`/api/tasks/${id}/${action}`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } });
+    const out = await r.json().catch(() => ({}));
+    const ok = $('setOk'); if (ok) ok.textContent = out.say || (r.ok ? 'Done.' : "That didn't work.");
+    if (BENCH.t && BENCH.t.task === id && out.status) { BENCH.t.status = out.status; benchRender(); }
+  } catch (_) {}
+  if (SETTAB === 'tasks' && root.classList.contains('settings-open')) tasksLoad();
+}
+const TASKS = { open: '' };
+const STATUS_WORD = { running: 'Working', queued: 'Starting', waiting: 'Needs you', done: 'Done', paused: 'Paused', failed: 'Stopped', cancelled: 'Cancelled' };
+async function tasksLoad() {
+  try { const r = await fetch('/api/tasks', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'tasks') tasksRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('Tasks'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load the tasks.")); }
+}
+function tasksRender(d) {
+  const box = $('evaSettings'), all = d.tasks || [];
+  const live = all.filter(t => ['running', 'queued', 'waiting', 'paused'].includes(t.status)), rest = all.filter(t => !live.includes(t));
+  const when = ts => { const x = new Date(ts * 1000); return x.toDateString() === new Date().toDateString() ? `${pad2(x.getHours())}:${pad2(x.getMinutes())}` : x.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); };
+  const row = t => h('div', { class: 'mem-row task-row', 'data-s': t.status },
+    h('div', { class: 'task-line' }, h('span', { class: 'bench__status', 'data-s': t.status }, h('i'), STATUS_WORD[t.status] || t.status), h('b', { class: 'mem-text' }, t.title)),
+    h('small', null, `${when(t.updated)} \u00b7 ${t.steps} steps \u00b7 ${Math.round(t.cost_eur * 100)} cents${t.computer ? ' \u00b7 uses your mouse and keyboard' : ''}`),
+    t.waiting ? h('small', { class: 'task-ask' }, t.waiting) : t.summary ? h('small', null, t.summary) : null,
+    TASKS.open === t.id ? h('div', { class: 'task-trail' },
+      (t.plan || []).length ? [h('div', { class: 'bench__label' }, 'Plan'), ...t.plan.map(p => h('div', null, (p.done ? '\u2713 ' : '\u2022 ') + p.step))] : null,
+      (t.consents || []).length ? [h('div', { class: 'bench__label' }, 'What it asked you'), ...t.consents.map(c => h('div', null, h('b', null, when(c.ts) + ' '), `${c.what} \u2192 ${c.decision || 'waiting'}`))] : null,
+      (t.trail || []).length ? [h('div', { class: 'bench__label' }, 'What it did, step by step'), ...t.trail.slice().reverse().map(x => h('div', null, h('b', null, when(x.ts) + ' '), x.what))] : null) : null,
+    h('div', { class: 'mem-actions' },
+      h('button', { class: 'mem-btn', onclick: () => { closeAll(); emit('bench-show', { id: t.id }); } }, 'Show'),
+      h('button', { class: 'mem-btn', onclick: () => { TASKS.open = TASKS.open === t.id ? '' : t.id; tasksRender(d); } }, TASKS.open === t.id ? 'Hide decisions' : 'Decisions'),
+      ['running', 'queued', 'waiting'].includes(t.status) ? h('button', { class: 'mem-btn', onclick: () => taskAct(t.id, 'pause') }, 'Pause') : null,
+      ['paused', 'failed', 'waiting'].includes(t.status) ? h('button', { class: 'mem-btn', onclick: () => taskAct(t.id, 'resume') }, t.status === 'failed' ? 'Try again' : t.status === 'waiting' ? 'Carry on' : 'Resume') : null,
+      live.includes(t) ? h('button', { class: 'mem-btn is-armed', onclick: () => taskAct(t.id, 'cancel') }, 'Stop') : null));
+  box.textContent = '';
+  box.append(...setHead('Tasks'), h('div', { class: 'set-ok', id: 'setOk' }),
+    h('div', { class: 'bench__label', style: 'padding-top:8px' }, live.length ? `Going on (${live.length})` : 'Nothing going on'),
+    ...live.map(row),
+    rest.length ? h('div', { class: 'bench__label', style: 'padding-top:16px' }, 'Earlier') : null, ...rest.slice(0, 20).map(row));
+}
+/* v1.0: what she did and why, with an undo for each change */
+const DID = { only: true };
+async function didLoad() {
+  try { const r = await fetch('/api/journal?limit=60&actions=' + (DID.only ? 1 : 0), { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'did') didRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('What she did'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load my journal.")); }
+}
+async function didUndo(step, btn) {
+  btn.disabled = true; btn.textContent = 'Undoing...';
+  const r = await fetch(`/api/journal/${step}/undo`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } });
+  const out = await r.json().catch(() => ({}));
+  const ok = $('setOk'); if (ok) { ok.textContent = out.say || (r.ok ? 'Put back.' : "That didn't work."); ok.style.color = r.ok ? '' : 'var(--magenta)'; }
+  if (SETTAB === 'did') didLoad();
+}
+const RISK_WORD = { free: 'reads', tell: 'change', ask: 'asks you' };
+const DECISION_WORD = { ran: 'done', asked: 'asked you first', approved: 'you said yes', failed: 'failed', refused: 'not done' };
+function didRender(d) {
+  const box = $('evaSettings'), turns = d.turns || [];
+  const when = ts => { const x = new Date(ts * 1000); return (x.toDateString() === new Date().toDateString() ? '' : x.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' ') + `${pad2(x.getHours())}:${pad2(x.getMinutes())}`; };
+  const step = s => h('div', { class: 'did-step' },
+    h('span', { class: 'risk', 'data-r': s.risk }, RISK_WORD[s.risk] || s.risk),
+    h('div', null, h('b', null, s.tool.replace(/_/g, ' ')), ` \u00b7 ${DECISION_WORD[s.decision] || s.decision}${s.undone ? ' \u00b7 undone' : ''}${s.inner ? ' \u00b7 inside a skill she made' : ''}`,
+      s.result ? h('small', null, s.result) : null,
+      (s.changes || []).map(c => h('small', null, `${c.what}: ${c.before} \u2192 ${c.after}`)),
+      s.why && s.risk !== 'free' ? h('small', null, 'Why: ' + s.why) : null),
+    s.undo && !s.undone ? h('button', { class: 'mem-btn', onclick: e => didUndo(s.id, e.target) }, 'Undo') : h('span'));
+  const turn = t => h('div', { class: 'did-turn' },
+    h('div', { class: 'did-meta' }, h('span', null, when(t.ts)), ...(t.brain || []).map(b => h('span', null, `${b.backend === 'cloud' ? 'Claude' : 'on this PC'} \u00b7 ${b.model}`)),
+      t.reflex ? h('span', null, 'reflex') : null, t.escalated ? h('span', null, 'handed to Claude') : null,
+      t.cost_eur ? h('span', null, `${(t.cost_eur * 100).toFixed(2)} cents`) : null, t.seconds ? h('span', null, `${t.seconds} s`) : null),
+    h('div', { class: 'did-said' }, '\u201c' + t.said + '\u201d'),
+    t.answer ? h('div', { class: 'did-ans' }, t.answer) : null,
+    ...(t.steps || []).map(step),
+    t.escalated ? h('small', { class: 'did-ans' }, t.escalated) : null,
+    t.thinking ? h('details', { class: 'did-think' }, h('summary', null, 'Her thinking'), h('pre', null, t.thinking)) : null);
+  box.textContent = '';
+  box.append(...setHead('What she did'), h('div', { class: 'set-ok', id: 'setOk' }),
+    h('div', { class: 'set-group' }, h('div', { class: 'panel__help' }, 'Every decision she made: what she changed (before and after), why it did or didn\u2019t need your yes, and her thinking. Undo puts a change back.'),
+      h('button', { class: 'set-toggle', 'aria-pressed': DID.only ? 'true' : 'false', onclick: () => { DID.only = !DID.only; didLoad(); } }, DID.only ? 'Only changes' : 'Everything')),
+    ...(turns.length ? turns.map(turn) : [h('div', { class: 'panel__help', style: 'padding:12px 0' }, DID.only ? 'Nothing changed yet.' : 'Nothing yet.')]));
+}
+async function jarvisLoad() {
+  try { const r = await fetch('/api/jarvis', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'jarvis') jarvisRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('JARVIS test'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load the test runs.")); }
+}
+let JV_TIMER = 0;
+async function jarvisRun(backend) {
+  await fetch('/api/jarvis/run', { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ backend }) }).catch(() => {});
+  jarvisLoad();
+}
+function jarvisRender(d) {
+  const box = $('evaSettings'), runs = d.runs || [], last = runs[0];
+  clearTimeout(JV_TIMER); if (d.running && d.running.since) JV_TIMER = setTimeout(() => { if (SETTAB === 'jarvis' && root.classList.contains('settings-open')) jarvisLoad(); }, 5000);
+  const btns = h('div', { class: 'mem-actions' },
+    h('button', { class: 'mem-btn', disabled: d.running && d.running.since ? true : null, onclick: () => jarvisRun('local') }, 'Run now (free, on this PC)'),
+    h('button', { class: 'mem-btn', disabled: d.running && d.running.since ? true : null, onclick: () => jarvisRun('cloud') }, 'Run with Claude'));
+  box.textContent = '';
+  box.append(...setHead('JARVIS test'), h('div', { class: 'set-ok', id: 'setOk' }),
+    h('div', { class: 'set-group' }, h('div', { class: 'panel__help' }, `${d.scenarios || 0} things a JARVIS should get right, checked in a fake world (nothing real is touched). It runs by itself every night on this PC.`),
+      d.running && d.running.since ? h('div', { class: 'panel__help' }, `Running now with ${d.running.backend}...`) : null, btns),
+    last ? h('div', { class: 'jv-score' }, h('b', null, `${last.score}%`), h('span', { class: 'panel__help' }, `${last.passed} of ${last.total} \u00b7 ${last.backend} \u00b7 ${last.date} \u00b7 ${Math.round(last.seconds)} s${last.cost_eur ? ` \u00b7 ${(last.cost_eur * 100).toFixed(1)} cents` : ''}`)) : h('div', { class: 'panel__help', style: 'padding:12px 0' }, 'No runs yet.'),
+    runs.length > 1 ? h('div', { class: 'jv-hist', title: 'Earlier runs' }, ...runs.slice().reverse().map(r => h('i', { style: `height:${Math.max(4, r.score * 0.44)}px`, title: `${r.date}: ${r.score}% (${r.backend})` }))) : null,
+    ...(last ? last.results.map(r => h('div', { class: 'jv-row' }, h('span', { class: 'pf', 'data-ok': String(r.passed) }, r.passed ? 'PASS' : 'FAIL'),
+      h('div', null, r.title || r.id, (r.problems || []).map(p => h('small', null, p)), r.answers && r.answers.length ? h('small', null, '\u201c' + r.answers[r.answers.length - 1] + '\u201d') : null),
+      h('small', null, `${r.seconds} s`))) : []));
+}
+const PROJ = { armed: '', open: '' };
+async function projectsLoad() {
+  try { const r = await fetch('/api/projects', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'projects') projectsRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('Projects'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load the projects.")); }
+}
+async function projectDelete(id) {
+  if (PROJ.armed !== id) { PROJ.armed = id; projectsLoad(); return; }
+  PROJ.armed = '';
+  const r = await fetch(`/api/projects/${id}/delete`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } });
+  const out = await r.json().catch(() => ({}));
+  projectsLoad().then(() => { const ok = $('setOk'); if (ok) ok.textContent = r.ok ? `Deleted ${out.deleted}.` : (out.error || "That didn't work."); });
+}
+function projectsRender(d) {
+  const box = $('evaSettings'), list = d.projects || [];
+  const card = p => {
+    const open = PROJ.open === p.id;
+    return h('div', { class: 'mem-row' },
+      h('div', { class: 'task-line' }, p.active ? h('span', { class: 'bench__status', 'data-s': 'running' }, h('i'), 'Active') : null, h('b', { class: 'mem-text' }, p.name)),
+      p.goal ? h('small', null, p.goal) : null,
+      h('small', null, [p.open_questions.length ? `${p.open_questions.length} open question${p.open_questions.length > 1 ? 's' : ''}` : '', p.parts.length ? `${p.parts.length} parts, about ${Math.round(p.total_eur)} euros` : '', p.tasks.length ? `${p.tasks.length} task${p.tasks.length > 1 ? 's' : ''}` : ''].filter(Boolean).join(' \u00b7 ') || 'Just started'),
+      open ? h('div', { class: 'proj-more' },
+        p.decisions.length ? [h('div', { class: 'bench__label' }, 'Decided'), ...p.decisions.map(x => h('small', null, x))] : null,
+        p.open_questions.length ? [h('div', { class: 'bench__label' }, 'Open questions'), ...p.open_questions.map(x => h('small', null, x))] : null,
+        p.parts.length ? [h('div', { class: 'bench__label' }, 'Parts'), ...p.parts.map(x => x.link && /^https?:\/\//.test(x.link) ? h('a', { href: x.link, target: '_blank', rel: 'noopener noreferrer' }, `${x.qty || 1} x ${x.name}${x.price_eur ? `, \u20ac${x.price_eur}` : ''}`) : h('small', null, `${x.qty || 1} x ${x.name}${x.price_eur ? `, \u20ac${x.price_eur}` : ''}`))] : null) : null,
+      h('div', { class: 'mem-actions' },
+        h('button', { class: 'mem-btn', onclick: () => { PROJ.open = open ? '' : p.id; projectsRender(d); } }, open ? 'Less' : 'Details'),
+        h('button', { class: 'mem-btn' + (PROJ.armed === p.id ? ' is-armed' : ''), onclick: () => projectDelete(p.id) }, PROJ.armed === p.id ? 'Delete it?' : 'Delete')));
+  };
+  box.textContent = '';
+  box.append(...setHead('Projects'), h('div', { class: 'set-ok', id: 'setOk' }),
+    ...(list.length ? list.map(card) : [h('div', { class: 'panel__help', style: 'padding:12px 0' }, 'No projects yet. Say "start a project for ..." to begin one.')]));
+}
+async function settingsLoad() {
+  const box = $('evaSettings');
+  if (SETTAB === 'tasks') return tasksLoad();
+  if (SETTAB === 'projects') return projectsLoad();
+  if (SETTAB === 'memory') return memoryLoad();
+  if (SETTAB === 'notes') return notesLoad();
+  if (SETTAB === 'did') return didLoad();
+  if (SETTAB === 'jarvis') return jarvisLoad();
+  try {
+    const r = await fetch('/api/settings', { credentials: 'same-origin' }); if (!r.ok) throw new Error(r.status);
+    const d = await r.json(); if (SETTAB === 'settings') settingsRender(d);
+  } catch (e) { box.textContent = ''; box.append(h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load the settings.")); }
+}
+async function settingsSend(key, value, reset) {
+  const r = await fetch(reset ? '/api/settings/reset' : '/api/settings', { method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-EVA': '1' }, body: JSON.stringify({ key, value }) });
+  const out = await r.json().catch(() => ({}));
+  const ok = $('setOk'); if (ok) { ok.textContent = r.ok ? 'Saved.' : (out.error || "That didn't save."); ok.style.color = r.ok ? '' : 'var(--magenta)'; }
+  if (r.ok) settingsLoad();
+}
+const SETNUM = {};
+function settingsRender(d) {
+  const box = $('evaSettings'), sp = d.spend || {};
+  const eur = v => `\u20ac${Number(v || 0).toFixed(2)}`;
+  const field = f => {
+    let ctl;
+    if (f.kind === 'bool') ctl = h('button', { class: 'set-toggle', 'aria-pressed': f.value ? 'true' : 'false', onclick: () => settingsSend(f.key, !f.value) }, f.value ? 'ON' : 'OFF');
+    else if (f.kind === 'select') { ctl = h('select', { class: 'rt-in', onchange: e => settingsSend(f.key, e.target.value) }, f.choices.map(c => { const o = h('option', { value: c.value }, c.label); if (c.value === f.value) o.selected = true; return o; })); }
+    else if (f.kind === 'number') ctl = h('input', { class: 'rt-in', type: 'number', min: f.min, max: f.max, step: f.step, value: f.value ?? '',
+      onchange: e => { clearTimeout(SETNUM[f.key]); SETNUM[f.key] = setTimeout(() => settingsSend(f.key, Number(e.target.value)), 700); } });   // v1.0: one save per change, not per click
+    else ctl = h('input', { class: 'rt-in', type: 'text', value: f.value ?? '', placeholder: 'e.g. Eat, Gym', onchange: e => settingsSend(f.key, e.target.value) });
+    const note = f.from_window && !f.key.startsWith('@') ? h('small', null, 'Set here. ', h('button', { onclick: () => settingsSend(f.key, null, true) }, 'Use the file value')) : null;
+    return h('div', { class: 'set-field' }, h('label', null, f.label), ctl, note);
+  };
+  box.textContent = '';
+  box.append(...setHead('Settings'),
+    h('div', { class: 'set-spend' }, `Today ${eur(sp.spent)} of ${eur(sp.limit)} \u00b7 this month ${eur(sp.month_spent)} of ${eur(sp.month_limit)}`),
+    h('div', { class: 'set-ok', id: 'setOk' }),
+    ...(d.groups || []).map(g => h('div', { class: 'set-group' }, h('div', { class: 'bench__label' }, g.title), g.fields.map(field))));
+}
 $('evaBenchBtn').onclick = () => root.classList.contains('bench-open') ? benchOpen(false) : (BENCH.t ? (benchRender(), benchOpen(true)) : benchLoad(true).then(() => benchOpen(true)));
 $('evaBenchPill').onclick = () => benchOpen(true);
 $('evaStatusBtn').onclick = () => root.classList.contains('panel-open') ? closeAll() : openPanel();
@@ -960,13 +1495,13 @@ function benchPill() {
 }
 function benchState(st) {
   BENCH.t = { task: st.task, title: st.title, status: st.status, plan: st.plan || [], now: st.now || '', cost: st.cost_eur || 0,
-    steps: st.steps || 0, events: (st.events || []).slice(-60), code: st.code, output: st.output, model: st.model, v: Date.now() };
-  BENCH.tab = st.model ? 'model' : st.code ? 'code' : 'model'; BENCH.modelKey = '';
+    steps: st.steps || 0, events: (st.events || []).slice(-60), code: st.code, output: st.output, model: st.model, screen: st.screen, v: Date.now() };
+  BENCH.tab = st.model ? 'model' : st.screen ? 'screen' : st.code ? 'code' : 'model'; BENCH.modelKey = '';
   benchRender();
 }
 function benchEvent(task, ev) {
   if (!BENCH.t || BENCH.t.task !== task) {
-    BENCH.t = { task, title: ev.state?.title || 'Task', status: 'running', plan: [], now: '', cost: 0, steps: 0, events: [], code: null, output: null, model: null, v: 0 };
+    BENCH.t = { task, title: ev.state?.title || 'Task', status: 'running', plan: [], now: '', cost: 0, steps: 0, events: [], code: null, output: null, model: null, screen: null, v: 0 };
     BENCH.modelKey = '';
   }
   const t = BENCH.t, s = ev.state || {};
@@ -975,6 +1510,7 @@ function benchEvent(task, ev) {
   if (ev.kind === 'code') { t.code = { path: ev.path, text: ev.text || '' }; if (!recent) BENCH.tab = 'code'; }
   if (ev.kind === 'output') { t.output = { text: ev.text || '', ok: ev.ok !== false }; if (!recent && ev.ok === false) BENCH.tab = 'output'; }
   if (ev.kind === 'model') { t.model = { path: ev.path, png: ev.png, size_mm: ev.size_mm }; t.v = Date.now(); if (!recent) BENCH.tab = 'model'; }
+  if (ev.kind === 'screen') { t.screen = { png: ev.png, where: ev.where || '', ts: Date.now() }; if (!recent && !t.model) BENCH.tab = 'screen'; }
   if (['doing', 'did', 'say', 'status', 'model', 'plan', 'output'].includes(ev.kind)) { t.events.push(ev); t.events = t.events.slice(-60); }
   if (ev.kind === 'doing' && ev.label) t.now = ev.label;
   if (!BENCH.closed.has(task) && ['running', 'queued'].includes(t.status) && !$('eva').classList.contains('bench-open')) benchOpen(true);
@@ -982,6 +1518,7 @@ function benchEvent(task, ev) {
 }
 function benchRender() {
   const el = benchEl(), t = BENCH.t; benchPill();
+  root.classList.toggle('stage-idle', !t || !['running', 'queued', 'waiting'].includes(t.status));   // v0.9
   if (!t) { el.textContent = ''; el.append(h('div', { class: 'bench__empty', style: 'grid-column:1/-1' }, 'No task yet. Ask me to design, research or plan something.')); return; }
   el.dataset.s = t.status;
   const statusWord = { running: 'Working', queued: 'Starting', waiting: 'Needs you', done: 'Done', paused: 'Paused', failed: 'Stopped', cancelled: 'Cancelled' }[t.status] || t.status;
@@ -990,6 +1527,10 @@ function benchRender() {
     h('span', { class: 'bench__title' }, t.title),
     h('span', { class: 'bench__now' }, t.now),
     h('span', { class: 'bench__meta' }, `${t.steps} steps · ${Math.round(t.cost * 100)} cents`),
+    // v0.9: Nov 27 "I don't have a way to stop them": stop and pause right on the bench
+    ['running', 'queued', 'waiting'].includes(t.status) ? h('button', { class: 'task-btn', onclick: () => taskAct(t.task, 'pause') }, 'Pause') : null,
+    t.status === 'paused' ? h('button', { class: 'task-btn', onclick: () => taskAct(t.task, 'resume') }, 'Resume') : null,
+    ['running', 'queued', 'waiting', 'paused'].includes(t.status) ? h('button', { class: 'task-btn is-stop', onclick: () => taskAct(t.task, 'cancel') }, 'Stop') : null,
     $('eva').classList.contains('stage-mode') ? null : h('a', { class: 'icon-btn', href: '/stage', target: '_blank', rel: 'noopener', 'aria-label': 'Full screen on another monitor', title: 'Full screen' }, icon('expand')),
     $('eva').classList.contains('stage-mode') ? null : h('button', { class: 'icon-btn', 'aria-label': 'Close the workbench', onclick: () => benchOpen(false) }, icon('x')));
   const next = t.plan.findIndex(p => !p.done);
@@ -1001,7 +1542,7 @@ function benchRender() {
     t.events.slice().reverse().filter(e => e.kind !== 'plan').slice(0, 40).map(e => h('div', { class: 'bench__ev' + (e.kind === 'say' ? ' is-say' : '') + (e.ok === false ? ' is-bad' : '') },
       h('time', null, hm2(e.ts)), h('span', null, e.kind === 'did' ? (e.ok === false ? '\u2715' : '\u2713') : e.kind === 'say' ? '\u201c' : '\u2022'),
       h('span', null, e.kind === 'say' ? e.text : e.kind === 'model' ? `New version of ${e.path}` : e.kind === 'status' ? (e.asked ? `Asked you: ${e.asked}` : statusWord) : e.kind === 'output' ? (e.ok === false ? 'The code hit an error' : 'The code ran') : e.label))));
-  const tabs = [['model', 'Model', !!t.model], ['code', 'Code', !!t.code], ['output', 'Output', !!t.output]];
+  const tabs = [['model', 'Model', !!t.model], ['screen', 'Screen', !!t.screen], ['code', 'Code', !!t.code], ['output', 'Output', !!t.output]];
   if (!tabs.find(x => x[0] === BENCH.tab && x[2])) BENCH.tab = (tabs.find(x => x[2]) || tabs[0])[0];
   const view = h('div', { class: 'bench__view' });
   let caption = '';
@@ -1011,6 +1552,9 @@ function benchRender() {
     const v = keep ? BENCH.viewer : (modelViewer(benchFile(t.task, t.model.path, t.v)) || h('img', { class: 'model__img', src: benchFile(t.task, t.model.png, t.v), alt: t.model.path }));
     BENCH.viewer = v; BENCH.modelKey = key; view.append(v); if (keep && v.redraw) v.redraw();
     caption = `${t.model.path}: ${(t.model.size_mm || []).map(x => Math.round(x)).join(' x ')} mm. Drag to turn it.`;
+  } else if (BENCH.tab === 'screen' && t.screen) {
+    view.append(h('img', { class: 'bench__screen', src: benchFile(t.task, t.screen.png, t.screen.ts), alt: 'What she sees', onclick: () => lightbox({ image: benchFile(t.task, t.screen.png, t.screen.ts), title: t.screen.where }) }));
+    caption = t.screen.where ? `What she sees: ${t.screen.where}` : 'What she sees';
   } else if (BENCH.tab === 'code' && t.code) {
     view.append(h('pre', { class: 'bench__code' }, t.code.text)); caption = t.code.path;
   } else if (BENCH.tab === 'output' && t.output) {
@@ -1032,6 +1576,10 @@ async function benchLoad(open) {
     if (s.ok) { benchState(await s.json()); if (open || ['running', 'queued'].includes(pick.status)) benchOpen(true); }
   } catch (_) {}
 }
+
+addEventListener('eva:bench-show', async e => {           // v0.9: "Show" in the Tasks tab
+  try { const s = await fetch(`/api/tasks/${e.detail.id}/live`, { credentials: 'same-origin' }); if (s.ok) { BENCH.closed.delete(e.detail.id); benchState(await s.json()); benchOpen(true); } } catch (_) {}
+});
 
 /* ---------------- 3D models: an STL from a task, turned with a finger or the mouse (WebGL, no libraries) ---------------- */
 function parseSTL(buf) {
@@ -1102,10 +1650,25 @@ function modelViewer(src) {
   return cv;
 }
 
+/* v1.0: her thinking (a dim line under her words) and her decisions this turn (chips, with undo) */
+const THINK = { text: '' };
+function thinking(t) { THINK.text = (THINK.text + t).slice(-600); const el = $('evaThink'); el.textContent = THINK.text.trim(); el.classList.toggle('has-text', !!THINK.text.trim()); }
+function turnReset() { THINK.text = ''; const el = $('evaThink'); el.textContent = ''; el.classList.remove('has-text'); $('evaSteps').textContent = ''; }
+function stepChip(s) {
+  if (!s || !s.tool || s.risk === 'free') return;                 // reading isn't worth a chip
+  const box = $('evaSteps');
+  const undo = s.undo && s.ok ? h('button', { onclick: async e => { e.target.disabled = true;
+    const r = await fetch(`/api/journal/${s.id}/undo`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } });
+    const out = await r.json().catch(() => ({})); e.target.textContent = r.ok ? 'undone' : 'failed'; if (out.say) setHint(out.say); } }, 'undo') : null;
+  box.append(h('span', { class: 'step-chip', 'data-r': s.risk, 'data-d': s.decision, title: s.result || '' }, h('i'),
+    `${s.tool.replace(/_/g, ' ')}${s.decision === 'asked' ? ': needs your yes' : s.decision === 'failed' ? ': failed' : ''}`, undo));
+  while (box.children.length > 6) box.firstChild.remove();
+}
 window.EVA = { setState, setLevel: v => { core.level = v == null ? null : Math.max(0, Math.min(1, v)); },
+  thinking, turnReset, stepChip,
   setCaption, setHint, setConnection, showCard, showCards, dismiss, clearCards, expand,
   alert: (data) => { const id = showCard('alert', data, { proactive: true }); setState('alert'); return id; },
-  setStatus, openPanel, openHistory, closeAll, addTranscript, rules: RULES };
+  setStatus, openPanel, openHistory, closeAll, addTranscript, chatLoaded, chatMeta, rules: RULES };
 window.EVA.bench = { event: benchEvent, load: benchLoad, open: benchOpen };   // v0.5: the bridge feeds the workbench
 if (location.pathname === '/stage' || new URLSearchParams(location.search).has('stage')) {   // full screen on another monitor
   root.classList.add('stage-mode'); benchOpen(true);
@@ -1153,6 +1716,58 @@ if (/[?&]demo\b/.test(location.search)) {
   document.body.append(h('div', { class: 'eva-demo' }, Object.entries(steps).map(([k, fn]) => h('button', { onclick: () => { closeAll(); fn(); } }, k))));
   addEventListener('eva:action', e => console.log('eva:action', e.detail));
 }
+
+/* ---------- the glance (v0.9): weather, next event, train, project, tasks, when nothing is going on ---------- */
+var GLANCE = { data: null, lastBusy: Date.now() };   // var: setState may run before this line
+const pad2 = n => String(n).padStart(2, '0');
+function glanceBusy() { if (GLANCE) GLANCE.lastBusy = Date.now(); root.classList.remove('glance-on'); }
+function glanceIdle() { return core.state === 'idle' && Date.now() - GLANCE.lastBusy > 45000 && !root.classList.contains('history-open'); }
+function glanceNext(n) {
+  if (!n) return null;
+  const when = n.now ? 'now' : n.in_min < 60 ? `in ${n.in_min} min` : n.time;
+  return { label: n.now ? 'Now' : n.time, text: `${n.title}${n.now || n.in_min >= 60 ? '' : ' \u00b7 ' + when}`, soon: !n.now && n.in_min <= 15 };
+}
+function glanceRender() {
+  const d = GLANCE.data, strip = $('evaGlance'); strip.textContent = '';
+  if (d) {
+    const chips = [];
+    if (d.weather && d.weather.temp_c != null) chips.push(h('span', { class: 'glance-chip' }, h('b', null, `${Math.round(d.weather.temp_c)}\u00b0`), d.weather.conditions || ''));
+    const n = glanceNext(d.next);
+    if (n) chips.push(h('span', { class: 'glance-chip' + (n.soon ? ' is-soon' : '') }, h('b', null, n.label), n.text));
+    if (d.train) chips.push(h('span', { class: 'glance-chip', title: d.train }, h('b', null, 'Train'), d.train.replace(/, sir\.?$/, '').slice(0, 70)));
+    // one more, by what matters most: a task, her unread notes, the project (the window stays calm)
+    const t = (d.tasks || [])[0];
+    if (t) chips.push(h('span', { class: 'glance-chip' }, h('b', null, t.status === 'waiting' ? 'Needs you' : 'Working'), t.title));
+    else if (d.review && d.review.unread) chips.push(h('button', { class: 'glance-chip', onclick: () => emit('review-open') }, h('b', null, 'Her notes'), d.review.headline || 'on yesterday'));
+    else if (d.project) chips.push(h('span', { class: 'glance-chip' }, h('b', null, 'Project'), d.project.name + (d.project.open_questions ? ` \u00b7 ${d.project.open_questions} open question${d.project.open_questions > 1 ? 's' : ''}` : '')));
+    strip.append(...chips.slice(0, matchMedia('(max-width: 560px)').matches ? 3 : 4));
+  }
+  root.classList.toggle('glance-on', !!(d && strip.childElementCount && glanceIdle()));
+  if (root.classList.contains('stage-mode')) glanceFull();
+}
+function glanceFull() {
+  const d = GLANCE.data || {}, grid = $('gfGrid'); grid.textContent = '';
+  const tile = (title, big, small) => h('div', { class: 'gf-tile' }, h('h3', null, title), h('div', { class: 'gf-big' }, big), small ? h('div', { class: 'gf-small' }, small) : null);
+  if (d.next) grid.append(tile(d.next.now ? 'Now' : 'Next', `${d.next.time} ${d.next.title}`, d.next.now ? null : d.next.in_min < 120 ? `in ${d.next.in_min} minutes${d.left_today > 1 ? `, ${d.left_today - 1} more today` : ''}` : (d.left_today > 1 ? `${d.left_today - 1} more today` : null)));
+  else grid.append(tile('Today', 'Nothing else on the calendar', null));
+  if (d.weather && d.weather.temp_c != null) grid.append(tile(d.weather.place || 'Weather', `${Math.round(d.weather.temp_c)}\u00b0 ${d.weather.conditions || ''}`, d.weather.high_c != null ? `${Math.round(d.weather.low_c)}\u00b0 to ${Math.round(d.weather.high_c)}\u00b0${d.weather.rain_chance_pct ? `, ${d.weather.rain_chance_pct}% rain` : ''}` : null));
+  if (d.train) grid.append(tile('Train', d.train.replace(/, sir\.?$/, '.'), null));
+  if (d.project) grid.append(tile('Project', d.project.name, [d.project.open_questions ? `${d.project.open_questions} open question${d.project.open_questions > 1 ? 's' : ''}` : '', d.project.parts ? `${d.project.parts} parts, about ${Math.round(d.project.total_eur)} euros` : ''].filter(Boolean).join(' \u00b7 ') || null));
+  (d.tasks || []).forEach(t => grid.append(tile(t.status === 'waiting' ? 'Needs you' : 'Working on', t.title, t.now || null)));
+  if (d.review && d.review.headline) grid.append(tile('Her notes on ' + (d.review.date || 'yesterday'), d.review.headline, null));
+}
+function glanceClock() {
+  const now = new Date();
+  $('gfClock').textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+  $('gfDate').textContent = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+}
+async function glanceLoad() {
+  try { const r = await fetch('/api/glance', { credentials: 'same-origin' }); if (r.ok) GLANCE.data = await r.json(); } catch (_) {}
+  glanceRender();
+}
+glanceLoad(); glanceClock();
+setInterval(glanceLoad, 60000); setInterval(glanceClock, 1000);
+setInterval(() => root.classList.toggle('glance-on', !!(GLANCE.data && $('evaGlance').childElementCount && glanceIdle())), 5000);
 })();
 </script>
 <script>
@@ -1181,6 +1796,22 @@ try {                                                        // the ear button a
 let sttMode = 'browser', sttReason = '';                       // 'server' = E.V.A. listens herself
 
 function setState(s) { state = s; E.setState(s); }
+/* v1.0: when she has to think (the local model can take a few seconds), a soft two-note tone says "got it" without
+   the same "one moment, sir" every time. Never while she speaks. */
+let cueDone = false, cueCtx = null;
+function thinkCue() {
+  try {
+    if (isSpeaking()) return;
+    cueCtx = cueCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = cueCtx.currentTime;
+    [[660, 0], [880, 0.09]].forEach(([f, d]) => {
+      const o = cueCtx.createOscillator(), g = cueCtx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t + d); g.gain.linearRampToValueAtTime(0.045, t + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.16);
+      o.connect(g); g.connect(cueCtx.destination); o.start(t + d); o.stop(t + d + 0.18);
+    });
+  } catch (_) {}
+}
 function caption(text, spoken) { if (text) E.setCaption(text, spoken); }
 
 /* ---------------- cards: server widget -> design card ---------------- */
@@ -1188,7 +1819,7 @@ function toCard(d) {
   if (!d || !d.kind) return null;
   if (d.kind === 'clock') return { type: 'note', data: { title: 'Time', text: `${d.time} · ${d.date}` } };
   if (['weather', 'calendar', 'email', 'confirm', 'nowplaying', 'forge', 'vision', 'model', 'gallery', 'media', 'project'].includes(d.kind)) return { type: d.kind, data: d };
-  return { type: 'note', data: { title: d.title || 'Note', text: d.text || '' } };
+  return { type: 'note', data: { title: d.title || 'Note', text: d.text || '', links: d.links || [] } };
 }
 function proactiveCard(d, text) {
   if (d && d.kind === 'model') return { type: 'model', data: d };          // a finished task: show what it made
@@ -1302,7 +1933,7 @@ function speak(text, then) {                                   // fallback when 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   try { ws = new WebSocket(`${proto}://${location.host}/ws`); } catch (_) { return; }
-  ws.onopen = () => { connected = true; E.setConnection(true); idleHint(); refreshStatus(); flushDevice(); if (E.bench) E.bench.load(document.getElementById('eva').classList.contains('stage-mode')); };
+  ws.onopen = () => { connected = true; E.setConnection(true); idleHint(); refreshStatus(); flushDevice(); sendCtl({ type: 'chat_current' }); if (E.bench) E.bench.load(document.getElementById('eva').classList.contains('stage-mode')); };
   ws.onclose = () => { connected = false; ttsMode = 'browser'; sttMode = 'browser'; toldSpeaking = false; micRelease();
     E.setConnection(false); setTimeout(connect, 2500); };
   ws.onmessage = e => handle(JSON.parse(e.data));
@@ -1312,7 +1943,10 @@ function handle(ev) {
     case 'hello': ttsMode = ev.tts || 'browser'; break;
     case 'phrase': if (ev.key === 'wake') decode(ev.audio).then(b => { P.wake = b; }); break;
     case 'unlock': dispatchEvent(new CustomEvent('eva:unlock-needed')); break;       // locked phone, private request
-    case 'turn_start': beginTurn(ev.turn); streamBuf = ''; turnText = ''; turnProactive = false; proactiveWidget = null; skipFollow = false; break;
+    case 'turn_start': beginTurn(ev.turn); streamBuf = ''; turnText = ''; turnProactive = false; proactiveWidget = null; skipFollow = false; if (E.turnReset) E.turnReset(); cueDone = false; break;
+    case 'thinking': if (E.thinking) E.thinking(ev.text || ''); if (!cueDone && lastWasVoice) { cueDone = true; thinkCue(); } break;   // v1.0: her thinking, and a soft tone instead of "one moment"
+    case 'step': if (E.stepChip) E.stepChip(ev.data || {}); break;                   // v1.0: what she just did
+    case 'journal': window.dispatchEvent(new CustomEvent('eva:journal', { detail: ev })); break;
     case 'device_action':                                    // alarms, timers: the Android app does it
       if (window.EvaNative) window.EvaNative.postMessage(JSON.stringify(ev));
       else sendCtl({ type: 'device_result', id: ev.id, ok: false, error: 'this window is not the phone app' });
@@ -1353,7 +1987,11 @@ function handle(ev) {
     }
     case 'audio': onAudio(ev); break;
     case 'audio_end': onAudioEnd(ev); break;
+    case 'quiet': stopAudio(); setState('idle'); idleHint(); break;                 // v0.8: 'Eva, stop' over her voice
+    case 'audio_pending': if (ev.turn === P.accept) kick(); break;               // v0.8: a long answer is still being voiced
     case 'task_live': if (E.bench) E.bench.event(ev.task, ev.event || {}); break;    // v0.5: the workbench
+    case 'chat': if (E.chatLoaded) E.chatLoaded(ev.chat || {}); break;                // v0.7: chats
+    case 'chat_meta': if (E.chatMeta) E.chatMeta(ev); break;
   }
 }
 function send(text, viaVoice) {
@@ -1590,6 +2228,8 @@ addEventListener('eva:conversation', async e => {
   catch (_) {}
   refreshStatus();
 });
+addEventListener('eva:chat-open', e => { stopAudio(); sendCtl({ type: 'chat_open', id: e.detail.id }); });
+addEventListener('eva:chat-new', () => { stopAudio(); sendCtl({ type: 'chat_new' }); });
 addEventListener('eva:forge-review', () => send('which skills are waiting', false));
 
 /* ---------------- Routines panel (v0.2.5): reminders, routines, moods, shopping list ---------------- */

@@ -60,7 +60,7 @@ def test_generic_acks_never_repeat_back_to_back():
 
 def test_ack_delay_comes_from_settings(monkeypatch):
     monkeypatch.setattr(orch_mod, "ACK_AFTER_OVERRIDE", None)
-    assert orch_mod.ack_after() == 0.9
+    assert orch_mod.ack_after() == 1.5            # v0.8: acks only when something really takes a while
 
 
 # ------------------------------------------------------------ email to a name

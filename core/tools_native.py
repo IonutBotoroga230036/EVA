@@ -50,9 +50,17 @@ except Exception:
 
 HOME_CITY = os.environ.get("EVA_HOME_CITY", "Breda")
 
-ACK_PHRASES = {
-    "get_weather": "Let me check, sir.",
-    "web_search": "Looking into that now, sir.",
+ACK_PHRASES = {            # v0.8: say what she's doing, not "let me check" every time (spoken after voice.acks.after_ms)
+    "get_weather": "Checking the weather, sir.",
+    "web_search": "Searching the web, sir.",
+    "calendar_agenda": "Looking at your calendar, sir.",
+    "calendar_free": "Looking at your calendar, sir.",
+    "email_unread": "Checking your inbox, sir.",
+    "email_important": "Checking your inbox, sir.",
+    "train_times": "Checking the trains, sir.",
+    "nearby": "Looking at the map, sir.",
+    "show_images": "Finding pictures, sir.",
+    "find_videos": "Finding videos, sir.",
     "spotify_play": "Right away, sir.",
     "open_app": "Opening it now, sir.",
     "open_website": "One moment, sir.",
@@ -200,6 +208,13 @@ TOOL_SCHEMAS = [
             "query": {"type": "string", "description": "A short, specific search query."}},
             "required": ["query"]}}},
     {"type": "function", "function": {
+        "name": "web_read",
+        "description": "Read a public web page as text: the live number behind a search result (a stock quote, a "
+                       "price), an article, a timetable. find = the words to look for, to get only those lines.",
+        "parameters": {"type": "object", "properties": {
+            "url": {"type": "string"}, "find": {"type": "string", "description": "e.g. 'NVDA price'"}},
+            "required": ["url"]}}},
+    {"type": "function", "function": {
         "name": "spotify_play",
         "description": "Start music on Spotify: a genre, playlist, artist, or 'liked songs' if unspecified.",
         "parameters": {"type": "object", "properties": {
@@ -330,10 +345,52 @@ def tool_get_weather(city: str = "", day: str = "", hour: str = "", **_):
     return {"result": json.dumps(data), "widget": {"kind": "weather", **data}, "say": weather_spoken(data)}
 
 
-def _search(query: str) -> list[dict]:
+SEARCH_BACKENDS = ("auto", "duckduckgo,brave", "bing,mojeek", "yahoo,startpage")    # ddgs 9.16 engines
+
+
+def _search(query: str, backend: str = "auto") -> list[dict]:
     with DDGS() as d:
         return [{"title": r.get("title", ""), "snippet": r.get("body", ""), "url": r.get("href", "")}
-                for r in d.text(query, max_results=5)]
+                for r in d.text(query, max_results=6, backend=backend)]
+
+
+def _search_any(query: str) -> tuple[list[dict], str]:
+    """Nov 27: 'NVIDIA stock current price' came back 'No results found' from the auto engines three times in a
+    row. Each engine group is tried in turn before giving up; ddgs raises when every engine in a group fails."""
+    last = ""
+    for backend in SEARCH_BACKENDS:
+        try:
+            results = _search(query) if backend == "auto" else _search(query, backend)
+            if results:
+                return results, backend
+        except Exception as e:                       # DDGSException: "No results found." / rate limits
+            last = str(e)[:160]
+    return [], last
+
+
+def _claude_search(query: str) -> list[dict]:
+    """The last resort when every free engine failed: Claude's own web search (about a cent), if the cloud is
+    allowed and the budget has room."""
+    try:
+        from core.forge_facts import WEB_SEARCH
+        from core.claude import get_claude
+        from core.understand.brains import cloud_allowed
+        c = get_claude()
+        if not (c.available() and cloud_allowed() and c.budget.can_spend(0.03)):
+            return []
+        out = c.message(system="Search the web and answer with up to 5 findings, one per line: title | url | the "
+                               "key fact with its number and date if any. No other text.",
+                        messages=[{"role": "user", "content": query}], model="claude-haiku-5-5", max_tokens=700,
+                        tools=[dict(WEB_SEARCH, max_uses=2)], purpose="web search fallback")
+        rows = []
+        for line in (out.get("text") or "").splitlines():
+            parts = [x.strip() for x in line.split("|")]
+            if len(parts) >= 3 and parts[1].startswith("http"):
+                rows.append({"title": parts[0][:160], "url": parts[1][:300], "snippet": " | ".join(parts[2:])[:400]})
+        return rows[:5]
+    except Exception as e:
+        logger.debug(f"web search fallback failed: {e}")
+        return []
 
 
 def tool_web_search(query: str = "", **_):
@@ -341,18 +398,56 @@ def tool_web_search(query: str = "", **_):
     if not query:
         return {"result": json.dumps({"error": "no search query was given"})}
     if not SEARCH_OK:
-        return {"result": json.dumps({"error": "search package not installed (pip install ddgs)"})}
+        results, why = [], "search package not installed (pip install ddgs)"
+    else:
+        results, why = _search_any(query)
+    via = "web"
+    if not results:
+        results = _claude_search(query)
+        via = "claude web search"
+    if not results:
+        return {"result": json.dumps({"query": query, "results": [], "error": f"no results ({why or 'empty'})",
+                                      "note": "say the search failed; don't guess"})}
+    if via != "web":
+        logger.info(f"web search: free engines failed; {via} answered")
+    return {"result": json.dumps({"query": query, "results": results,
+                                  "tip": "snippets can be old: for a live number, web_read the best result"})}
+
+
+def tool_web_read(url: str = "", find: str = "", **_):
+    """Read a public page as text (v1.0): the number behind a search result, an article, a timetable."""
+    from core.agent.hands import _html_text, _public_url
+    url = (url or "").strip()
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url if url else ""
+    if not url or not _public_url(url):
+        return {"result": json.dumps({"error": "only public http(s) pages"})}
     try:
-        results = _search(query)
-        if not results:                              # empty results happen; retry once, reworded
-            time.sleep(0.5)
-            results = _search(f"{query} latest")
-        if not results:
-            return {"result": json.dumps({"query": query, "results": [],
-                                          "note": "no results found; say so, don't guess"})}
-        return {"result": json.dumps({"query": query, "results": results})}
+        import httpx
+        from urllib.parse import urljoin
+        r = None
+        for _ in range(4):
+            r = httpx.get(url, timeout=12.0, follow_redirects=False, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) E.V.A./1.0", "Accept-Language": "en"})
+            loc = r.headers.get("location") if 300 <= r.status_code < 400 else None
+            if not loc:
+                break
+            url = urljoin(url, loc)
+            if not _public_url(url):
+                return {"result": json.dumps({"error": "that page redirects to a private address"})}
+        if r is None or r.status_code >= 400:
+            return {"result": json.dumps({"error": f"the page answered {getattr(r, 'status_code', '?')}", "url": url})}
+        text = _html_text(r.text) if "html" in r.headers.get("content-type", "html") else r.text
+        if find:                                       # the lines around what she's looking for, not the whole page
+            words = [w for w in re.findall(r"\w+", find.lower()) if len(w) > 2]
+            lines = [ln for ln in text.splitlines() if ln.strip()]
+            hits = [i for i, ln in enumerate(lines) if any(w in ln.lower() for w in words)]
+            if hits:
+                keep = sorted({j for i in hits[:12] for j in range(max(0, i - 2), min(len(lines), i + 3))})
+                text = "\n".join(lines[j] for j in keep)
+        return {"result": json.dumps({"url": url, "text": text[:6000]})}
     except Exception as e:
-        return {"result": json.dumps({"error": str(e)})}
+        return {"result": json.dumps({"error": f"couldn't read it ({type(e).__name__})", "url": url})}
 
 
 def tool_spotify_play(what: str = "", device: str = "", **_):
@@ -490,7 +585,26 @@ def resolve_site(site: str) -> tuple[str | None, str]:
     bare = s.removeprefix("www.")
     if _HOST.match(bare):
         return f"https://{bare}", "domain"
-    return f"https://duckduckgo.com/?q=%5C{quote_plus(site.strip())}", "search"   # "\" = go to first result
+    found = _official_site(site.strip())          # Nov 27: "Trading 212" opened a DuckDuckGo page, not the site
+    if found:
+        return found, "found"
+    return f"https://duckduckgo.com/?q=%5C{quote_plus(site.strip())}", "search"   # "\\" = go to first result
+
+
+def _official_site(name: str) -> str | None:
+    """The site's own address from a quick search: the first result whose host carries the name's letters."""
+    if not SEARCH_OK or os.environ.get("EVA_TESTING"):
+        return None
+    letters = re.sub(r"[^a-z0-9]", "", name.lower())
+    try:
+        results, _ = _search_any(f"{name} official site")
+    except Exception:
+        return None
+    for r in results[:6]:
+        host = (urlparse(r.get("url") or "").hostname or "").removeprefix("www.")
+        if letters and letters[:6] in host.replace("-", "").replace(".", ""):
+            return f"https://{host}"
+    return None
 
 
 def tool_open_app(app: str = "", **_):
@@ -607,6 +721,12 @@ def tool_set_brain_mode(mode: str = "local", feature: str = "", **_):
         return {"result": json.dumps({"feature": feature, "mode": mode}),
                 "say": f"Done, sir. {FEATURE_NAMES[feature][0].upper() + FEATURE_NAMES[feature][1:]} now uses {where}.{note}"}
     m = b.set_mode(mode)
+    try:                                          # v1.0: the one brain follows "local only" / "use Claude"
+        from core import one as _one
+        if _one.enabled():
+            _one.set_backend({"cloud": "cloud", "local": "local", "auto": "local_first"}.get(m, "local_first"))
+    except Exception:
+        pass
     where = {"cloud": "Claude, in the cloud", "local": "local models only, nothing leaves this machine",
              "auto": "Claude when a key and budget are available, otherwise local"}[m]
     note = ""
@@ -642,6 +762,7 @@ REGISTRY = {
     "convert_currency": tool_convert_currency,
     "crypto_price": tool_crypto_price,
     "web_search": tool_web_search,
+    "web_read": tool_web_read,
     "spotify_play": tool_spotify_play,
     "media_control": tool_media_control,
     "set_volume": tool_set_volume,
@@ -859,6 +980,8 @@ from core import projects as _projects  # noqa: E402
 TOOL_SCHEMAS += _projects.SCHEMAS
 REGISTRY.update(_projects.FUNCTIONS)
 GUARDS.update(_projects.GUARDS)
+ACTION_TOOLS |= _projects.ACTIONS
+CONFIRM_TOOLS.update(_projects.CONFIRM)           # deleting a project always asks
 
 # ---------------------------------------------------------------- v0.6: places near you, with opening hours
 from core import nearby as _nearby  # noqa: E402
@@ -867,3 +990,35 @@ TOOL_SCHEMAS += _nearby.SCHEMAS
 REGISTRY.update(_nearby.FUNCTIONS)
 GUARDS.update(_nearby.GUARDS)
 ACK_PHRASES.update(_nearby.ACKS)
+
+# ---------------------------------------------------------------- v0.7: using your computer, Windows settings pages
+from core import computer as _computer  # noqa: E402
+
+TOOL_SCHEMAS += _computer.SCHEMAS
+REGISTRY.update(_computer.FUNCTIONS)
+GUARDS.update(_computer.GUARDS)
+ACTION_TOOLS |= _computer.ACTIONS
+CONFIRM_TOOLS.update(_computer.CONFIRM)          # using the mouse and keyboard asks first...
+CONFIRM_UNLESS = dict(_computer.CONFIRM_UNLESS)   # ...unless the settings say 'Act without asking' (v0.8)
+
+# ---------------------------------------------------------------- v0.7: chats (one memory across them)
+from core import chats as _chats  # noqa: E402
+
+TOOL_SCHEMAS += _chats.SCHEMAS
+REGISTRY.update(_chats.FUNCTIONS)
+GUARDS.update(_chats.GUARDS)
+
+# ---------------------------------------------------------------- v0.9: her self-review
+from core import review as _review  # noqa: E402
+
+TOOL_SCHEMAS += _review.SCHEMAS
+REGISTRY.update(_review.FUNCTIONS)
+GUARDS.update(_review.GUARDS)
+
+# ---------------------------------------------------------------- v1.0: the one brain's own tools
+from core.one import tools as _one_tools  # noqa: E402
+
+TOOL_SCHEMAS += _one_tools.SCHEMAS
+REGISTRY.update(_one_tools.FUNCTIONS)
+ACTION_TOOLS |= _one_tools.ACTIONS
+ACK_PHRASES.update({"web_read": "Reading the page, sir."})

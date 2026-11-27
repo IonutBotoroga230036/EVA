@@ -139,7 +139,16 @@ class Light:
             check(d.set_white_percentage(brightness or 80, white))
             return
         if brightness is not None:
-            check(d.set_brightness_percentage(brightness))
+            try:
+                check(d.set_brightness_percentage(brightness))
+            except ConnectionError as e:
+                # 27 Nov 11:12: "dim the lights" in red: "Function Not Supported by Device (907)". In colour mode a
+                # Tuya strip's brightness is the V of its colour, so dim the colour itself.
+                if "907" not in str(e) and "not supported" not in str(e).lower():
+                    raise
+                h, sat, _ = d.colour_hsv()
+                check(d.set_hsv(h, sat, max(0.01, min(1.0, brightness / 100))))
+                logger.info(f"LIGHTS: {self.name} is in colour mode; dimmed the colour to {brightness}%")
 
 
 

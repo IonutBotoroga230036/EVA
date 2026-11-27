@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 import time
 import uuid
@@ -220,6 +221,15 @@ def when_words(due: datetime, now: Optional[datetime] = None) -> str:
     return f"on {due:%A} at {due:%H:%M}"
 
 
+def heads_up(group: list, now) -> str:
+    """Nov 27 09:05: three sentences in a row ('Take Creatine', 'Brush Teeth', 'Take Vitamines' all at 09:15)."""
+    n = max(1, round((group[0]["start"] - now).total_seconds() / 60))
+    titles = [e["title"] for e in group]
+    names = titles[0] if len(titles) == 1 else ", ".join(titles[:-1]) + " and " + titles[-1]
+    when = f"in {n} minute{'s' if n != 1 else ''}"
+    return f"Sir, {names} starts {when}." if len(titles) == 1 else f"Sir, {when}: {names}."
+
+
 class Oracle:
     def __init__(self, store: Optional[ReminderStore] = None, deliver: Optional[Deliver] = None,
                  interval: float = 15.0, lead_minutes: int = 10, poll_seconds: int = 300,
@@ -306,6 +316,18 @@ class Oracle:
         ts = now.timestamp()
         dnd = self.in_dnd(ts)
 
+        try:                                                     # v1.0: the nightly JARVIS test, when quiet
+            from core import jarvis_test, review as _rv
+            if not os.environ.get("EVA_TESTING") and jarvis_test.due(now, _rv.last_user_ts):
+                jarvis_test.run_in_background(None, nightly=True)
+        except Exception as e:
+            logger.debug(f"ORACLE: JARVIS test check skipped ({e})")
+        try:                                                     # v0.9: tonight's self-review, when quiet
+            from core import review
+            if review.due(now):
+                review.run_in_background()
+        except Exception as e:
+            logger.debug(f"ORACLE: review check skipped ({e})")
         for r in self.store.take_due(ts):                       # reminders
             if dnd:
                 self.held.append(r)
@@ -348,16 +370,18 @@ class Oracle:
         await self._focus_tick(now)
         if quiet:
             return
-        for e in self._events:                                   # meeting heads-up
+        due: dict = {}                                           # meeting heads-up, same start = one sentence
+        for e in self._events:
             if e.get("all_day") or not e.get("start") or e["id"] in self._announced:
                 continue
             mins = (e["start"] - now).total_seconds() / 60
             if 0 <= mins <= self.lead:
                 self._announced.add(e["id"])
-                n = max(1, round(mins))
-                await self._say(f"Sir, {e['title']} starts in {n} minute{'s' if n != 1 else ''}.",
-                                {"kind": "calendar", "title": "Coming up",
-                                 "events": [{"time": e["start"].strftime("%H:%M"), "title": e["title"]}]})
+                due.setdefault(e["start"], []).append(e)
+        for start, group in sorted(due.items()):
+            await self._say(heads_up(group, now), {"kind": "calendar", "title": "Coming up",
+                                                   "events": [{"time": start.strftime("%H:%M"), "title": e["title"]}
+                                                              for e in group]})
         if google and self.announce_email and ts - self._last_mail >= self.poll:   # new mail
             self._last_mail = ts
             try:

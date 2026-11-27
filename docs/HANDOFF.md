@@ -1,7 +1,7 @@
 # E.V.A. handoff (for a new Claude session)
 
-Last updated: Monday 23 November 2026, 14:00 (Europe/Amsterdam). Read this first, then EVA.md, docs/ROADMAP.md,
-docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
+Last updated: Friday 27 November 2026, 23:00 (Europe/Amsterdam). Read this first, then docs/ONE_BRAIN.md (v1.0:
+how every turn works now), EVA.md, docs/ROADMAP.md and docs/VOICE_TESTS.md.
 
 ## Who and what
 
@@ -19,14 +19,16 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
 ## How to work with him (rules that always hold)
 
 1. Check current library versions with a web search before building on them.
-2. Tests first, then the full suite (`python -m pytest -q`, about 1140 tests), plus a run with
+2. Tests first, then the full suite (`python -m pytest -q`, about 1380 tests), plus a run with
    `PYTHONUTF8=0 PYTHONIOENCODING=cp1252` for his Windows console.
 3. Tests never touch his real accounts or files: no real Claude/Jev keys, Google, Spotify, Telegram, Ollama,
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v060b_budget_pause.zip`) plus short
-   install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v10_one_brain.zip`) plus the
+   PowerShell steps to unzip it AND the git commands (new `claude/...` branch, add, commit, push) so he pushes it
+   himself (his request, 27 Nov). Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env`
+   in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
 6. Commit to a `claude/...` branch (not main), push, and set the tracking refspec after pushing
@@ -40,6 +42,16 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
 8. He tests by voice and sends logs. Read the log carefully: each odd line is usually a bug worth fixing.
 
 ## Architecture (where things are)
+
+- v1.0 (docs/ONE_BRAIN.md): `core/one/` is the turn now. `orchestrator_hybrid._one_stream`: "say that again",
+  his answer to a question she asked (a plain yes runs the waiting action; anything else goes to the brain as
+  context), reflexes (`one.reflexes`), then `OneBrain.turn` (`core/one/loop.py`): backends in `backends.py` (Ollama
+  with tools + think, Claude, Scripted for tests), `risk.py` (free/tell/ask, `risk.ask_above_eur` 2.0, sending
+  always asks), `journal.py` (every decision, before/after, undo), `made.py` + `sandbox_runner.py` (skills she
+  writes, dry run first), `tools.py` (what_i_did, change_setting, schedule_later; the loop's make_skill, run_skill,
+  find_tools, undo, hand_to_cloud, think_harder), `prompt.py`. `core/jarvis_test.py` + `jarvis_scenarios.yaml`:
+  the automatic JARVIS test. Everything below is the classic routing, still used with `one.mode: classic` and by
+  the tests not marked `one_brain`.
 
 - `core/orchestrator_hybrid.py`: the turn. `process_stream` (Romanian wrapper) -> `_process_stream`: pending
   confirmation / awaiting answer, `_DANGLING` ("can you..." -> "Yes, sir?"), fast_path regexes, 0a place triggers
@@ -94,6 +106,77 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 27 Nov 2026 (23:00, v1.0: one brain)
+
+Branch `claude/v10-one-brain` (he pushes it himself from the zip `eva_v10_one_brain.zip`). His evening log
+(aa396c1c): local mode stuck all evening (said by voice), the 3B model promised searches it never ran and made up
+a price; in auto mode the free search engines answered "No results found" and the turn fell back to the local
+model; a waiting task swallowed "Raise the daily limit", "dropped the task" and "Stop the task."; the skull task
+paused for budget with 4.39 euros left (most likely test mode's 10 cent cap, which the words now name). v1.0: one
+brain (local_first with qwen3.5:4b, Claude when stuck), the risk judge (2 euros per action, messages always ask),
+the journal with undo (Settings > What she did), tasks' decision trail, skills she makes herself, web search over
+four engine groups then Claude's search, web_read, change_setting, chats in a left sidebar, her thinking and
+decision chips under the orb, a soft tone instead of "one moment", the automatic JARVIS test (nightly, local).
+Ask him to `ollama pull qwen3.5:4b` and send the log plus the first nightly JARVIS score.
+Full suite: 1378 passed, 3 skipped, also cp1252.
+
+## State on 27 Nov 2026 (13:00, v0.9.2: local mode diagnostics)
+
+Same branch `claude/v09b-stop-tasks`. His 11:07 log in local mode: 120 s decisions, a 245 s answer. Added
+core/localcheck.py (GPU/CPU placement, Ollama timings), 25/30 s local timeouts with an honest line, a 24-tool menu
+for the local model, colour-mode dimming. The energy saver task wasn't stopped: it finished (Energy Saver on, 11:04).
+Ask him for the `LOCAL:` lines from his next start-up. Full suite 1324 passed, 3 skipped, also cp1252.
+
+## State on 27 Nov 2026 (12:30, v0.9.1: stopping her work)
+
+Branch `claude/v09b-stop-tasks` (from `claude/v09-glance-notes`). His 10:58 log: a computer task resumed after the
+restart, he couldn't stop it by voice (understanding was local only, by his earlier voice command, so the local
+model made up "disabled"/"stopped") nor in the window. Now a stop reflex, stop checks before every action, Pause /
+Resume / Stop on the workbench, Tasks and Projects tabs in the panel, per-sentence claim checks, JPEG screenshots
+for Claude (every drop was a big request at ~15 s; drops now log the KB). His brain mode was Local in the status
+panel: tell him to tap Auto (or say "Eva, use auto for understanding") or the mind stays off. Full suite 1319
+passed, 3 skipped, also cp1252; tests can't reach the internet any more.
+
+## State on 27 Nov 2026 (11:30, v0.9: the glance, memory panel, her notes)
+
+His v0.8 logs (02:06 to 02:17 and 08:48 to 10:03): long answers are read now, retries recovered two line drops,
+computer use worked. Problems fixed on branch `claude/v09-glance-notes` (from `claude/v08-streaming-voice`), see
+docs/MIND.md v0.9: a story replaced by the claim guard, "continue" playing Spotify, "stop the music" eaten by a
+pending question, "move the items from 9 until now" (no ranges), "Nothing has been moved" caught as a claim, a
+budget pause from base64 counted as tokens, three heads-ups at once, a made-up preference, project nagging, Kokoro
+still on the CPU (now logs why; his torch may be a CPU build). New: core/glance.py, core/review.py (in-memory log,
+only reviews saved), memory panel API, morning heads-up, first-sound timing. Tests: tests/test_v09.py; conftest
+isolates glance (no weather/train, already greeted) and reviews. Fixed two old test races (a threaded global
+manager in a v0.6 test; hello() looked up the chat after "stt"). Full suite 1312 passed, 3 skipped, also cp1252.
+
+## State on 27 Nov 2026 (02:00, v0.8: streaming, voice v2, the 27 Nov fixes)
+
+His first v0.7 session (00:03-01:10) went well: computer use pressed keys (so the toolset API version was accepted),
+projects grew by talking. Problems: three task crashes and two mind fallbacks, all "Server disconnected without
+sending a response" about 15 s into a call; long answers not voiced (the window's 12 s audio watchdog gave up while
+Kokoro, on the CPU, voiced the whole answer as one clip); "let me check, sir" on nearly every mind turn (ack after
+0.9 s); "Albert Heim is closed" from an empty list; "yesterday" read today; see_screen answers from the small local
+vision model were wrong; "show me the links" said "no 3D models"; "yes" to her Notepad offer became open_file('""').
+All fixed on branch `claude/v08-streaming-voice` (from `claude/v07-browser-computer-chats`); see docs/MIND.md v0.8.
+Tests: tests/test_v08.py; conftest also stubs pyautogui (no real screenshots), RETRY_WAITS and LINE_WAITS.
+Full suite 1290 passed, 3 skipped, also under cp1252. Not testable here: the real stream from the API (format from
+the docs, Nov 2026), Kokoro on his GPU, a real line drop.
+
+## State on 26 Nov 2026 (00:30, v0.7: her browser, your computer, settings, chats)
+
+Branch `claude/v07-browser-computer-chats` (from `claude/v06-show-projects`, which holds the "v0.7 prep" commit
+with the fixes from his 23:32 log: project_start offers research and "yes" starts it, projects by number and
+project_delete, "play the second one on my computer" opens the shown video and pauses music, Nominatim fallback
+and brand aliases for the map, look_at_shown attaches the picture, vague FORGE requests resolved). New:
+`core/browser.py` (browser toolset, Playwright, checked in real Chromium here), `core/computer.py` (computer
+toolset with pyautogui, NOT run on a real screen here: no display; first real test is his 26.7), `core/ui_settings.py`
+(gear panel, data/settings_ui.json), `core/chats.py` (Chats drawer, data/chats). The mind gets the browser toolset
+when allowed; tasks get it plus the computer toolset for use_computer tasks (`Task.toolsets`). Toolset calls use
+anthropic-version `TOOLSET_API_VERSION` (2026-10-21, from the docs' example) with a flip-once fallback on a 400:
+if his first browser answer fails with a version error, look at `core/claude.py._send`. Tests: tests/test_v07.py;
+conftest isolates the settings file, her browser (fake), the screen (no pyautogui) and chats. Full suite 1261
+passed, 3 skipped, also under cp1252. Docs: MIND.md v0.7, VOICE_TESTS 26, CAPABILITIES, ROADMAP.
 
 ## State on 25 Nov 2026 (23:20, v0.6b: a task stuck on budget)
 

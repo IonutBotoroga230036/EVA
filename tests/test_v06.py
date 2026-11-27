@@ -161,14 +161,14 @@ def test_a_reflex_cant_look_so_the_mind_does(eva, think, ddgs, monkeypatch):  # 
     monkeypatch.setattr(show, "fetch_image", lambda url: (b"\x89PNG", "image/png"))
 
     async def decide(client, skills, gathered, messages=None):
-        return {"tool": "look_at_shown", "args": {"number": 2}, "_trusted": True}
+        return {"tool": "look_at_shown", "number": 2, "_trusted": True}
     monkeypatch.setattr(eva, "_decide", decide)
-    s = think([[T("look_at_shown", number=2)], ["That one is a glass panel at 45 degrees over a monitor, sir."]])
+    s = think([["That one is a glass panel at 45 degrees over a monitor, sir."]])
     reply, _ = say(eva, "What is the second one?")
-    assert reply.startswith("That one is a glass panel")
-    img = s.calls[1]["messages"][-1]["content"][0]["content"][1]
-    assert img["type"] == "image"
-    assert "On his screen: pictures" in s.calls[0]["messages"][-1]["content"]
+    assert reply.startswith("That one is a glass panel") and len(s.calls) == 1     # 23:33: she answered from the
+    first = s.calls[0]["messages"][-1]["content"]                                   # caption; now she gets the picture
+    assert first[1]["type"] == "image" and "On his screen: pictures" in first[0]["text"]
+    assert "Understanding's guess for this sentence: look_at_shown" in first[0]["text"]
 
 
 # ---------------------------------------------------------------- projects
@@ -195,10 +195,11 @@ def test_the_mind_and_tasks_know_the_project(mgr, monkeypatch):  # noqa: F811
     assert "Active project (build on it):" in mind.situation() and "Pepper's ghost first" in mind.situation()
     from core.agent import tools as atools
     m = mgr([[T("finish", summary="The 10 inch screen works best, sir.")]])
+    import core.agent.runner as runner                 # v0.9: the test's manager, not a threaded global one
+    monkeypatch.setattr(runner, "get_manager", lambda: m)  # (they raced: calls[0] sometimes didn't exist yet)
     out = atools.tool_task_start("research which screen to put under the glass", project="desk screen")
     t = get_store().get(json.loads(out["result"])["task"])
     assert t.project == projects.get_store().active().id
-    m.run(t.id)
     assert "This task is part of a project" in m.script.calls[0]["system"] and "Pepper's ghost first" in \
         m.script.calls[0]["system"]
     p = projects.get_store().active()
@@ -237,7 +238,9 @@ def test_opening_hours():
 def test_the_query():
     q = nearby.query("supermarket", (51.589, 4.776), 1500)
     assert '["shop"="supermarket"](around:1500,51.589,4.776)' in q and q.startswith("[out:json]")
-    assert '["name"~"Albert Heijn",i]' in nearby.query("Albert Heijn", (51.589, 4.776), 1500)
+    q = nearby.query("Albert Hain", (51.589, 4.776), 1500)                # 23:38: how Whisper heard it
+    assert 'nwr["brand"~"^Albert Heijn",i]' in q and 'nwr["name"~"^Albert Heijn",i]' in q
+    assert '["name"~"Bakkerij Bart",i]' in nearby.query("Bakkerij Bart", (51.589, 4.776), 1500)
 
 
 def test_nearby_answers_with_hours(monkeypatch):
@@ -306,3 +309,99 @@ def test_with_budget_again_it_goes_on_by_itself(mgr, monkeypatch):  # noqa: F811
 def test_free_and_open_are_only_calendar_claims_with_a_day(answer, kind):
     import core.orchestrator_hybrid as orch_mod
     assert orch_mod.unchecked_fact(answer, []) == kind
+
+
+
+# ---------------------------------------------------------------- Nov 25 23:32 log
+def test_a_new_project_offers_the_first_real_work():
+    out = projects.tool_project_start("transparent desk screen", "laptop size, a Raspberry Pi drives it")
+    assert out["exact"] and out["say"].endswith("Shall I research how to build it and draft a first parts list?")
+    nxt = out["confirm_next"]
+    assert nxt["tool"] == "task_start" and nxt["args"]["project"] == json.loads(out["result"])["project"]
+    assert "parts list with prices" in nxt["args"]["goal"]
+
+
+def test_yes_starts_the_research(eva, monkeypatch):  # noqa: F811
+    async def decide(client, skills, gathered, messages=None):
+        return {"tool": "project_start", "name": "desk screen", "_trusted": True}
+    monkeypatch.setattr(eva, "_decide", decide)
+    reply, _ = say(eva, "Start a project for the transparent screen on my desk")
+    assert reply.endswith("Shall I research how to build it and draft a first parts list?")
+    assert eva.pending["tool"] == "task_start"
+    started = []
+    import core.tools_native as tn
+    monkeypatch.setitem(tn.REGISTRY, "task_start", lambda **a: started.append(a) or
+                        {"result": json.dumps({"task": "x"}), "say": "On it, sir."})
+    reply, _ = say(eva, "yes")
+    assert started and started[0]["project"]
+
+
+def test_projects_by_number_and_delete():
+    for n in ("Desk Display", "Test Display Project", "Transparent desk screen", "Transparent Desk Screen Project"):
+        projects.get_store().new(n)
+    out = projects.tool_project_list()
+    assert out["say"].startswith("Your projects, sir: 1, Desk Display; 2, Test Display Project;")
+    assert projects.describe_delete({"projects": ["1", "2", "3"]}) == \
+        "delete these projects: Desk Display, Test Display Project, Transparent desk screen"
+    out = projects.tool_project_delete(projects=["first", "second", "third"])
+    assert out["say"] == "Deleted, sir: Desk Display, Test Display Project, Transparent desk screen."
+    assert [p.name for p in projects.get_store().all()] == ["Transparent Desk Screen Project"]
+    p = projects.get_store().all()[0]
+    assert projects._pick(p.id) is not None                 # 23:37: project_answer(project='7189a95a') -> no project
+
+
+def test_deleting_projects_asks_first():
+    from core.orchestrator_hybrid import ToolBelt
+    b = ToolBelt(None, None)
+    assert b.needs_confirm("project_delete") and {"project_start", "project_note"} <= mind.MIND_ONLY
+
+
+def test_play_the_video_not_the_music(ddgs):
+    """23:39: 'Can you play it on my computer?' moved the Spotify music; 'play the first one on my PC and stop the
+    music' searched Spotify for that whole sentence."""
+    from core.orchestrator_hybrid import ToolBelt, fast_path
+    b = ToolBelt(None, None)
+    assert fast_path("Can you play it on my computer?", b)[0] == "spotify_play"          # nothing on screen yet
+    show.tool_find_videos("peppers ghost display")
+    assert fast_path("Can you play it on my computer?", b) == \
+        ("open_shown", {"number": 1, "on": "pc", "pause_music": False})
+    assert fast_path("Play the first one on my PC and stop the music", b) == \
+        ("open_shown", {"number": 1, "on": "pc", "pause_music": True})
+    assert fast_path("play the second video", b) == ("open_shown", {"number": 2, "on": "window", "pause_music": False})
+    assert fast_path("play my chill playlist", b)[0] == "spotify_play"
+
+
+def test_open_shown_can_stop_the_music_too(ddgs, monkeypatch):
+    import core.tools_native as tn
+    paused = []
+    monkeypatch.setitem(tn.REGISTRY, "media_control", lambda **a: paused.append(a))
+    show.tool_find_videos("peppers ghost display")
+    show.tool_open_shown(1, on="pc", pause_music=True)
+    assert paused == [{"action": "pause"}]
+
+
+def test_a_skill_for_it_means_what_he_said_before(eva):  # noqa: F811
+    eva.history = [{"role": "user", "content": "can you turn on my Bluetooth on my computer?"},
+                   {"role": "assistant", "content": "I can't switch Bluetooth on from here, sir."},
+                   {"role": "user", "content": "Can you develop a skill to open it?"}]
+    assert eva._resolve_vague("open it?") == "can you turn on my Bluetooth on my computer (open it)"
+    assert eva._resolve_vague("tell me the moon phase for any date") == "tell me the moon phase for any date"
+
+
+def test_when_overpass_is_down_nominatim_answers(monkeypatch):
+    import httpx
+    monkeypatch.setattr(nearby.time, "sleep", lambda s: None)
+    nearby._cache.clear()
+
+    def post(url, data=None, headers=None, timeout=None):
+        raise httpx.ReadTimeout("The read operation timed out")
+
+    def get(url, params=None, headers=None, timeout=None):
+        assert params["q"] == "Albert Heijn" and params["extratags"] == 1 and params["bounded"] == 1
+        return httpx.Response(200, json=[{"lat": "51.59", "lon": "4.776", "name": "Albert Heijn",
+                                          "extratags": {"opening_hours": "Mo-Su 08:00-22:00"}}],
+                              request=httpx.Request("GET", url))
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(httpx, "get", get)
+    els = nearby.search("Albert Hain", (51.589, 4.776), 1500)
+    assert els[0]["tags"]["name"] == "Albert Heijn" and els[0]["tags"]["opening_hours"]

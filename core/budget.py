@@ -119,6 +119,25 @@ class BudgetTracker:
             pass
         return True
 
+    def why_not(self, amount_eur: float = 0.0) -> str:
+        """Nov 27 20:12: a task said '439 cents are left' and still paused: test mode's 10 cent cap was the real
+        reason. '' when the amount fits, else which limit stops it, in words."""
+        try:
+            from core import testmode
+            if testmode.blocks(amount_eur):
+                st = testmode.state()
+                return (f"test mode is on and caps spending at {st['cap'] * 100:.0f} cents (say 'test mode off' to "
+                        f"lift it)")
+        except Exception:
+            pass
+        today = self._ensure_today()["total_euros"]
+        if today + amount_eur >= self.daily_limit:
+            return (f"{max(0.0, self.daily_limit - today) * 100:.0f} cents of today's {self.daily_limit:.2f} euros "
+                    f"are left and the next step could cost up to {amount_eur * 100:.0f} cents")
+        if self.month_spent() + amount_eur >= self.monthly_limit:
+            return f"this month's {self.monthly_limit:.0f} euro limit is nearly used up"
+        return ""
+
     def remaining_euros(self) -> float:
         return max(0.0, min(self.daily_limit - self._ensure_today()["total_euros"],
                             self.monthly_limit - self.month_spent()))

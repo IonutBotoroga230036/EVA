@@ -72,7 +72,7 @@ def test_how_can_i_see_the_files_gets_options(eva, think, monkeypatch):
     assert reply.startswith("Nothing on your PC opens STL files yet, sir.")
     first = s.calls[0]
     assert first["model"] == "claude-haiku-5-5" and first["purpose"] == "mind" and first["cache"] is True
-    assert first["effort"] == "medium"
+    assert first["effort"] == "low"                  # v0.8: no tool hint = talk, thinks briefly
     assert "How can I see the files you made?" in first["messages"][-1]["content"]
     assert "<situation>" in first["messages"][-1]["content"]
     res = s.calls[1]["messages"][-1]["content"][0]
@@ -115,7 +115,7 @@ def test_think_harder_switches_to_sonnet(eva, think):
 
 
 def test_if_claude_fails_the_old_way_answers(eva, think):
-    think([RuntimeError("Claude API error 529: overloaded")])
+    think([RuntimeError("Claude API error 400: something odd")])     # v0.8: a dropped line says so instead
     reply, _ = say(eva, "What would you suggest for my evening?")
     assert reply == "the old way"
 
