@@ -41,16 +41,24 @@ SCHEMA = {
 PROMPT = (
     "Extract durable facts about the USER from their message: identity, preferences, "
     "people in their life, projects, plans, places. Write each fact as a short "
-    "third-person statement, e.g. 'Prefers jazz while working'. Only include what the "
-    "user actually stated. Ignore questions, commands, small talk, and anything "
-    "temporary like the current weather. If there is nothing durable, return an empty list."
+    "third-person statement, e.g. 'Has a sister named Ana'. Only include what the "
+    "user actually stated, in their words; never add context they didn't say (when, why, "
+    "while doing what). A request ('play X', 'open Y') is not a preference. Ignore questions, "
+    "commands, small talk, and anything temporary like the current weather. If there is "
+    "nothing durable, return an empty list."
 )
 
 _FIRST_PERSON = re.compile(r"\b(i|i'm|im|i've|i'd|my|me|mine|we|our)\b", re.I)
 
 
+# Nov 27: "I said, play Kanye West" became the fact 'Prefers Kanye West while working'
+_COMMAND = re.compile(r"^\W*(?:(?:hey |ok |okay )?eva\W+)?(?:i said,?\s+|please\s+|can you\s+|could you\s+)?"
+                      r"(?:play|open|turn|set|stop|pause|skip|put on|start|close|show|search|find|call|text|send|"
+                      r"remind|move|raise|lower|mute)\b", re.I)
+
+
 def worth_extracting(user_text: str) -> bool:
-    return len(user_text) >= 12 and bool(_FIRST_PERSON.search(user_text))
+    return len(user_text) >= 12 and bool(_FIRST_PERSON.search(user_text)) and not _COMMAND.match(user_text)
 
 
 async def extract_and_store(cortex: Cortex, user_text: str, *, model: str,

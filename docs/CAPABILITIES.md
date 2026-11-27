@@ -271,3 +271,11 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - She starts talking while she still thinks; long answers are read to the end. "Eva, stop" while she talks stops her.
 - Settings: "How hard plain talk thinks" (low is fastest); computer use can "Act without asking".
 - "Show me the links" after a research task; "check my screen" reads the real page; "yesterday" and "the 26th" in the calendar.
+
+
+## The glance, memory and her notes (v0.9)
+- Leave the window alone: weather, next event, train and a task or project show under the orb; /stage shows the day full screen.
+- Settings > What she knows: everything she remembers about you; edit or forget each.
+- Settings > Her notes, or "how did you do today?": her own review of her mistakes, with a copy button for Claude.
+- Mornings: the first thing you say gets a short heads-up first.
+- "Tell me a story for 10 minutes", then "continue". "Move the items from 9 until now 30 minutes later."

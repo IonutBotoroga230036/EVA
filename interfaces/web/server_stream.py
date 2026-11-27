@@ -254,6 +254,8 @@ async def lifespan(_app: FastAPI):
         return on_screen or on_phone
     oracle.deliver = deliver
     oracle_task = asyncio.create_task(oracle.run(), name="oracle")
+    from core import review as _review                    # v0.9: her day, in memory only, for tonight's review
+    _review.start()
     logger.info(f"E.V.A. online: {cortex.stats()['facts']} facts, {len(registry.enabled())} skills, "
                 f"{sum(s.connected for s in mcp.servers.values())} MCP servers, "
                 f"voice: {'Kokoro' if tts else 'browser'}, "
@@ -896,6 +898,77 @@ async def classic():
     return HTMLResponse(path.read_text(encoding="utf-8")) if path.exists() else Response(status_code=404)
 
 
+@app.get("/api/memory")
+async def memory_list(q: str = ""):
+    """v0.9: what she knows about you (CORTEX facts), newest first, or the ones matching q."""
+    cx = get_cortex()
+    facts = await asyncio.to_thread(cx.all_facts, 500)
+    words = [w for w in re.findall(r"\w+", q.lower()) if len(w) > 1]
+    if words:
+        facts = [f for f in facts if all(w in (f["text"] + " " + f["category"]).lower() for w in words)]
+    return JSONResponse({"facts": facts, "stats": cx.stats()})
+
+
+@app.post("/api/memory/{fid}/forget")
+async def memory_forget(fid: int, request: Request):
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    text = await asyncio.to_thread(get_cortex().forget_id, fid)
+    return JSONResponse({"forgotten": text}, status_code=200 if text else 404)
+
+
+@app.post("/api/memory/{fid}/edit")
+async def memory_edit(fid: int, request: Request):
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        body = await request.json()
+        return JSONResponse(await asyncio.to_thread(get_cortex().edit, fid, str((body or {}).get("text") or ""),
+                                                    (body or {}).get("category")))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/review")
+async def review_list():
+    """v0.9: her notes on her own days (the latest first), with a copy-ready text for each."""
+    from core import review as rv
+    items = await asyncio.to_thread(rv.listing)
+    return JSONResponse({"reviews": [{**r, "text": rv.as_text(r)} for r in items],
+                         "today_lines": len(rv.today_lines())})
+
+
+@app.post("/api/review/run")
+async def review_run(request: Request):
+    from core import review as rv
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        out = await asyncio.to_thread(rv.run, None, True)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+    return JSONResponse(out, status_code=200 if not out.get("error") else 400)
+
+
+@app.post("/api/review/{day}/read")
+async def review_read(day: str, request: Request):
+    from core import review as rv
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    try:
+        ok = await asyncio.to_thread(rv.mark_read, day)
+    except ValueError:
+        ok = False
+    return JSONResponse({"read": ok}, status_code=200 if ok else 404)
+
+
+@app.get("/api/glance")
+async def glance():
+    """v0.9: the idle screen (time, weather, next event, train, project, tasks). Cached; no cloud model."""
+    from core import glance as g
+    return JSONResponse(await asyncio.to_thread(g.snapshot))
+
+
 @app.get("/api/chats")
 async def chats_list(q: str = ""):
     """v0.7: the chats, newest first, or the ones matching q."""
@@ -1105,8 +1178,8 @@ class Connection:
             self.stt = await asyncio.to_thread(pipeline_status)
         except Exception as e:                    # listening is optional; the browser can always listen
             self.stt = {"engine": "browser", "reason": str(e)}
-        await self.send({"type": "stt", **self.stt})
         await self.open_chat(None, continue_recent=True, quiet=True)   # the page asks with chat_current
+        await self.send({"type": "stt", **self.stt})     # last: after it the window counts as fully connected
 
     # ------------------------------------------------------------ chats (v0.7)
     async def open_chat(self, cid: str | None, continue_recent: bool = False, quiet: bool = False) -> None:
@@ -1162,9 +1235,23 @@ class Connection:
         _device.CURRENT.set(self)                    # device actions go to the window you're talking to
         await self.send({"type": "turn_start", "turn": turn})
         speaker = TurnSpeaker(self.tts, self.send, turn) if self.tts else None
+        if speaker:
+            speaker.started = getattr(self, "_heard_at", 0.0) or time.time()
+        self._heard_at = 0.0
         chunker, streamed = SentenceChunker(), False
         last_final = ""
         await self._chat_add("you", text)
+        try:
+            from core import glance as _glance              # v0.9: the first words of the morning get a heads-up
+            hello = await asyncio.to_thread(_glance.greeting_once)
+            if hello:
+                logger.info(f"EVA (morning): {hello}")
+                await self.send({"type": "ack", "text": hello})
+                if speaker:
+                    for sentence in sentences(hello):
+                        await speaker.say(sentence)
+        except Exception as e:
+            logger.debug(f"no morning heads-up ({e})")
         try:
             async for event in self.orch.process_stream(text):
                 await self.send(event)
@@ -1321,6 +1408,7 @@ class Connection:
             self._device_waits.pop(rid, None)
 
     async def voice_command(self, text: str) -> None:
+        self._heard_at = time.time()
         _romanian_hint(self.orch)
         if _SHUSH.match(text or "") and time.time() - getattr(self, "_barged_at", 0.0) < 8:
             # v0.8: "Eva, stop" over her own voice only stops her talking (not the music, not a new turn)

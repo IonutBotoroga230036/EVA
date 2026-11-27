@@ -1,6 +1,6 @@
 # E.V.A. handoff (for a new Claude session)
 
-Last updated: Friday 27 November 2026, 02:00 (Europe/Amsterdam). Read this first, then EVA.md, docs/ROADMAP.md,
+Last updated: Friday 27 November 2026, 11:30 (Europe/Amsterdam). Read this first, then EVA.md, docs/ROADMAP.md,
 docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
 
 ## Who and what
@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v080_streaming_voice.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v090_glance_notes.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,18 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 27 Nov 2026 (11:30, v0.9: the glance, memory panel, her notes)
+
+His v0.8 logs (02:06 to 02:17 and 08:48 to 10:03): long answers are read now, retries recovered two line drops,
+computer use worked. Problems fixed on branch `claude/v09-glance-notes` (from `claude/v08-streaming-voice`), see
+docs/MIND.md v0.9: a story replaced by the claim guard, "continue" playing Spotify, "stop the music" eaten by a
+pending question, "move the items from 9 until now" (no ranges), "Nothing has been moved" caught as a claim, a
+budget pause from base64 counted as tokens, three heads-ups at once, a made-up preference, project nagging, Kokoro
+still on the CPU (now logs why; his torch may be a CPU build). New: core/glance.py, core/review.py (in-memory log,
+only reviews saved), memory panel API, morning heads-up, first-sound timing. Tests: tests/test_v09.py; conftest
+isolates glance (no weather/train, already greeted) and reviews. Fixed two old test races (a threaded global
+manager in a v0.6 test; hello() looked up the chat after "stt"). Full suite 1312 passed, 3 skipped, also cp1252.
 
 ## State on 27 Nov 2026 (02:00, v0.8: streaming, voice v2, the 27 Nov fixes)
 

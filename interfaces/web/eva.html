@@ -168,6 +168,25 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .eva.stage-mode .eva-bench{inset:max(18px,var(--safe-t)) 18px 18px 18px;opacity:1;transform:none;visibility:visible}
 .eva.stage-mode .bench__title{font-size:28px} .eva.stage-mode .bench__now{font-size:19px}
 
+/* ===== The glance (v0.9): what she shows when nothing is going on ===== */
+.eva-glance{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;max-width:760px;margin-top:var(--s4);opacity:0;transform:translateY(6px);transition:opacity var(--dur-in) var(--ease-out),transform var(--dur-in) var(--ease-out);pointer-events:none}
+.eva.glance-on .eva-glance{opacity:1;transform:none;pointer-events:auto}
+.glance-chip{display:inline-flex;align-items:center;gap:8px;max-width:min(100%,380px);padding:7px 14px;border-radius:var(--r-pill);background:var(--glass-row);border:1px solid var(--line-soft);color:var(--ice);font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.glance-chip b{font-weight:600;color:var(--lilac);font-family:var(--font-display);letter-spacing:.04em}
+.glance-chip.is-soon{border-color:var(--line-strong);box-shadow:var(--glow-btn)}
+button.glance-chip{cursor:pointer}
+.glance-full{display:none;position:fixed;inset:0;z-index:5;padding:max(40px,var(--safe-t)) 56px 48px;grid-template-rows:auto 1fr;gap:32px;background:radial-gradient(ellipse at 30% 20%,rgba(109,40,217,.18),transparent 60%),var(--void-0)}
+.eva.stage-mode.stage-idle .glance-full{display:grid}
+.eva.stage-mode.stage-idle .eva-bench{visibility:hidden}
+.gf-clock{font-family:var(--font-display);font-size:clamp(72px,12vw,168px);line-height:1;letter-spacing:.02em;color:var(--ice)}
+.gf-date{font-size:clamp(18px,2.2vw,28px);color:var(--dim-text);margin-top:8px}
+.gf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-content:start}
+.gf-tile{padding:22px 24px;border-radius:var(--r-card);background:var(--glass);border:1px solid var(--line);backdrop-filter:var(--blur-card)}
+.gf-tile h3{margin:0 0 10px;font:600 12px var(--font-display);letter-spacing:.16em;text-transform:uppercase;color:var(--lilac)}
+.gf-big{font-size:clamp(22px,2.4vw,34px);line-height:1.25}
+.gf-small{font-size:15px;color:var(--dim-text);margin-top:6px;line-height:1.45}
+@media (prefers-reduced-motion: reduce){.eva-glance{transition:none}}
+
 /* ===== Main: stage + rail ===== */
 .eva-main{position:relative;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 0px;gap:0;align-items:center;justify-content:center;
   max-width:1240px;width:100%;margin:0 auto;transition:grid-template-columns var(--dur-layout) var(--ease-out),gap var(--dur-layout) var(--ease-out)}
@@ -324,8 +343,23 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .eva.settings-open .eva-scrim{opacity:1;pointer-events:auto}
 .eva.settings-open #evaSettings{transform:none;visibility:visible}
 .set-group{display:flex;flex-direction:column;gap:10px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
+.set-tabs{display:flex;gap:6px;padding:4px 0 10px;flex-wrap:wrap}
+.set-tab{height:32px;padding:0 14px;border-radius:var(--r-pill);border:1px solid var(--line);background:none;color:var(--dim-text);font-size:13px}
+.set-tab.is-on{background:var(--tint-2);color:var(--ice);border-color:var(--line-strong)}
+.mem-list{display:flex;flex-direction:column;gap:2px;padding:8px 0}
+.mem-row{display:flex;flex-direction:column;gap:4px;padding:10px 4px;border-bottom:1px solid var(--line-soft)}
+.mem-row small{color:var(--dim-text);font-size:12px}
+.mem-text{font-size:14px;line-height:1.4}
+.mem-actions{display:flex;gap:6px}
+.mem-btn{height:30px;padding:0 12px;border-radius:var(--r-pill);border:1px solid var(--line);background:none;color:var(--ice);font-size:12px;align-self:flex-start}
+.mem-btn:hover{background:var(--tint)}
+.mem-btn.is-armed{background:rgba(192,38,211,.25);border-color:var(--magenta)}
+.note-day{display:flex;flex-direction:column;gap:8px;padding:14px 0;border-bottom:1px solid var(--line-soft)}
+.note-head{font-size:15px;line-height:1.45}
+.note-item{display:flex;flex-direction:column;gap:3px;padding:8px 10px;border-radius:var(--r-sm);background:var(--glass-row);font-size:13px;line-height:1.4}
+.note-item small,.note-good{color:var(--dim-text);font-size:12px;line-height:1.4}
 .set-field{display:flex;flex-direction:column;gap:6px}
-.set-field .rt-in{flex:none;height:40px;width:100%}
+.set-field .rt-in,.set-group > .rt-in,.mem-row .rt-in{flex:none;height:40px;width:100%}
 .set-field label{font-size:14px;color:var(--ice);display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .set-field small{font-size:11px;color:var(--dim-text)} .set-field small button{color:var(--lilac);background:none;border:0;font-size:11px;padding:0;text-decoration:underline;cursor:pointer}
 .set-toggle{align-self:flex-start;min-width:64px;height:32px;border-radius:16px;border:1px solid var(--line);background:rgba(8,6,15,.6);color:var(--dim-text);font:600 12px var(--font-display);letter-spacing:.08em}
@@ -484,9 +518,15 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
     <section class="eva-stage">
       <canvas class="eva-core" id="evaCore" aria-hidden="true"></canvas>
       <p class="eva-caption is-muted" id="evaCaption" aria-live="polite"></p>
+      <div class="eva-glance" id="evaGlance" aria-label="At a glance"></div>
     </section>
     <aside class="eva-rail" id="evaRail" aria-label="Cards"></aside>
   </main>
+
+  <section class="glance-full" id="evaGlanceFull" aria-label="At a glance">
+    <div><div class="gf-clock" id="gfClock">--:--</div><div class="gf-date" id="gfDate"></div></div>
+    <div class="gf-grid" id="gfGrid"></div>
+  </section>
 
   <footer class="eva-bottom">
     <button class="eva-history-btn" id="evaHistoryBtn" aria-controls="evaDrawer" aria-expanded="false"><svg class="i"><use href="#i-up"/></svg>Chats</button>
@@ -635,6 +675,7 @@ document.addEventListener('visibilitychange', () => document.hidden ? cancelAnim
 
 function setState(s) {
   core.state = s;
+  if (s !== 'idle') glanceBusy();
   const mic = $('evaMic');
   mic.dataset.mode = s;
   mic.setAttribute('aria-label', s === 'speaking' ? 'Stop' : s === 'listening' ? 'Stop listening' : 'Talk');
@@ -644,6 +685,7 @@ function setState(s) {
 
 /* ---------- caption ---------- */
 function setCaption(text, spoken) {
+  if (text) glanceBusy();
   caption.textContent = '';
   caption.classList.toggle('is-muted', false);
   if (!text) return;
@@ -1044,12 +1086,84 @@ $('evaRoutinesBtn').onclick = () => root.classList.contains('routines-open') ? c
 function openSettings() { closeAll(); root.classList.add('settings-open'); $('evaSettings').setAttribute('aria-hidden', 'false');
   $('evaSettingsBtn').setAttribute('aria-expanded', 'true'); settingsLoad(); }
 $('evaSettingsBtn').onclick = () => root.classList.contains('settings-open') ? closeAll() : openSettings();
+addEventListener('eva:review-open', () => { SETTAB = 'notes'; openSettings(); });
 /* v0.7 settings: what you'd otherwise say or edit in YAML; saved on top of your settings files */
-async function settingsLoad() {
+var SETTAB = 'settings';                       // v0.9: Settings | What she knows | Her notes
+function setHead(title) {
+  return [h('div', { class: 'panel__head' }, h('div', { class: 'panel__title' }, title),
+      h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: closeAll }, icon('x'))),
+    h('div', { class: 'set-tabs', role: 'tablist' }, [['settings', 'Settings'], ['memory', 'What she knows'], ['notes', 'Her notes']].map(([k, l]) =>
+      h('button', { class: 'set-tab' + (SETTAB === k ? ' is-on' : ''), role: 'tab', 'aria-selected': SETTAB === k ? 'true' : 'false', onclick: () => { SETTAB = k; settingsLoad(); } }, l)))];
+}
+const MEM = { q: '', armed: 0, editing: 0, timer: 0 };
+async function memoryLoad() {
   const box = $('evaSettings');
   try {
+    const r = await fetch('/api/memory' + (MEM.q ? '?q=' + encodeURIComponent(MEM.q) : ''), { credentials: 'same-origin' });
+    const d = await r.json(); if (SETTAB === 'memory') memoryRender(d);      // a late answer never covers another tab
+  } catch (_) { box.textContent = ''; box.append(...setHead('What she knows'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load my memory.")); }
+}
+async function memoryPost(id, what, body) {
+  const r = await fetch(`/api/memory/${id}/${what}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-EVA': '1' }, body: JSON.stringify(body || {}) });
+  const out = await r.json().catch(() => ({}));
+  const ok = $('setOk'); if (ok) { ok.textContent = r.ok ? (what === 'forget' ? 'Forgotten.' : 'Saved.') : (out.error || "That didn't work."); ok.style.color = r.ok ? '' : 'var(--magenta)'; }
+  MEM.armed = 0; MEM.editing = 0; memoryLoad();
+}
+function memoryRender(d) {
+  const box = $('evaSettings'), facts = d.facts || [];
+  const focused = document.activeElement && document.activeElement.id === 'memSearch';
+  const search = h('input', { class: 'rt-in', id: 'memSearch', type: 'search', placeholder: 'Search what she knows', value: MEM.q, 'aria-label': 'Search what she knows',
+    oninput: e => { MEM.q = e.target.value.trim(); clearTimeout(MEM.timer); MEM.timer = setTimeout(memoryLoad, 250); } });
+  const row = f => {
+    const meta = `${f.category}${f.source === 'auto' ? ' \u00b7 she picked it up' : ' \u00b7 you told her'}`;
+    if (MEM.editing === f.id) {
+      const inp = h('input', { class: 'rt-in', value: f.text, 'aria-label': 'Edit this fact', onkeydown: e => { if (e.key === 'Enter') memoryPost(f.id, 'edit', { text: e.target.value }); if (e.key === 'Escape') { MEM.editing = 0; memoryLoad(); } } });
+      setTimeout(() => inp.focus(), 0);
+      return h('div', { class: 'mem-row is-editing' }, inp, h('div', { class: 'mem-actions' }, h('button', { class: 'mem-btn', onclick: () => memoryPost(f.id, 'edit', { text: inp.value }) }, 'Save'), h('button', { class: 'mem-btn', onclick: () => { MEM.editing = 0; memoryLoad(); } }, 'Cancel')));
+    }
+    return h('div', { class: 'mem-row' }, h('div', { class: 'mem-text' }, f.text), h('small', null, meta),
+      h('div', { class: 'mem-actions' }, h('button', { class: 'mem-btn', onclick: () => { MEM.editing = f.id; memoryLoad(); } }, 'Edit'),
+        h('button', { class: 'mem-btn' + (MEM.armed === f.id ? ' is-armed' : ''), onclick: () => { if (MEM.armed === f.id) memoryPost(f.id, 'forget'); else { MEM.armed = f.id; memoryRender(d); } } }, MEM.armed === f.id ? 'Forget it?' : 'Forget')));
+  };
+  box.textContent = '';
+  box.append(...setHead('What she knows'), h('div', { class: 'set-ok', id: 'setOk' }),
+    h('div', { class: 'set-group' }, search, h('div', { class: 'panel__help' }, `${facts.length} thing${facts.length === 1 ? '' : 's'}${MEM.q ? ' match' : ' she remembers about you'}. Every chat shares them.`)),
+    h('div', { class: 'mem-list' }, facts.length ? facts.map(row) : h('div', { class: 'panel__help' }, MEM.q ? 'Nothing matches.' : 'Nothing yet.')));
+  if (focused) { const el = $('memSearch'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+async function notesLoad() {
+  try { const r = await fetch('/api/review', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'notes') notesRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('Her notes'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load my notes.")); }
+}
+function notesRender(d) {
+  const box = $('evaSettings'), list = d.reviews || [];
+  const run = h('button', { class: 'mem-btn', onclick: async e => {
+    e.target.textContent = 'Reading my day...'; e.target.disabled = true;
+    const r = await fetch('/api/review/run', { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) { const ok = $('setOk'); if (ok) { ok.textContent = out.say || out.error || "I couldn't review today."; ok.style.color = 'var(--magenta)'; } e.target.textContent = 'Review today now'; e.target.disabled = false; return; }
+    notesLoad(); } }, 'Review today now');
+  const card = r => {
+    if (!r.read) fetch(`/api/review/${r.date}/read`, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } }).catch(() => {});
+    return h('div', { class: 'note-day' },
+      h('div', { class: 'bench__label' }, `${r.date} \u00b7 ${r.turns || 0} turns`),
+      h('div', { class: 'note-head' }, r.headline || ''),
+      (r.mistakes || []).map(m => h('div', { class: 'note-item' }, h('div', null, h('b', null, m.time ? m.time + ' ' : ''), m.what), m.why ? h('small', null, 'Why: ' + m.why) : null, m.fix ? h('small', null, 'Fix: ' + m.fix) : null)),
+      (r.good || []).length ? h('small', { class: 'note-good' }, 'Went well: ' + r.good.join('; ')) : null,
+      h('button', { class: 'mem-btn', onclick: e => { navigator.clipboard && navigator.clipboard.writeText(r.text).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Copy failed'; }); } }, 'Copy for Claude'));
+  };
+  box.textContent = '';
+  box.append(...setHead('Her notes'), h('div', { class: 'set-ok', id: 'setOk' }),
+    h('div', { class: 'set-group' }, h('div', { class: 'panel__help' }, `Every night she reads her own day (kept in memory, never in a log file) and writes down what went wrong. ${d.today_lines || 0} lines from today so far.`), run),
+    ...(list.length ? list.map(card) : [h('div', { class: 'panel__help', style: 'padding:12px 0' }, 'No notes yet: the first ones come tonight.')]));
+}
+async function settingsLoad() {
+  const box = $('evaSettings');
+  if (SETTAB === 'memory') return memoryLoad();
+  if (SETTAB === 'notes') return notesLoad();
+  try {
     const r = await fetch('/api/settings', { credentials: 'same-origin' }); if (!r.ok) throw new Error(r.status);
-    settingsRender(await r.json());
+    const d = await r.json(); if (SETTAB === 'settings') settingsRender(d);
   } catch (e) { box.textContent = ''; box.append(h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load the settings.")); }
 }
 async function settingsSend(key, value, reset) {
@@ -1072,8 +1186,7 @@ function settingsRender(d) {
     return h('div', { class: 'set-field' }, h('label', null, f.label), ctl, note);
   };
   box.textContent = '';
-  box.append(h('div', { class: 'panel__head' }, h('div', { class: 'panel__title' }, 'Settings'),
-      h('button', { class: 'icon-btn', 'aria-label': 'Close settings', onclick: closeAll }, icon('x'))),
+  box.append(...setHead('Settings'),
     h('div', { class: 'set-spend' }, `Today ${eur(sp.spent)} of ${eur(sp.limit)} \u00b7 this month ${eur(sp.month_spent)} of ${eur(sp.month_limit)}`),
     h('div', { class: 'set-ok', id: 'setOk' }),
     ...(d.groups || []).map(g => h('div', { class: 'set-group' }, h('div', { class: 'bench__label' }, g.title), g.fields.map(field))));
@@ -1164,6 +1277,7 @@ function benchEvent(task, ev) {
 }
 function benchRender() {
   const el = benchEl(), t = BENCH.t; benchPill();
+  root.classList.toggle('stage-idle', !t || !['running', 'queued', 'waiting'].includes(t.status));   // v0.9
   if (!t) { el.textContent = ''; el.append(h('div', { class: 'bench__empty', style: 'grid-column:1/-1' }, 'No task yet. Ask me to design, research or plan something.')); return; }
   el.dataset.s = t.status;
   const statusWord = { running: 'Working', queued: 'Starting', waiting: 'Needs you', done: 'Done', paused: 'Paused', failed: 'Stopped', cancelled: 'Cancelled' }[t.status] || t.status;
@@ -1338,6 +1452,58 @@ if (/[?&]demo\b/.test(location.search)) {
   document.body.append(h('div', { class: 'eva-demo' }, Object.entries(steps).map(([k, fn]) => h('button', { onclick: () => { closeAll(); fn(); } }, k))));
   addEventListener('eva:action', e => console.log('eva:action', e.detail));
 }
+
+/* ---------- the glance (v0.9): weather, next event, train, project, tasks, when nothing is going on ---------- */
+var GLANCE = { data: null, lastBusy: Date.now() };   // var: setState may run before this line
+const pad2 = n => String(n).padStart(2, '0');
+function glanceBusy() { if (GLANCE) GLANCE.lastBusy = Date.now(); root.classList.remove('glance-on'); }
+function glanceIdle() { return core.state === 'idle' && Date.now() - GLANCE.lastBusy > 45000 && !root.classList.contains('history-open'); }
+function glanceNext(n) {
+  if (!n) return null;
+  const when = n.now ? 'now' : n.in_min < 60 ? `in ${n.in_min} min` : n.time;
+  return { label: n.now ? 'Now' : n.time, text: `${n.title}${n.now || n.in_min >= 60 ? '' : ' \u00b7 ' + when}`, soon: !n.now && n.in_min <= 15 };
+}
+function glanceRender() {
+  const d = GLANCE.data, strip = $('evaGlance'); strip.textContent = '';
+  if (d) {
+    const chips = [];
+    if (d.weather && d.weather.temp_c != null) chips.push(h('span', { class: 'glance-chip' }, h('b', null, `${Math.round(d.weather.temp_c)}\u00b0`), d.weather.conditions || ''));
+    const n = glanceNext(d.next);
+    if (n) chips.push(h('span', { class: 'glance-chip' + (n.soon ? ' is-soon' : '') }, h('b', null, n.label), n.text));
+    if (d.train) chips.push(h('span', { class: 'glance-chip', title: d.train }, h('b', null, 'Train'), d.train.replace(/, sir\.?$/, '').slice(0, 70)));
+    // one more, by what matters most: a task, her unread notes, the project (the window stays calm)
+    const t = (d.tasks || [])[0];
+    if (t) chips.push(h('span', { class: 'glance-chip' }, h('b', null, t.status === 'waiting' ? 'Needs you' : 'Working'), t.title));
+    else if (d.review && d.review.unread) chips.push(h('button', { class: 'glance-chip', onclick: () => emit('review-open') }, h('b', null, 'Her notes'), d.review.headline || 'on yesterday'));
+    else if (d.project) chips.push(h('span', { class: 'glance-chip' }, h('b', null, 'Project'), d.project.name + (d.project.open_questions ? ` \u00b7 ${d.project.open_questions} open question${d.project.open_questions > 1 ? 's' : ''}` : '')));
+    strip.append(...chips.slice(0, matchMedia('(max-width: 560px)').matches ? 3 : 4));
+  }
+  root.classList.toggle('glance-on', !!(d && strip.childElementCount && glanceIdle()));
+  if (root.classList.contains('stage-mode')) glanceFull();
+}
+function glanceFull() {
+  const d = GLANCE.data || {}, grid = $('gfGrid'); grid.textContent = '';
+  const tile = (title, big, small) => h('div', { class: 'gf-tile' }, h('h3', null, title), h('div', { class: 'gf-big' }, big), small ? h('div', { class: 'gf-small' }, small) : null);
+  if (d.next) grid.append(tile(d.next.now ? 'Now' : 'Next', `${d.next.time} ${d.next.title}`, d.next.now ? null : d.next.in_min < 120 ? `in ${d.next.in_min} minutes${d.left_today > 1 ? `, ${d.left_today - 1} more today` : ''}` : (d.left_today > 1 ? `${d.left_today - 1} more today` : null)));
+  else grid.append(tile('Today', 'Nothing else on the calendar', null));
+  if (d.weather && d.weather.temp_c != null) grid.append(tile(d.weather.place || 'Weather', `${Math.round(d.weather.temp_c)}\u00b0 ${d.weather.conditions || ''}`, d.weather.high_c != null ? `${Math.round(d.weather.low_c)}\u00b0 to ${Math.round(d.weather.high_c)}\u00b0${d.weather.rain_chance_pct ? `, ${d.weather.rain_chance_pct}% rain` : ''}` : null));
+  if (d.train) grid.append(tile('Train', d.train.replace(/, sir\.?$/, '.'), null));
+  if (d.project) grid.append(tile('Project', d.project.name, [d.project.open_questions ? `${d.project.open_questions} open question${d.project.open_questions > 1 ? 's' : ''}` : '', d.project.parts ? `${d.project.parts} parts, about ${Math.round(d.project.total_eur)} euros` : ''].filter(Boolean).join(' \u00b7 ') || null));
+  (d.tasks || []).forEach(t => grid.append(tile(t.status === 'waiting' ? 'Needs you' : 'Working on', t.title, t.now || null)));
+  if (d.review && d.review.headline) grid.append(tile('Her notes on ' + (d.review.date || 'yesterday'), d.review.headline, null));
+}
+function glanceClock() {
+  const now = new Date();
+  $('gfClock').textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+  $('gfDate').textContent = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+}
+async function glanceLoad() {
+  try { const r = await fetch('/api/glance', { credentials: 'same-origin' }); if (r.ok) GLANCE.data = await r.json(); } catch (_) {}
+  glanceRender();
+}
+glanceLoad(); glanceClock();
+setInterval(glanceLoad, 60000); setInterval(glanceClock, 1000);
+setInterval(() => root.classList.toggle('glance-on', !!(GLANCE.data && $('evaGlance').childElementCount && glanceIdle())), 5000);
 })();
 </script>
 <script>

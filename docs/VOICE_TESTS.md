@@ -400,3 +400,19 @@ nothing new (pyautogui is already installed).
 | 27.9 | After a research task: "show me the links" | A card with the links, clickable | `TOOL task_show` |
 | 27.10 | Settings: computer use to "Act without asking", then "turn on Bluetooth" | No question; the Bluetooth page opens first, then she clicks | `TOOL use_computer`, `COMPUTER:` |
 | 27.11 | Pull the network cable during a task, plug it back | The task says it lost the line; "carry on" goes on | `CLAUDE: ...; trying again`, `AGENT: ... waiting` |
+
+## 28. v0.9: the glance, her notes, the morning fixes
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 28.1 | Leave the window alone for a minute | Chips under the orb: weather, next event, train, a task or project | |
+| 28.2 | Open /stage on the second monitor with no task running | A big clock and tiles for the day | |
+| 28.3 | Tomorrow, first thing: any sentence | "Good morning, sir. It's ... First up: ..." then the answer | `EVA (morning):` |
+| 28.4 | "Tell me a story for 10 minutes" | The whole story, read out; no "I haven't done that" | `ECHO: first sound ... s` |
+| 28.5 | After a story that ends with "say continue": "Continue" | The story goes on (no Spotify) | `MIND: his answer to her question` |
+| 28.6 | Music on, ask her to move calendar items, then "stop the music" during "Shall I go ahead?" | The music stops | `ORCH: 'stop the music' is a new command` |
+| 28.7 | "Move the items from 9 until now 30 minutes later" | "move the events today from 9:00 until now 30 minutes later. Shall I go ahead?", then exactly those | `TOOL calendar_shift` |
+| 28.8 | Settings > What she knows: search, edit a fact, forget one | Works; forget asks "Forget it?" first | `CORTEX: edited` / `forgot` |
+| 28.9 | "How did you do today?" (or Settings > Her notes > Review today now) | A headline and her mistakes; "Copy for Claude" | `REVIEW:` |
+| 28.10 | A computer task with screenshots | It runs; no budget pause with most of the budget left | |
+| 28.11 | At start-up | `ECHO: Kokoro loaded (... device cuda)`, or a line saying why it's on the CPU | |

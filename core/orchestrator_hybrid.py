@@ -185,6 +185,30 @@ _DAY_WORD = re.compile(r"\b(today|tonight|tomorrow|monday|tuesday|wednesday|thur
 from core.mind import MIND_ONLY as _MIND_ONLY  # noqa: E402  (tools that need the mind's eyes)
 
 
+_NEGATED = re.compile(r"(?:\bnothing|\bnot|n't|\bnever|\bno\b|\bwithout|\bwon't|\bcan't|\bwasn't|\bisn't)[^.!?]{0,30}$", re.I)
+
+
+def claims(text: str) -> bool:
+    """She says she did something (v0.8 _CLAIM), not counting 'Nothing has been moved' (Nov 27 10:01: the guard
+    caught her saying nothing changed)."""
+    for m in _CLAIM.finditer(text or ""):
+        if not _NEGATED.search(text[max(0, m.start() - 40):m.start()]):
+            return True
+    return False
+
+
+# Nov 27 02:08: a story ("someone who had been sent to fix...") tripped the claim guard and was replaced by "No, sir,
+# I haven't done that." Stories, poems and talks are words, not claims.
+_CREATIVE = re.compile(r"\b(?:stor(?:y|ies)|tale|poem|poetry|haiku|joke|riddle|bedtime|fairy ?tale|once upon|imagine|"
+                       r"pretend|role ?play|write (?:me )?(?:a|an|some) (?:story|poem|song|tale|letter)|make up|"
+                       r"for \d+ minutes|\d+ minutes? long|continue|go on|keep going|next part)\b",
+                       re.I)
+
+
+def creative(text: str) -> bool:
+    return bool(_CREATIVE.search(text or ""))
+
+
 def unchecked_fact(text: str, tools: list[str]) -> str | None:
     """The kind of personal fact this answer states without having looked it up this turn, or None."""
     for kind, (rx, prefixes) in _FACTS.items():
@@ -242,6 +266,8 @@ def _messages_when_locked(tool: str) -> bool:
 
 _YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|do it|go ahead|go on|confirm(?:ed)?|ok(?:ay)?|please do|"
                   r"affirmative|correct|absolutely|of course|da|sigur|trimite|trimite-l|fă-o|fa-o)(?!\w)", re.I)
+_NEW_STOP = re.compile(r"^\W*(?:(?:hey|ok|okay)\W+)?(?:eva\W+)?(?:stop|pause|mute)\s+(?!it\b|that\b|please\b|eva\b|now\b)"
+                       r"(?:the |my )?(?:music|song|spotify|playing|playback|video|timer|alarm|sound|audio|volume)", re.I)
 _NO = re.compile(r"^\s*(?:no|nope|nah|cancel|don'?t|stop|never ?mind|abort|forget it|leave it|nu|anulează|anuleaza|"
                  r"lasă|lasa)(?!\w)", re.I)
 # Nov 23: "Hey Eva, can you..." and a pause: the phone sent only "can you", and she answered a guess. Half a
@@ -346,8 +372,20 @@ def _vague_site(tool: str, decision: dict) -> bool:
                                               r"shop|store|listing|product|one)\b|\b(?:it|that|this one)$", site, re.I))
 
 
+def _needs_mind(tool: str, decision: dict) -> bool:
+    """Understanding's pick needs a detail it can't guess: the mind asks or works it out."""
+    if _vague_site(tool, decision):
+        return True
+    args = decision.get("args") if isinstance(decision.get("args"), dict) else decision
+    # Nov 27 09:51: "move all items from 9" (no amount) became "move everything still ahead 9 60 minutes earlier"
+    return tool == "calendar_shift" and not args.get("minutes")
+
+
+_GO_ON_INVITE = re.compile(r"\b(?:say|tell me) [\"']?(?:continue|go on|next)\b|\bwant (?:the|me to) (?:next|go on|"
+                           r"continue)|\bshall i (?:go on|continue)\b", re.I)
 _ANSWER_WORDS = re.compile(
-    r"^(?:(?:hey |ok |okay )?eva,?\s+)?(?:yes|yeah|yep|yup|sure|ok(?:ay)?|alright|go ahead|do it|do that|please(?: do)?|"
+    r"^(?:(?:hey |ok |okay )?eva,?\s+)?(?:continue|go on|keep going|carry on|next(?: part| one)?|more|and then|"
+    r"what happen(?:s|ed) next|yes|yeah|yep|yup|sure|ok(?:ay)?|alright|go ahead|do it|do that|please(?: do)?|"
     r"sounds good|perfect|great|no|nope|nah|not (?:now|yet)|maybe|the (?:first|second|third|last|other) one|"
     r"(?:the )?(?:first|second|third|last) (?:one|option)|option \w+|both|neither|that one|this one)\b", re.I)
 
@@ -356,9 +394,10 @@ class _Speech:
     """The mind's words as checked sentences (v0.8): each finished sentence is spoken while the rest is still
     coming, unless it claims an action nobody ran or states an unchecked fact; from then on she holds back and the
     whole answer goes through the usual guards."""
-    def __init__(self, ran: list):
+    def __init__(self, ran: list, words: bool = False):
         from voice.speech import SentenceChunker
         self.chunker, self.ran, self.blocked, self.held = SentenceChunker(), ran, False, []
+        self.words = words                         # a story: nothing to guard
 
     def _pass(self, sentences: list[str]) -> list[str]:
         from core import mind
@@ -367,7 +406,7 @@ class _Speech:
             sent = mind.spoken(raw)
             if not sent:
                 continue
-            if self.blocked or _CLAIM.search(sent) or unchecked_fact(sent, self.ran):
+            if not self.words and (self.blocked or claims(sent) or unchecked_fact(sent, self.ran)):
                 self.blocked = True
                 self.held.append(sent)
                 continue
@@ -1313,7 +1352,7 @@ class HybridOrchestrator:
             self._context(user_input, ctx)
             text = spoken(await self._grounded_web_answer(client, ctx, gathered, user_input))
             acted = any(self.belt.is_action(t) and '"error"' not in out.get("result", "") for t, out in gathered)
-            if not acted and _CLAIM.search(text):
+            if not acted and claims(text):
                 logger.warning(f"claim guard (web): {text!r} but no action ran")
                 text = NOT_DONE
             yield {"type": "final", "text": text}
@@ -1332,7 +1371,7 @@ class HybridOrchestrator:
                     logger.warning(f"denial guard: replaced {final!r}")
                     ev = {"type": "final", "text": fallback}
                 acted = any(self.belt.is_action(t) and '"error"' not in out.get("result", "") for t, out in gathered)
-                if not acted and _CLAIM.search(ev["text"]):
+                if not acted and claims(ev["text"]):
                     logger.warning(f"claim guard: {ev['text']!r} but no action ran")
                     ev = {"type": "final", "text": NOT_DONE}
             yield ev
@@ -1401,14 +1440,20 @@ class HybridOrchestrator:
         model, claude = c["model"], get_claude()
         effort = (c.get("chat_effort") if chat else c.get("effort")) or None
         last_text, spoke = "", False
+        words = creative(user_input)                    # a story or a talk: words, not claims (Nov 27 02:08)
+        max_tokens = int(c["max_tokens"])
+        mins = re.search(r"\b(\d{1,2})\s*(?:-\s*)?min(?:ute)?s?\b", user_input)
+        if words:                                       # v0.9: "a story for 10 minutes" is told in one go
+            minutes = min(25, int(mins.group(1))) if mins else 4
+            max_tokens = max(max_tokens, min(16000, int(minutes * 140 * 1.45) + 1500))
         loop = asyncio.get_running_loop()
         for step in range(int(c["max_steps"])):
             q: asyncio.Queue = asyncio.Queue()
             on_text = (lambda t: loop.call_soon_threadsafe(q.put_nowait, t)) if c.get("stream", True) else None
             call = asyncio.to_thread(claude.message, system=self._mind_system, messages=msgs, tools=self._mind_tools,
-                                     model=model, max_tokens=int(c["max_tokens"]), effort=effort, purpose="mind",
+                                     model=model, max_tokens=max_tokens, effort=effort, purpose="mind",
                                      cache=True, on_text=on_text)
-            speech = _Speech([t for t, _ in gathered])
+            speech = _Speech([t for t, _ in gathered], words)
             ack = None if (chat or step or spoke) else "One moment, sir."
             try:
                 resp = None
@@ -1447,21 +1492,22 @@ class HybridOrchestrator:
             if not uses:
                 answer = text or "I'm not sure, sir. Could you say that another way?"
                 ran = [t for t, _ in gathered]
-                kind = unchecked_fact(answer, ran)        # the same guards as every answer: no made-up facts
+                kind = None if words else unchecked_fact(answer, ran)   # the same guards: no made-up facts
                 if kind:
                     logger.warning(f"MIND: fact guard ({kind}): {answer!r}")
                     answer, check = offer_for(kind, user_input, answer)
                     if check:
                         self.pending_offer = {"tool": check[0], "args": check[1], "ts": time.time()}
                 acted = any(self.belt.is_action(t) and '"error"' not in out.get("result", "") for t, out in gathered)
-                if not acted and _CLAIM.search(answer):
-                    logger.warning(f"MIND: claim guard: {answer!r} but no action ran")
+                if not acted and not words and claims(answer):
+                    logger.warning(f"MIND: claim guard: {answer[:300]!r} but no action ran")
                     answer = NOT_DONE
                 replaced = answer != text
                 if not replaced and speech.held:            # a sentence looked risky but the whole answer is fine
                     yield {"type": "token", "text": " ".join(speech.held) + " "}
                 logger.info(f"MIND: answered after {step + 1} step{'s' if step else ''} ({model})")
-                self._mind_asked = time.time() if answer.rstrip().endswith("?") else 0.0
+                self._mind_asked = time.time() if (answer.rstrip().endswith("?") or _GO_ON_INVITE.search(
+                    answer[-200:])) else 0.0
                 self._mind_done = True
                 self._finish(user_input, answer, used)
                 if browsed and brw.SHOT.exists():            # what she saw, in the window
@@ -1587,7 +1633,7 @@ class HybridOrchestrator:
             except Exception as e:
                 logger.error(f"CONVERSATION: local answer failed: {e}")
             text = "".join(full).strip()
-        if _CLAIM.search(text):                         # a chat never claims an action
+        if claims(text):                         # a chat never claims an action
             logger.warning(f"claim guard (conversation): {text!r}")
             text = NOT_DONE
         yield {"type": "final", "text": text or "I lost my train of thought there, sir. Say that again?"}
@@ -1786,7 +1832,7 @@ class HybridOrchestrator:
         if info:
             ask = " and ".join(s["command"] for s in steps if s["command"] not in skipped)
             text = await self._collect(client, ctx["facts"], ctx["skills"], info, ask)
-            if _CLAIM.search(text):                  # data answers never claim actions
+            if claims(text):                  # data answers never claim actions
                 logger.warning(f"claim guard (multi): {text!r}")
                 text = ""
             if text:
@@ -1944,6 +1990,11 @@ class HybridOrchestrator:
             if self.pending:
                 p, self.pending = self.pending, None
                 fresh = time.time() - p["ts"] < CONFIRM_TTL_S
+                # Nov 27 09:51: "stop the music" while she asked about the calendar was taken as "no" and the music
+                # played on. A new command cancels the question and runs.
+                if fresh and _NEW_STOP.match(user_input):
+                    logger.info(f"ORCH: '{user_input}' is a new command; dropping the question about {p['tool']}")
+                    self.pending_queue, fresh = [], False
                 loose_yes = (re.search(r"\b(yes|yeah|yep|sure|go ahead|do it|please do|correct|right)\b", user_input, re.I)
                              and len(user_input.split()) <= 10 and not _NO.search(user_input))
                 if fresh and p["tool"] == "forge_build" and local_answer(user_input):
@@ -2107,7 +2158,7 @@ class HybridOrchestrator:
                 for _ in range(MAX_TOOL_ITERS):
                     decision = await self._decide(client, ctx["skills"], gathered)
                     tool = decision.get("tool", "none")
-                    if (tool == "work_it_out" or tool in _MIND_ONLY or _vague_site(tool, decision)) and not gathered \
+                    if (tool == "work_it_out" or tool in _MIND_ONLY or _needs_mind(tool, decision)) and not gathered \
                             and self._mind_ready(user_input):
                         handed = True                      # v0.5: it needs thinking: the mind answers below
                         flat = {k: v for k, v in decision.items() if k not in ("tool", "args") and not k.startswith("_")}

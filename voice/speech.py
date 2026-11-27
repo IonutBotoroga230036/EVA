@@ -18,6 +18,7 @@ about 0.3 GB of VRAM. Set device: "cpu" to keep the GPU free.
 from __future__ import annotations
 
 import asyncio
+import time
 import base64
 import io
 import re
@@ -87,10 +88,17 @@ def _device(want: str) -> str:
     to voice that the window gave up on them)."""
     want = (want or "auto").lower()
     if want != "auto":
+        if want == "cpu":
+            logger.info("ECHO: Kokoro on the CPU because voice.tts.device says cpu (config/settings.local.yaml?)")
         return want
     try:
         import torch
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            return "cuda"
+        # Nov 27: still "device cpu". Whisper uses the GPU through CTranslate2, Kokoro needs torch with CUDA.
+        logger.info(f"ECHO: Kokoro on the CPU: torch {torch.__version__} sees no GPU (a CPU-only torch build?). "
+                    f"For the GPU: the CUDA build from pytorch.org/get-started/locally (Pip, Windows, CUDA)")
+        return "cpu"
     except Exception:
         return "cpu"
 
@@ -271,6 +279,7 @@ class TurnSpeaker:
         self.tts, self.send, self.turn = tts, send, turn
         self.queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
         self.sent = 0
+        self.started = 0.0                       # set by the window turn: when he stopped talking
         self.task = asyncio.create_task(self._worker())
 
     async def say(self, text: str) -> None:
@@ -292,6 +301,8 @@ class TurnSpeaker:
                 logger.error(f"ECHO: synthesis failed for {text[:40]!r}: {e}")
                 wav = None
             if wav:
+                if self.sent == 0 and self.started:        # v0.9: how fast she answers, for him to see
+                    logger.info(f"ECHO: first sound {time.time() - self.started:.1f} s after you finished")
                 await self.send({"type": "audio", "turn": self.turn, "seq": self.sent,
                                  "text": text, "audio": base64.b64encode(wav).decode()})
                 self.sent += 1

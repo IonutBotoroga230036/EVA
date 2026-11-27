@@ -63,6 +63,7 @@ inference:
     provider: "anthropic"                 # key: ANTHROPIC_API_KEY in config/secrets.env (git-ignored)
     model_light: "claude-haiku-4-5-20251001"
     model_heavy: "claude-sonnet-5"        # FORGE code generation and deep thinking
+    http2: false                          # v0.9: try true (after pip install h2) if "CLAUDE: ... disconnected" keeps showing
     mode: "local"                         # v0.2.5: local by default, Claude by choice. auto | cloud | local
     features:                             # each follows the default or picks its own: default | local | auto | cloud
       conversation: "default"             # the conversation lane (milestone 4)
@@ -303,3 +304,14 @@ browser:                               # v0.7 her own browser (core/browser.py):
 computer:                              # v0.7 using your computer (core/computer.py), always as a task you said yes to
   mode: "ask"                          # off | watch (screenshots only) | ask (asks first) | auto (acts without asking)
 
+
+review:                                # v0.9 her nightly self-review (core/review.py); only the review is saved
+  enabled: true
+  after_hour: 23                       # from this hour, once you've been quiet a while
+  quiet_minutes: 20
+  min_turns: 5                         # a quiet day isn't worth a review
+
+greeting:                              # v0.9 the first thing you say in the morning gets a short heads-up first
+  enabled: true
+  from_hour: 5
+  until_hour: 12

@@ -195,10 +195,11 @@ def test_the_mind_and_tasks_know_the_project(mgr, monkeypatch):  # noqa: F811
     assert "Active project (build on it):" in mind.situation() and "Pepper's ghost first" in mind.situation()
     from core.agent import tools as atools
     m = mgr([[T("finish", summary="The 10 inch screen works best, sir.")]])
+    import core.agent.runner as runner                 # v0.9: the test's manager, not a threaded global one
+    monkeypatch.setattr(runner, "get_manager", lambda: m)  # (they raced: calls[0] sometimes didn't exist yet)
     out = atools.tool_task_start("research which screen to put under the glass", project="desk screen")
     t = get_store().get(json.loads(out["result"])["task"])
     assert t.project == projects.get_store().active().id
-    m.run(t.id)
     assert "This task is part of a project" in m.script.calls[0]["system"] and "Pepper's ghost first" in \
         m.script.calls[0]["system"]
     p = projects.get_store().active()

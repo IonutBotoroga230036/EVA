@@ -57,6 +57,8 @@ class _StreamError(RuntimeError):
 TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504, 529}
 RETRY_WAITS = (1.5, 4.0)                 # tests set () to fail at once
 STREAM = True                            # tests can switch it off
+FIRST_BYTE_S = 9.0                       # v0.9: an answer that hasn't started by then is asked again
+STREAM_READ_S = 90.0                     # once it streams: the longest quiet gap allowed
 
 
 class _Resp:
@@ -137,6 +139,23 @@ def read_stream(lines, on_text: Optional[Callable[[str], None]] = None) -> dict:
     return msg
 
 
+def _tokens_in(content) -> int:
+    """A worst-case token count for the budget check. A screenshot is about 1,600 tokens, not a third of its base64
+    (Nov 27 10:03: a computer task 'could cost more' than the 91 cents left: each picture counted as 200k tokens)."""
+    if isinstance(content, str):
+        return len(content) // 3
+    if isinstance(content, list):
+        return sum(_tokens_in(b) for b in content)
+    if isinstance(content, dict):
+        kind = content.get("type")
+        if kind == "image":
+            return 1600
+        if kind == "document":
+            return 4000
+        return sum(_tokens_in(v) for k, v in content.items() if k in ("text", "content", "input", "thinking"))
+    return len(str(content)) // 3
+
+
 def line_trouble(e: BaseException) -> bool:
     """A dropped connection, an overloaded API or a cut stream: worth waiting for, not a broken request."""
     import re
@@ -185,7 +204,7 @@ class ClaudeClient:
         if not self.available():
             raise ClaudeUnavailable("no ANTHROPIC_API_KEY (set it in config/secrets.env)")
         model = model or self.model
-        worst_in = sum(len(str(m.get("content", ""))) for m in messages) // 3 + len(system) // 3 + 2000
+        worst_in = sum(_tokens_in(m.get("content", "")) for m in messages) + len(system) // 3 + 2000
         worst = self.budget.estimate_eur(model, worst_in, max_tokens)
         if not self.budget.can_spend(worst):
             raise BudgetExceeded(f"this call could cost up to EUR {worst:.3f}; the budget doesn't allow it "
@@ -271,13 +290,23 @@ class ClaudeClient:
         if not (STREAM and hasattr(self.http, "stream")):
             return self.http.post(API_URL, json=body, headers=headers)
         got: list[str] = []
+        t0, phase = time.time(), "waiting for an answer"
 
         def relay(t: str) -> None:
             got.append(t)
             if on_text:
                 on_text(t)
+        # v0.9: on 27 Nov 10:02 two calls in a row got nothing for 15 s, then "Server disconnected"; the third
+        # answered in a second. Wait FIRST_BYTE_S for the answer to start, then try again; once it streams, be patient.
+        timeout = {"connect": 6.0, "read": FIRST_BYTE_S, "write": 60.0, "pool": 10.0}
         try:
-            with self.http.stream("POST", API_URL, json={**body, "stream": True}, headers=headers) as r:
+            with self.http.stream("POST", API_URL, json={**body, "stream": True}, headers=headers,
+                                  timeout=httpx.Timeout(**timeout)) as r:
+                phase = "streaming"
+                try:
+                    r.request.extensions["timeout"]["read"] = STREAM_READ_S
+                except Exception:
+                    pass
                 if r.status_code >= 400:
                     r.read()
                     return _Resp(r.status_code, r.text)
@@ -286,6 +315,8 @@ class ClaudeClient:
                     return _Resp(r.status_code, r.text)
                 return _Resp(r.status_code, data=read_stream(r.iter_lines(), relay))
         except (httpx.TransportError, _StreamError) as e:
+            logger.warning(f"CLAUDE: {type(e).__name__} after {time.time() - t0:.1f} s, {phase}"
+                           f"{f', {len(got)} pieces of text in' if got else ''} (model {body.get('model')})")
             if got:                                       # words were already spoken: can't quietly start over
                 raise ClaudeCut(f"the line broke mid-answer ({e})", "".join(got)) from e
             raise
@@ -345,5 +376,13 @@ def get_claude() -> ClaudeClient:
     if _client is None:
         from core.settings import get_settings
         cloud = get_settings().get("inference", {}).get("cloud", {})
-        _client = ClaudeClient(model=cloud.get("model_heavy", "claude-sonnet-5"))
+        http = None
+        if cloud.get("http2"):                            # v0.9: try it if lines keep dropping (pip install h2)
+            try:
+                import h2  # noqa: F401
+                http = httpx.Client(timeout=240.0, http2=True)
+                logger.info("CLAUDE: HTTP/2 on")
+            except ImportError:
+                logger.warning("CLAUDE: inference.cloud.http2 is on but h2 isn't installed (pip install h2)")
+        _client = ClaudeClient(model=cloud.get("model_heavy", "claude-sonnet-5"), http=http)
     return _client

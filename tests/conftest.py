@@ -288,6 +288,15 @@ def isolate_v07(tmp_path, monkeypatch):
         raise RuntimeError("tests never look at your real screen")
     fake_gui.screenshot = _no_shot
     monkeypatch.setitem(__import__("sys").modules, "pyautogui", fake_gui)
+    import core.glance as glance                      # v0.9: no weather or train calls; already greeted today
+    from datetime import date as _date
+    monkeypatch.setattr(glance, "GREETED", tmp_path / "greeted.txt")
+    (tmp_path / "greeted.txt").write_text(_date.today().isoformat())
+    monkeypatch.setattr(glance, "weather", lambda: None)
+    monkeypatch.setattr(glance, "train", lambda now: None)
+    glance._cache.clear()
+    import core.review as review                      # her notes go to the test folder
+    monkeypatch.setattr(review, "DIR", tmp_path / "reviews")
     import core.chats as chats                       # never your real chats; titles inline
     monkeypatch.setattr(chats, "DIR", tmp_path / "chats")
     monkeypatch.setattr(chats, "THREADED", False)

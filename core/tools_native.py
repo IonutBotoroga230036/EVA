@@ -894,3 +894,10 @@ from core import chats as _chats  # noqa: E402
 TOOL_SCHEMAS += _chats.SCHEMAS
 REGISTRY.update(_chats.FUNCTIONS)
 GUARDS.update(_chats.GUARDS)
+
+# ---------------------------------------------------------------- v0.9: her self-review
+from core import review as _review  # noqa: E402
+
+TOOL_SCHEMAS += _review.SCHEMAS
+REGISTRY.update(_review.FUNCTIONS)
+GUARDS.update(_review.GUARDS)

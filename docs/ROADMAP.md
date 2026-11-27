@@ -69,7 +69,8 @@ take on a real project with you (the desk screen) from "what do you mean?" to a 
 | v0.7 (built 26 Nov) | **Chats like Gemini** | Named conversations in the Chats drawer, searchable, renamable, one memory across all of them; she can look through earlier chats. |
 | v0.7 (built 26 Nov) | **Her browser, your computer, settings** | Her own Chromium for pages that need clicking (never pays or types passwords); computer use as a task you said yes to, with the Screen tab and the mouse-in-a-corner stop; Windows settings pages; a settings panel in the window. |
 | v0.8 (built 27 Nov) | **She speaks while she thinks** | Streaming everywhere (the 15-second line drops are retries now, tasks wait instead of crashing), the first sentence spoken while the rest is written, long answers read to the end, acks only when something takes long, Kokoro on the GPU, "Eva, stop"; computer use without asking; the 27 Nov fixes. |
-| v0.9 | **The EDITH screen and self-review** | The idle /stage screen (time, next event and train, project, tasks), a nightly review of her own log, automatic JARVIS test runs, memory you can see. |
+| v0.9 (built 27 Nov) | **The glance and self-review** | The idle glance in the window and on /stage, her nightly notes on her own day (only the review is saved), memory you can see and edit, the morning heads-up, stories told in full, the 27 Nov morning fixes. |
+| v1.0 | **Hands-free and aware** | Talk over her without the wake word, automatic JARVIS test runs, a latency meter, welcome home, local understanding where it's good enough. |
 | later | **Local models, body** | Local models take over turn by turn where they're good enough; the cube with camera, mic and speaker as another device. |
 
 The checklist with every item's status, the JARVIS test (scored per version) and new proposals are kept as an

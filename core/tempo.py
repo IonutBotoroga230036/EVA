@@ -59,7 +59,8 @@ def _late(label: str, now: datetime) -> str:
     return label
 
 
-def agenda(google, day: str = "today", now: Optional[datetime] = None, everything: bool = False) -> dict:
+def agenda(google, day: str = "today", now: Optional[datetime] = None, everything: bool = False,
+           include_past: bool = False) -> dict:
     now = now or datetime.now()
     start, end, label = day_window(day, now.date())
     events = google.list_events(start, end)
@@ -67,13 +68,13 @@ def agenda(google, day: str = "today", now: Optional[datetime] = None, everythin
     if routine and not everything:              # your daily routine only when you ask for everything
         main = [e for e in events if not e.get("routine")]
         if main:
-            out = agenda(_Fixed(main), day, now, everything=True)
+            out = agenda(_Fixed(main), day, now, everything=True, include_past=include_past)
             r = len(routine)
             out["say"] = out["say"].rstrip(".") + f". Plus your daily routine ({r} item{'s' if r != 1 else ''})."
             out["routine"] = r
             return out
         events = routine
-    if label == "today":                           # today: what's still coming matters, not what's done
+    if label == "today" and not include_past:      # today: what's still coming matters, not what's done
         remaining = [e for e in events if e["all_day"] or not e["start"] or (e["end"] or e["start"]) > now]
         if len(remaining) < len(events):
             done = len(events) - len(remaining)
@@ -138,23 +139,50 @@ def free_slots(google, day: str = "today", duration_minutes: int = 30, now: Opti
             "say": f"You're free {span} {_join(words)}, sir."}
 
 
-def shift_events(google, minutes: int = 60, day: str = "today", now: Optional[datetime] = None) -> dict:
-    """Move every timed event still ahead (today, or the given day) by N minutes."""
+def clock_on(day_start: datetime, text: str, now: datetime) -> Optional[datetime]:
+    """'9', '09:30', '3pm', 'now' on that day (v0.9: "move the items from 9 until now")."""
+    t = (text or "").strip().lower()
+    if not t:
+        return None
+    if re.fullmatch(r"(?:until |till |to )?now|right now", t):
+        return now
+    if re.fullmatch(r"\d{1,2}", t):
+        t = f"{int(t):02d}:00"
+    c = parse_clock(t)
+    if not c:
+        return None
+    h = c[0]
+    if len(c) > 2 and c[2] and h >= 12 and day_start.date() == now.date() and h - 12 <= now.hour < h:
+        h -= 12                                     # "from 9" at 09:52 is this morning, not 21:00
+    return day_start.replace(hour=h, minute=c[1])
+
+
+def shift_events(google, minutes: int = 60, day: str = "today", now: Optional[datetime] = None,
+                 from_time: str = "", until_time: str = "") -> dict:
+    """Move every timed event still ahead (today, or the given day) by N minutes; or only those starting between
+    from_time and until_time ("from 9 until now", v0.9)."""
     now = now or datetime.now()
     start, end, label = day_window(day, now.date())
+    lo, hi = clock_on(start, from_time, now), clock_on(start, until_time, now)
+    ranged = bool(lo or hi)
     events = [e for e in google.list_events(start, end, max_results=50)
-              if not e["all_day"] and e["start"] and not e.get("readonly") and (label != "today" or e["start"] > now)]
+              if not e["all_day"] and e["start"] and not e.get("readonly")
+              and ((lo or start) <= e["start"] < (hi or end) if ranged else (label != "today" or e["start"] > now))]
     if not events:
-        return {"moved": 0, "say": f"There's nothing left to move {label}, sir."}
+        span = f"between {_hm(lo) if lo else 'the start of the day'} and {'now' if hi == now else _hm(hi) if hi else 'the end of the day'}"
+        return {"moved": 0, "say": f"There's nothing {span if ranged else 'left'} to move {label}, sir." if ranged else
+                f"There's nothing left to move {label}, sir."}
     delta = timedelta(minutes=int(minutes))
     for e in events:
         google.move_event(e["id"], e["start"] + delta, (e["end"] or e["start"]) + delta)
     first = events[0]
     amount = f"{abs(int(minutes)) // 60} hour{'s' if abs(int(minutes)) >= 120 else ''}" if int(minutes) % 60 == 0 \
         else f"{abs(int(minutes))} minutes"
-    return {"moved": len(events), "say": f"Moved {len(events)} event{'s' if len(events) != 1 else ''} {amount} "
-                                         f"{'later' if minutes > 0 else 'earlier'}, sir. {first['title']} is now at "
-                                         f"{_hm(first['start'] + delta)}."}
+    names = ", ".join(e["title"] for e in events[:4]) + (f" and {len(events) - 4} more" if len(events) > 4 else "")
+    return {"moved": len(events), "titles": [e["title"] for e in events],
+            "say": f"Moved {len(events)} event{'s' if len(events) != 1 else ''} {amount} "
+                   f"{'later' if minutes > 0 else 'earlier'}, sir{f' ({names})' if ranged else ''}. {first['title']} is now at "
+                   f"{_hm(first['start'] + delta)}."}
 
 
 def resolve_start(day: str, time_text: str, now: Optional[datetime] = None) -> Optional[datetime]:
