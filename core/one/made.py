@@ -131,6 +131,11 @@ def risk_of(name: str, args: dict) -> tuple[str, str]:
     m = manifest(name)
     if not m:
         return "ask", "I don't know that skill"
+    if m.get("kind") == "pc":                      # v1.1: a script on his PC he approved; changed since = ask again
+        from core.one import files
+        if files.approved(m.get("script", "")):
+            return "tell", "a script you approved as one of my skills"
+        return "ask", "its script changed since you approved it"
     level = m.get("risk") or "ask"
     if level == "ask":
         return "ask", m.get("why") or "its dry run planned something that needs your yes"
@@ -241,6 +246,8 @@ def run(name: str, args: dict, execute: Execute, is_action: Callable[[str], bool
     m = manifest(name)
     if not m:
         return {"ok": False, "error": f"there's no skill called {name}"}
+    if m.get("kind") == "pc":
+        return _run_pc(m, args, record)
     done: list[dict] = []
 
     def real(tool: str, a: dict) -> dict:
@@ -268,3 +275,73 @@ def run(name: str, args: dict, execute: Execute, is_action: Callable[[str], bool
     except OSError:
         pass
     return {**res, "done": done}
+
+
+# ---------------------------------------------------------------- v1.1: scripts on his PC as skills
+def _fill(template: list, args: dict) -> list[str]:
+    out = []
+    for part in template or []:
+        part = str(part)
+        for k, v in (args or {}).items():
+            part = part.replace("{" + str(k) + "}", str(v))
+        if "{" in part and "}" in part:            # an argument he didn't give: leave that flag out
+            if out and str(out[-1]).startswith("-"):
+                out.pop()
+            continue
+        out.append(part)
+    return out
+
+
+def adopt(name: str, purpose: str, script: str, args: Optional[list] = None, parameters: Optional[dict] = None) -> dict:
+    """Make one of her scripts (in his E.V.A. folder) a skill: skill_<name> runs it with her own Python."""
+    from core.one import files
+    p = files.inside(script)
+    if not p or not p.is_file() or p.suffix.lower() != ".py":
+        p = files.by_name(script, ".py")
+    if not p:
+        return {"ok": False, "error": f"{script} isn't a Python script in the E.V.A. folder"}
+    folder = _folder(name)
+    folder.mkdir(parents=True, exist_ok=True)
+    params = parameters if isinstance(parameters, dict) and parameters.get("type") == "object" else \
+        {"type": "object", "properties": {}}
+    m = {"name": name, "kind": "pc", "purpose": purpose[:600], "parameters": params, "script": str(p),
+         "args": [str(a) for a in (args or [])][:20], "status": "ready", "risk": "tell",
+         "why": "a script you approved as one of my skills", "created": time.time(), "updated": time.time(), "uses": 0}
+    (folder / "skill.json").write_text(json.dumps(m, indent=1), encoding="utf-8")
+    files.approve(p)
+    logger.info(f"SKILLS: adopted {p.name} as skill_{name}")
+    return {"ok": True, "skill": f"skill_{name}", "script": str(p)}
+
+
+def _run_pc(m: dict, args: dict, record) -> dict:
+    from core.one import files
+    out = files.run_script(m["script"], _fill(m.get("args") or [], args or {}), timeout=float(m.get("timeout", 120)))
+    m["uses"] = int(m.get("uses", 0)) + 1
+    m["last_used"] = time.time()
+    m["last_error"] = "" if out.get("ok") else str(out.get("error") or out.get("errors") or "")[:300]
+    try:
+        (_folder(m["name"]) / "skill.json").write_text(json.dumps(m, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+    return {"ok": bool(out.get("ok")), "value": out.get("json", out.get("output", "")[-1500:]),
+            "error": out.get("error") or out.get("errors", ""), "done": []}
+
+
+def review(unused_days: int = 30) -> dict:
+    """v1.1, once a day: skills she made that nobody used for a month are retired (kept on disk, no longer tools);
+    the ones whose last run failed are listed for her notes."""
+    now = time.time()
+    retired, failing = [], []
+    for m in listing():
+        if m.get("status") != "ready":
+            continue
+        last = m.get("last_used") or m.get("created") or now
+        if now - float(last) > unused_days * 86400:
+            m["status"] = "retired"
+            (_folder(m["name"]) / "skill.json").write_text(json.dumps(m, indent=1), encoding="utf-8")
+            retired.append(m["name"])
+        elif m.get("last_error"):
+            failing.append(m["name"])
+    if retired or failing:
+        logger.info(f"SKILLS: review: retired {retired or 'none'}, failing {failing or 'none'}")
+    return {"retired": retired, "failing": failing}

@@ -71,8 +71,13 @@ How you work:
   question with sensible defaults. Don't ask what you can find out or decide sensibly yourself.
 - You work in the task's own folder. Make real files (code, models, documents) and CHECK them (run them, read
   them back, measure them) before you say they're done.
-- You may install things only through install_program / install_python_packages; the user approves those.
-  Prefer free, well-known, open-source programs and libraries. Python runs in a sandbox without network.
+- You may install things only through install_program (he approves those) / install_python_packages (your own
+  environment). Prefer free, well-known, open-source programs and libraries. Python runs in a sandbox without
+  network: download_file what your code needs (models, weights, data) first. find_my_files and import_file bring
+  in his files and earlier tasks' outputs from his E.V.A. folder. Delivering files there needs no question.
+- A script that should become one of E.V.A.'s skills (it needs the camera, the network, his files): deliver it
+  with a short SKILL.md (what it does, its command-line arguments, what it prints; print JSON on the last line),
+  and say so in your summary: she can adopt it as a skill.
 - For 3D printing: produce an STL (and the source, e.g. OpenSCAD .scad or a Python script), sized in mm,
   printable without supports where possible; state the dimensions and the print settings you'd use.
 - LOOK at what you make: preview_model every STL, and for parts that go together also make assembly.stl with
@@ -150,12 +155,35 @@ def _size(msgs: list) -> int:
     return n
 
 
+MAX_IMAGES = 3       # Nov 27: requests of 300 to 776 KB (every screenshot kept) dropped after 15 s, over and over
+
+
+def _keep_last_images(msgs: list, n: int) -> bool:
+    """Only the newest n pictures stay in the conversation; older ones become a line of text. True if it changed."""
+    spots = []
+    for m in msgs:
+        c = m.get("content")
+        if not isinstance(c, list):
+            continue
+        for b in c:
+            if b.get("type") == "image":
+                spots.append((c, b))
+            elif b.get("type") == "tool_result" and isinstance(b.get("content"), list):
+                spots.extend((b["content"], x) for x in b["content"] if x.get("type") == "image")
+    old = spots[:-n] if n else spots
+    for holder, img in old:
+        i = holder.index(img)
+        holder[i] = {"type": "text", "text": "(an older picture, removed to keep the request small)"}
+    return bool(old)
+
+
 def _compact(msgs: list, limit: int) -> tuple[list, bool]:
     """Long tasks: once the conversation is big, older tool results and texts are trimmed in one go (so the cached
     prefix stays stable between trims). The structure (tool_use / tool_result pairs) is kept. True when it trimmed:
     the thinking after a trimmed message no longer matches, so from then on the API drops it (drop_block)."""
+    trimmed_pics = _keep_last_images(msgs, MAX_IMAGES)
     if _size(msgs) <= limit:
-        return msgs, False
+        return msgs, trimmed_pics
     before = json.dumps(msgs)
     keep = 6
     for m in msgs[1:-keep]:

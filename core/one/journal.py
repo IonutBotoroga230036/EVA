@@ -165,7 +165,8 @@ def _rewrite(d: str, recs: list[dict]) -> None:
     with _lock:
         tmp = _path(d).with_suffix(".tmp")
         tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in recs), encoding="utf-8")
-        tmp.replace(_path(d))
+        from core.fsutil import replace as _replace
+        _replace(tmp, _path(d))
 
 
 def find_step(step_id: str) -> tuple[Optional[str], Optional[dict], Optional[dict]]:

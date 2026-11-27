@@ -71,3 +71,33 @@ suite still covers it (tests not marked `one_brain`).
 `BRAIN: step N: tool, tool (model)`, `BRAIN: answered after N steps (model, s)`, `BRAIN: check failed (...)`,
 `BRAIN: the local model handed over (...)`, `REFLEX: tool`, `JOURNAL: undid ...`, `SKILLS: made ...`,
 `JARVIS TEST: n/m (score%)`.
+
+## v1.1 (28 Nov): after his first evening with v1.0
+
+- **She trusts her journal.** The situation lists what she did lately ("22:29 open_file: opened the preview"),
+  so she no longer "corrects" herself about things she really did. A claim is only checked when nothing changed
+  in the last 15 minutes; an offer ("say so and I'll open it") is never an empty promise; a fix that talks about
+  the check ("nothing needs fixing") is dropped for her first answer; the check's note tells her never to mention it.
+- **Reflexes are for short, plain commands.** More than 9 words, two sentences, a question about what she knows, or
+  media words next to "task / project / setup": the brain decides ("can you locate my phone? do you know my
+  location?" no longer rings it; "resume the task for the face recognition camera" no longer resumes the music).
+- **Her files** (`core/one/files.py`): `my_files`, `read_my_file`, `run_my_script` (her own Python in
+  data/agent/venv, network allowed; the first run of a script asks once, a changed file asks again),
+  `adopt_skill` (a script becomes `skill_<name>` for good, after his yes once). Code files open in VS Code.
+- **Tasks ask less**: installing into her own environment and delivering to his E.V.A. folder are logged, not
+  asked (`agent.quiet`, [] brings the questions back). New hands: `download_file` (models, weights, data: the
+  sandbox has no network), `find_my_files`, `import_file`. Only the newest 3 screenshots stay in a task's request.
+- **Listening**: `voice.pipeline.patience_secs` (0.7): after Smart Turn says he's done she waits a little; if he goes
+  on it's the same sentence. "uh", "um", "you know", "so like" at the end wait for the rest (`carry_secs`), and a
+  half sentence that gets no rest still reaches her. Settings > Listening changes it live.
+- **The biography** (`core/memoir.py`, Settings > Biography): "I want to tell you a story" starts it; she listens
+  quietly (a soft tone per part, a recording pill with "That's the end"), with longer pauses and turns; "that's the
+  end" writes a chapter in his own voice (Claude Sonnet when allowed, else local), keeps his exact words in
+  sessions/, rebuilds Biography.md in the order things happened, and keeps the questions she'd ask next.
+- **What she notices** (`core/one/patterns.py`): the same change on 3 different days in two weeks is offered once
+  as something to automate. Skills she made that nobody used for 30 days are retired.
+- **The HUD and the latency meter**: /stage shows "Lately" (her latest decisions) and "Speed today"; under the orb,
+  "first sound 1.8 s" after each answer.
+- Fixes: browser results keep their own blocks (the 22:37 API error), Windows file locks are retried (the 23:07
+  task crash), the first-byte wait grows with the request (up to 14 s), the JARVIS run really uses the brain it
+  names, free_slots uses the time it's given. The JARVIS test has 28 scenarios.

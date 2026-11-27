@@ -128,6 +128,8 @@ GEN = f"open('stand.stl', 'w').write({STL!r})\nprint('triangles: 1, size 120 x 9
 
 # ---------------------------------------------------------------- the final boss test, scripted
 def test_the_guitar_stand_end_to_end(mgr):
+    from core.agent import consent as _c
+    _c.QUIET = set()                     # v1.1 doesn't ask for these: this test is about the asking
     m = mgr([
         [T("update_plan", steps=["Ask about the guitar", "Check for a CAD tool", "Model the stand",
                                  "Make the STL", "Find a print shop", "Write the how-to", "Deliver"])],
@@ -306,6 +308,8 @@ def test_long_conversations_are_trimmed_but_keep_their_shape():
 
 # ---------------------------------------------------------------- consent tiers
 def test_the_tiers():
+    from core.agent import consent as _c
+    _c.QUIET = set()                     # v1.1 doesn't ask for these: this test is about the asking
     assert consent.tier("look") == "free" and consent.tier("workspace") == "logged"
     assert consent.tier("install_program") == "ask" and consent.tier("pip_install") == "ask"
     assert consent.grant("pip_install") and consent.tier("pip_install") == "logged"
@@ -788,6 +792,8 @@ def test_pictures_dont_count_as_text_and_old_ones_go(mgr):
 
 
 def test_all_files_are_delivered_with_one_question(mgr):
+    from core.agent import consent as _c
+    _c.QUIET = set()                     # v1.1 doesn't ask for these: this test is about the asking
     m = mgr([[T("write_file", path="a.stl", content="solid a"), T("write_file", path="b.md", content="# b")],
              [T("deliver_file", paths=["a.stl", "b.md"])], [T("finish", summary="Done.")]])
     t = m.start("design me a hook")

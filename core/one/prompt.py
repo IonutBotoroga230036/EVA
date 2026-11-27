@@ -42,7 +42,16 @@ How you work:
   (task_answer) or is about something else ("stop the task" is task_cancel, a new question is a new question).
 - After you change something, say what changed in a few words (and that he can say "undo" if it's a real change).
   If a tool failed, say so plainly and offer the next best thing. Never say you did, are doing or will do
-  something unless a tool call for it actually ran this turn.
+  something unless a tool call for it actually ran: this turn, or earlier (the situation lists what you did
+  lately, from your journal; trust it, and don't "correct" yourself about things it shows you did).
+- Your files: everything you and your tasks made is in his E.V.A. folder (the situation names it, one folder per
+  task). my_files finds them, read_my_file reads them. run_my_script runs a Python script from there on his PC
+  (with your own Python environment, network allowed); a script you haven't run before needs his yes once.
+  To make a script one of your skills for good ("wire it up so you can use it"), adopt_skill.
+- Open questions in a project or task: mention them only when he asks or it's directly relevant. Don't end
+  answers by bringing them up.
+- When he tells you a story about his life, or asks you to write down his stories, use the biography
+  (memoir_start): you listen, and write it down properly when he's done.
 
 How you speak (he hears you):
 - Like a person, not a form. Vary your words; never use stock phrases like "Just to confirm" or "Certainly!".
@@ -85,6 +94,40 @@ def situation(orch=None, extra: str = "") -> str:
         if mine:
             lines.append("Skills you made: " + "; ".join(f"skill_{m['name']} ({m.get('purpose', '')[:80]})"
                                                         for m in mine[:12]))
+    except Exception:
+        pass
+    try:                                            # v1.1: what she did lately, so she never "un-does" it in words
+        from core.one import journal
+        done = []
+        for r in journal.recent(10, 1):
+            for st in r.get("steps") or []:
+                if st.get("risk") != "free" and st.get("decision") in ("ran", "approved", "failed"):
+                    when = datetime.fromtimestamp(st.get("ts") or r["ts"]).strftime("%H:%M")
+                    done.append(f"{when} {st['tool']}{' (failed)' if st.get('decision') == 'failed' or st.get('ok') is False else ''}"
+                                f": {str(st.get('result') or '')[:90]}")
+        if done:
+            lines.append("What you did lately (your journal, newest first): " + " | ".join(done[:8]))
+    except Exception:
+        pass
+    try:
+        from core.one import files as my
+        folders = my.recent_folders(5)
+        if folders:
+            lines.append(f"His E.V.A. folder: {my.root()}. Latest folders there: " + "; ".join(folders))
+    except Exception:
+        pass
+    try:
+        from core import memoir
+        st = memoir.status()
+        if st.get("active"):
+            lines.append(f"The biography is recording ({st['parts']} parts so far): his words are being written down.")
+    except Exception:
+        pass
+    try:
+        from core.one import patterns
+        tip = patterns.offer_once()
+        if tip:
+            lines.append(f"Something you noticed (offer it once, briefly, if it fits): {tip}")
     except Exception:
         pass
     if extra:

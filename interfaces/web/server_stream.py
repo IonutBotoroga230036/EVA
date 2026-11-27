@@ -1132,6 +1132,27 @@ async def journal_undo(step: str, request: Request):
     return JSONResponse(out, status_code=200 if out.get("ok") else 400)
 
 
+@app.get("/api/memoir")
+async def memoir_get():
+    """v1.1: his biography: the chapters, the questions she'd ask next, and whether it's recording."""
+    from core import memoir
+    return JSONResponse({"folder": str(memoir.folder()), "status": memoir.status(), "chapters": memoir.chapters(),
+                         "questions": memoir.open_questions()})
+
+
+@app.post("/api/memoir/{what}")
+async def memoir_act(what: str, request: Request):
+    from core import memoir
+    if request.headers.get("x-eva") != "1":
+        return JSONResponse({"error": "missing X-EVA header"}, status_code=403)
+    acts = {"start": memoir.start, "pause": memoir.pause, "cancel": memoir.cancel, "stop": memoir.stop}
+    if what not in acts:
+        return JSONResponse({"error": "start, pause, cancel or stop"}, status_code=404)
+    out = await asyncio.to_thread(acts[what])
+    logger.info(f"MEMOIR: {what} from the window")
+    return JSONResponse({"ok": True, **{k: v for k, v in (out or {}).items() if k != "text"}})
+
+
 @app.get("/api/jarvis")
 async def jarvis_runs():
     """The automatic JARVIS test runs: the latest first, with each scenario's result."""
@@ -1417,14 +1438,20 @@ class Connection:
             touch_talk()
             follow = talking or not self.music_on  # while music plays, only "Eva, ..." (or a tap) starts a turn
             meta = {"type": "turn_meta", "turn": turn, "follow_up": follow}
-            if talking:
+            from core import memoir
+            story = memoir.listening()
+            if story:                                        # v1.1: the biography records: long breaks are fine
+                meta["follow_up"] = True
+                meta["listen_ms"] = int(story["follow_secs"] * 1000)
+            elif talking:
                 meta["listen_ms"] = TALK_WINDOW_MS          # "let's talk": keep listening until "that's all"
             elif getattr(self.orch, "last_lane", "") == "conversation":
                 ms = conversation.follow_window_ms(last_final)
                 if ms:
                     meta["listen_ms"] = ms                 # she asked you something: more time to think
             await self.send(meta)
-            await self._chat_add("eva", last_final)
+            if last_final:
+                await self._chat_add("eva", last_final)
             if speaker:
                 await speaker.finish()
         except asyncio.CancelledError:

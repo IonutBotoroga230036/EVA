@@ -193,12 +193,17 @@ def test_local_only_or_no_key_means_no_mind(monkeypatch):
 def test_open_file_only_opens_documents_from_tasks(monkeypatch):
     t = get_store().new("design me a guitar stand")
     ws = get_store().workspace(t.id)
+    (ws / "run.exe").write_text("x")
     (ws / "run.py").write_text("x")
     (ws / "stand.stl").write_text("solid x")
-    opened = []
+    opened, edited = [], []
     monkeypatch.setattr(os, "startfile", opened.append, raising=False)
     monkeypatch.setattr(pc_tools, "default_app", lambda ext: "")
-    assert "aren't opened from here" in pc_tools.tool_open_file(file="run.py", task="guitar stand")["result"]
+    monkeypatch.setattr(pc_tools, "editor", lambda: "/usr/bin/code")
+    monkeypatch.setattr(pc_tools.subprocess, "Popen", lambda cmd, **k: edited.append(cmd))
+    assert "aren't opened from here" in pc_tools.tool_open_file(file="run.exe", task="guitar stand")["result"]
+    out = pc_tools.tool_open_file(file="run.py", task="guitar stand")   # v1.1: code opens in an editor, never runs
+    assert edited == [["/usr/bin/code", str(ws / "run.py")]] and out["say"] == "Opening run.py in VS Code, sir."
     out = pc_tools.tool_open_file(file="stand.stl", task="guitar stand")
     assert opened == [] and out["say"] == "Nothing on your PC opens .stl files yet, sir."
     monkeypatch.setattr(pc_tools, "default_app", lambda ext: "PrusaSlicer")

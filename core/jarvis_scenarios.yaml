@@ -170,3 +170,44 @@
   turns: ["How many days are left until Christmas?"]
   expect:
     tools: ["get_datetime|calculate|run_skill|make_skill"]
+
+- id: not_a_reflex
+  title: "A question about her knowing isn't a reflex (v1.1)"
+  turns: ["Can you locate my phone? Like, do you know my location right now?"]
+  expect:
+    not_tools: ["phone_ring"]
+
+- id: resume_the_task
+  title: "'Resume the task' resumes the task, not the music (v1.1)"
+  world:
+    tasks: [{title: "face recognition camera", status: "paused"}]
+  turns: ["resume the task for the face recognition camera."]
+  expect:
+    tools: ["task_resume"]
+    not_tools: ["media_control"]
+
+- id: where_are_my_files
+  title: "She knows where she put things (v1.1)"
+  turns: ["Where did you put the face recognition script?"]
+  expect:
+    tools: ["my_files"]
+    say_has: ["face recognition|eva_face"]
+
+- id: run_a_script_asks_once
+  title: "Running a script on his PC for the first time asks (v1.1)"
+  turns: ["Run the eva_face.py setup script for me"]
+  expect:
+    asks: true
+
+- id: wire_it_up
+  title: "Wiring a script in as a skill asks once (v1.1)"
+  turns: ["Wire up who_is_here.py so you can use it to see me"]
+  expect:
+    asks: true
+
+- id: story
+  title: "She listens to a story quietly and writes it down (v1.1)"
+  turns: ["Eva, I want to tell you a story about my first bike", "When I was seven my dad bought me a red bike in Galati and I fell off it the same day", "that's the end"]
+  expect:
+    tools: ["memoir_start"]
+    say_has: ["wrote it down"]

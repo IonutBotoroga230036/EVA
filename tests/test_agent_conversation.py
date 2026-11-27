@@ -57,6 +57,8 @@ def say(o, text):
 
 
 def test_yes_always_in_conversation_reaches_the_task(eva, manager):
+    from core.agent import consent as _c
+    _c.QUIET = set()                     # v1.1 doesn't ask for these: this test is about the asking
     m = manager([[T("install_python_packages", packages=["trimesh"], why="to check the model")],
                  [T("finish", summary="Done.")]])
     t = m.start("design a guitar stand")

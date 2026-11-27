@@ -346,7 +346,7 @@ def ev(h, title, d=27):
 
 
 def test_yesterday_is_past_and_after_midnight_today_is_named():
-    cal = Cal([ev(9, "Lecture", 26), ev(14, "Gym", 26), ev(9, "Wake up"), ev(10, "Exam prep")])
+    cal = Cal([ev(9, "Lecture", 26), ev(14, "Gym", 26), ev(9, "Wake up", 27), ev(10, "Exam prep", 27)])
     out = tempo.agenda(cal, "yesterday", now=datetime(2026, 11, 27, 0, 48))
     assert out["say"] == "You had 2 things yesterday, sir: 09:00 Lecture, and 14:00 Gym."
     out = tempo.agenda(cal, "today", now=datetime(2026, 11, 27, 0, 48))

@@ -90,6 +90,18 @@ class PipecatSmartTurn:
         self._turn.update_vad_start_secs(vad_start_secs)
         self.last_probability: float | None = None
 
+    def set_max_pause(self, secs: float) -> bool:
+        """v1.1: the window's 'longest thinking pause', without restarting the listener."""
+        for attr in ("_params", "params"):
+            p = getattr(self._turn, attr, None)
+            if p is not None and hasattr(p, "stop_secs"):
+                try:
+                    p.stop_secs = float(secs)
+                    return True
+                except Exception:
+                    pass
+        return False
+
     def append(self, chunk: bytes, is_speech: bool) -> bool:
         return self._turn.append_audio(chunk, is_speech) == self._complete
 

@@ -23,8 +23,8 @@ def _said(transcript):
     return text, tools, situation
 
 
-def _c(name, **a):
-    return Step(calls=[{"id": f"x_{name}", "name": name, "input": a}])
+def _c(_tool, **a):
+    return Step(calls=[{"id": f"x_{_tool}", "name": _tool, "input": a}])
 
 
 def ideal(transcript, tools):
@@ -48,6 +48,14 @@ def ideal(transcript, tools):
         if "calculate" in done or "get_datetime" in done:
             n = re.search(r"\d+", data)
             return Step(text=f"That's {n.group(0) if n else 'a few'}, sir.")
+        if "my_files" in done:
+            return Step(text="It's in the face recognition camera folder: eva_face.py.")
+        if "memoir_start" in done:
+            return Step(text="I'm listening, sir.")
+        if "where_am_i" in done:
+            return Step(text="Your phone says you're at home.")
+        if "task_resume" in done:
+            return Step(text="Back on the face recognition camera.")
         if "calendar_shift" in done:
             return Step(text="Done: Standup and Review are 15 minutes later.")
         return Step(text="Done, sir.")
@@ -55,6 +63,18 @@ def ideal(transcript, tools):
         if "he said no" in situation.lower() or "never mind" in t:
             return Step(text="Okay, I'll leave it.")
         return Step(text="Sent, sir.")
+    if "locate my phone" in t:
+        return _c("where_am_i")
+    if "resume the task" in t:
+        return _c("task_resume", which="face recognition camera")
+    if "where did you put" in t:
+        return _c("my_files", query="face recognition")
+    if "eva_face.py setup" in t:
+        return _c("run_my_script", path="eva_face.py", args=["setup"])
+    if "wire up" in t:
+        return _c("adopt_skill", name="who_is_here", purpose="see who is at the PC", script="who_is_here.py")
+    if "tell you a story" in t:
+        return _c("memoir_start", topic="my first bike")
     if "how are you" in t:
         return Step(text="Running smoothly, sir. You?")
     if "stop the task" in t:
@@ -99,7 +119,9 @@ def ideal(transcript, tools):
     return Step(text="Hmm?")
 
 
-def test_every_scenario_passes_with_an_ideal_brain():
+def test_every_scenario_passes_with_an_ideal_brain(monkeypatch):
+    from core import memoir
+    monkeypatch.setattr(memoir, "_write_json", jt.fake_writer)
     def make():
         b = ScriptedBackend(ideal, "ideal")
         b.kind = "cloud"
@@ -107,7 +129,7 @@ def test_every_scenario_passes_with_an_ideal_brain():
     d = asyncio.run(jt.run_all(None, make, "ideal"))
     failed = {r["id"]: r["problems"] for r in d["results"] if not r["passed"]}
     assert not failed, failed
-    assert d["total"] == len(jt.scenarios()) >= 20 and d["score"] == 100
+    assert d["total"] == len(jt.scenarios()) >= 28 and d["score"] == 100
 
 
 def test_a_lazy_brain_fails_the_right_checks():

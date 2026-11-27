@@ -77,12 +77,28 @@ def revoke(kind: Optional[str] = None) -> list[str]:
     return gone
 
 
+# v1.1: her own Python environment and her own output folder don't ask any more (Nov 27: a yes for every copy and
+# every package). agent.quiet in the settings changes the list; [] brings the questions back.
+QUIET = {"pip_install", "export_file"}
+
+
+def _quiet() -> set:
+    try:
+        from core.settings import get_settings
+        q = (get_settings().get("agent") or {}).get("quiet")
+        return set(q) if isinstance(q, list) else QUIET
+    except Exception:
+        return QUIET
+
+
 def tier(kind: str, task_grants: Optional[dict] = None) -> str:
     """The tier this kind of action gets right now: a standing yes (yours, or one for this task) lowers ask to
     logged."""
     base = KINDS.get(kind, (ASK, "", False))[0]
     if base != ASK:
         return base
+    if kind in _quiet():
+        return LOGGED
     if KINDS.get(kind, ("", "", False))[2] and (kind in standing() or kind in (task_grants or {})):
         return LOGGED
     return ASK

@@ -116,7 +116,8 @@ class Store:
             d.mkdir(parents=True, exist_ok=True)
             tmp = d / "task.json.tmp"
             tmp.write_text(json.dumps(asdict(t), indent=1), encoding="utf-8")
-            tmp.replace(d / "task.json")
+            from core.fsutil import replace as _replace
+            _replace(tmp, d / "task.json")
 
     def get(self, tid: str) -> Optional[Task]:
         p = self.folder(tid) / "task.json"
@@ -162,7 +163,8 @@ class Store:
             p = self.folder(tid) / "messages.json"
             tmp = p.with_suffix(".tmp")
             tmp.write_text(json.dumps(msgs), encoding="utf-8")
-            tmp.replace(p)
+            from core.fsutil import replace as _replace
+            _replace(tmp, p)
 
 
 _store: Optional[Store] = None

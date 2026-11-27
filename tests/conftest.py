@@ -20,14 +20,29 @@ def isolate_personal_settings(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def quiet_consents_restored():
+    """Some tests switch the v1.1 quiet consents off to test the asking; put them back after."""
+    from core.agent import consent
+    saved = set(consent.QUIET)
+    yield
+    consent.QUIET = saved
+
+
+@pytest.fixture(autouse=True)
 def classic_routing_unless_marked(request, monkeypatch, tmp_path):
     """v1.0: the one brain is the shipped default. Tests written for the classic routing keep it; tests marked
     one_brain get the new loop. Either way her journal, made skills and risk verdicts live in a temp folder."""
     import core.one as one
-    from core.one import journal, made, risk
+    from core import memoir
+    from core.one import files, journal, made, patterns, risk
     monkeypatch.setattr(journal, "DIR", tmp_path / "journal")
     monkeypatch.setattr(made, "DIR", tmp_path / "skills_made")
     monkeypatch.setattr(risk, "STORE", tmp_path / "risk_judgments.json")
+    monkeypatch.setattr(patterns, "STORE", tmp_path / "patterns.json")         # v1.1
+    monkeypatch.setattr(files, "APPROVALS", tmp_path / "script_approvals.json")
+    monkeypatch.setattr(files, "root", lambda: tmp_path / "EVA")
+    monkeypatch.setattr(memoir, "STATE", tmp_path / "memoir_state.json")
+    monkeypatch.setattr(memoir, "folder", lambda: tmp_path / "EVA" / "Biography")
     if not request.node.get_closest_marker("one_brain"):
         monkeypatch.setattr(one, "mode", lambda: "classic")
     yield

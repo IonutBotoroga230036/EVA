@@ -50,7 +50,8 @@ def _write(chat: dict) -> None:
     p = _path(chat["id"])
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(chat, ensure_ascii=False, indent=0), encoding="utf-8")
-    tmp.replace(p)
+    from core.fsutil import replace as _replace
+    _replace(tmp, p)
 
 
 def quick_title(text: str) -> str:

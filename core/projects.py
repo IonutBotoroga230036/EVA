@@ -81,7 +81,8 @@ class Store:
             self.root.mkdir(parents=True, exist_ok=True)
             tmp = self._path(p.id).with_suffix(".tmp")
             tmp.write_text(json.dumps(asdict(p), indent=1, ensure_ascii=False), encoding="utf-8")
-            tmp.replace(self._path(p.id))
+            from core.fsutil import replace as _replace
+            _replace(tmp, self._path(p.id))
 
     def get(self, pid: str) -> Optional[Project]:
         try:

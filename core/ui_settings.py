@@ -39,6 +39,23 @@ FIELDS: list[tuple[str, list[tuple]]] = [
         ("risk.messages_ask", "Always ask before sending anything as you", "bool", {}),
         ("jarvis_test.nightly", "Run the JARVIS test every night (local, free)", "bool", {}),
     ]),
+    ("Listening", [
+        ("voice.pipeline.patience_secs", "After you stop talking, wait (seconds)", "number",
+         {"min": 0, "max": 5, "step": 0.1}),
+        ("voice.pipeline.max_pause_secs", "Longest thinking pause before she answers (seconds)", "number",
+         {"min": 1, "max": 10, "step": 0.5}),
+        ("voice.pipeline.carry_secs", "After 'uh', 'and...', 'so like', wait for the rest (seconds)", "number",
+         {"min": 2, "max": 30, "step": 1}),
+        ("voice.pipeline.max_utterance_secs", "Longest you can talk in one go (seconds)", "number",
+         {"min": 10, "max": 300, "step": 10}),
+    ]),
+    ("Biography", [
+        ("memoir.patience_secs", "While recording a story, pauses up to (seconds)", "number",
+         {"min": 0.5, "max": 10, "step": 0.5}),
+        ("memoir.writer", "Who writes the chapters", "select", {"choices": [
+            ("auto", "Claude when allowed, else the local model"), ("cloud", "Claude (best writing)"),
+            ("local", "The local model (stays on the PC)")]}),
+    ]),
     ("Budget", [
         ("budget.daily_limit_euros", "Daily cloud limit (euros)", "number", {"min": 0.1, "max": 50, "step": 0.5}),
         ("budget.monthly_limit_euros", "Monthly cloud limit (euros)", "number", {"min": 1, "max": 500, "step": 5}),
@@ -90,7 +107,8 @@ def _save_ui(d: dict) -> None:
     settings_mod.UI_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = settings_mod.UI_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(d, indent=1), encoding="utf-8")
-    tmp.replace(settings_mod.UI_PATH)
+    from core.fsutil import replace as _replace
+    _replace(tmp, settings_mod.UI_PATH)
     settings_mod.get_settings.cache_clear()
 
 
@@ -108,8 +126,14 @@ def _defaults(key: str) -> Any:
     from core.mind import DEFAULTS as mind
     from core.one import DEFAULTS as one
     from core.one.risk import DEFAULTS as risk
+    from core.memoir import DEFAULTS as memoir
+    if key.startswith("voice.pipeline."):
+        from voice.listen import ListenConfig
+        name = key.rsplit(".", 1)[1]
+        live = {"patience_secs": 0.7, "carry_secs": 8.0}
+        return live.get(name, getattr(ListenConfig(), name, None))
     sec, _, name = key.partition(".")
-    return {"mind": mind, "agent": agent, "one": one, "risk": risk,
+    return {"mind": mind, "agent": agent, "one": one, "risk": risk, "memoir": memoir,
             "jarvis_test": {"nightly": True, "hour": 3, "backend": "local"}}.get(sec, {}).get(name, {
         "browser.enabled": True, "browser.visible": False, "computer.mode": "ask", "focus.enabled": True,
         "focus.min_minutes": 30, "focus.skip_words": [], "budget.daily_limit_euros": 1.5,

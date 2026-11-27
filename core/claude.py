@@ -299,7 +299,11 @@ class ClaudeClient:
                 on_text(t)
         # v0.9: on 27 Nov 10:02 two calls in a row got nothing for 15 s, then "Server disconnected"; the third
         # answered in a second. Wait FIRST_BYTE_S for the answer to start, then try again; once it streams, be patient.
-        timeout = {"connect": 6.0, "read": FIRST_BYTE_S, "write": 60.0, "pool": 10.0}
+        # v1.1: a bigger request takes longer to start (Nov 27: 52 to 57 KB Haiku calls hit 9 s, then answered
+        # at once on the retry): up to 14 s, below the 15 s at which his line drops idle connections.
+        size_kb = len(json.dumps(body, default=str)) / 1024 if FIRST_BYTE_S else 0
+        timeout = {"connect": 6.0, "read": min(14.0, FIRST_BYTE_S + size_kb / 25) if FIRST_BYTE_S else FIRST_BYTE_S,
+                   "write": 60.0, "pool": 10.0}
         try:
             with self.http.stream("POST", API_URL, json={**body, "stream": True}, headers=headers,
                                   timeout=httpx.Timeout(**timeout)) as r:

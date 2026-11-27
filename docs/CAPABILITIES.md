@@ -3,7 +3,9 @@
 **v1.0, one brain:** one model decides every turn (local qwen3.5:4b first, Claude when it gets stuck; Settings >
 Her brain). Changes you can undo just happen; sending as you, deleting, installing and spending more than 2 euros
 in one go ask first, in her own words. Settings > What she did shows every decision with an Undo; "Eva, undo that"
-works too. When no tool does what you ask she writes a small skill, dry-runs it and uses it. The JARVIS test runs
+works too. When no tool does what you ask she writes a small skill, dry-runs it and uses it.
+v1.1: she finds and runs her own scripts (asks once per script), wires a script in as a skill, listens more
+patiently (Settings > Listening), and writes your biography from the stories you tell her (Settings > Biography). The JARVIS test runs
 by itself every night. Chats are in a sidebar on the left. See docs/ONE_BRAIN.md.
 
 Say "Eva" (wake word on), tap the core, or type. Examples are phrasings she handles directly;

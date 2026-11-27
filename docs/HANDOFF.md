@@ -1,6 +1,6 @@
 # E.V.A. handoff (for a new Claude session)
 
-Last updated: Friday 27 November 2026, 23:00 (Europe/Amsterdam). Read this first, then docs/ONE_BRAIN.md (v1.0:
+Last updated: Saturday 28 November 2026, 00:30 (Europe/Amsterdam). Read this first, then docs/ONE_BRAIN.md (v1.0:
 how every turn works now), EVA.md, docs/ROADMAP.md and docs/VOICE_TESTS.md.
 
 ## Who and what
@@ -25,9 +25,10 @@ how every turn works now), EVA.md, docs/ROADMAP.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v10_one_brain.zip`) plus the
-   PowerShell steps to unzip it AND the git commands (new `claude/...` branch, add, commit, push) so he pushes it
-   himself (his request, 27 Nov). Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env`
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v11_listen_files_biography.zip`)
+   plus the PowerShell steps AND the git commands so he pushes it himself (his request, 27 Nov). Order: fetch,
+   `git checkout -b claude/<new> origin/claude/<previous>`, THEN `Expand-Archive -Path "D:\Downloads\<zip>"`
+   (his downloads are in D:\Downloads), add, status, commit, push. Never push from here. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env`
    in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -106,6 +107,20 @@ how every turn works now), EVA.md, docs/ROADMAP.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 28 Nov 2026 (00:30, v1.1: listening, her files, the biography)
+
+Built on `claude/v10-one-brain` (which he pushed); he pushes `claude/v11-listen-files-biography` himself from
+`eva_v11_listen_files_biography.zip`. From his first v1.0 evening (log 1645747f): it felt like an assistant;
+the JARVIS run said 22/22 (it had used his settings' brain, not the one named: fixed). Problems fixed in v1.1:
+she "corrected" herself about things she had really done, offers were flagged as empty promises and she argued
+about the check, reflexes rang the phone and resumed music on questions, a browser result broke the API call,
+she couldn't find or run the face script she'd made, tasks asked for every package and copy and had no network
+for model downloads, a task crashed on a locked task.json, 300 to 776 KB task requests dropped. New: patient
+listening (Settings > Listening), the biography (Settings > Biography), run_my_script / adopt_skill, patterns
+offered once, skill review, HUD tiles, latency meter. His conda base had numpy upgraded to 2.4.6 by an opencv
+install (scipy/numba/matplotlib there want numpy<2): her scripts now use her own venv, never his.
+Full suite: 1402 passed, 3 skipped, also cp1252.
 
 ## State on 27 Nov 2026 (23:00, v1.0: one brain)
 

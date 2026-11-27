@@ -218,8 +218,9 @@ def test_open_settings_opens_the_right_page(monkeypatch):
 def test_settings_show_groups_values_and_spend():
     snap = ui_settings.snapshot()
     titles = [g["title"] for g in snap["groups"]]
-    assert titles == ["Her brain", "Budget", "Brain", "Mind", "Tasks", "Her browser", "Using your computer", "Focus"]
-    budget = {f["key"]: f for f in snap["groups"][1]["fields"]}
+    assert titles == ["Her brain", "Listening", "Biography", "Budget", "Brain", "Mind", "Tasks", "Her browser",
+                      "Using your computer", "Focus"]
+    budget = {f["key"]: f for f in snap["groups"][3]["fields"]}
     assert budget["budget.daily_limit_euros"]["kind"] == "number" and budget["@testmode"]["value"] is False
     assert "spend" in snap
 
@@ -258,7 +259,7 @@ def test_the_settings_api_needs_the_window_header():
     from fastapi.testclient import TestClient
     from interfaces.web import server_stream as srv
     with TestClient(srv.app) as tc:
-        assert tc.get("/api/settings").json()["groups"][1]["title"] == "Budget"
+        assert tc.get("/api/settings").json()["groups"][3]["title"] == "Budget"
         assert tc.post("/api/settings", json={"key": "mind.max_steps", "value": 4}).status_code == 403
         r = tc.post("/api/settings", json={"key": "mind.max_steps", "value": 4}, headers={"X-EVA": "1"})
         assert r.status_code == 200 and r.json()["value"] == 4

@@ -110,13 +110,45 @@ def _task_file(which: str, file: str):
     return t, None
 
 
+CODE = {".py", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".ps1", ".bat", ".cmd", ".sh",
+        ".css", ".java", ".c", ".cpp", ".h", ".rs", ".go", ".ipynb"}       # v1.1: opened in an editor, never run
+
+
+def editor() -> str | None:
+    """VS Code if it's there (Nov 27: 'code' wasn't found by name), else Notepad."""
+    import shutil
+    for c in ("code", "code.cmd"):
+        found = shutil.which(c)
+        if found:
+            return found
+    for base in (os.environ.get("LOCALAPPDATA", ""), os.environ.get("ProgramFiles", ""),
+                 os.environ.get("ProgramFiles(x86)", "")):
+        exe = Path(base) / ("Programs/Microsoft VS Code/Code.exe" if base == os.environ.get("LOCALAPPDATA") else
+                            "Microsoft VS Code/Code.exe")
+        if base and exe.exists():
+            return str(exe)
+    return shutil.which("notepad") or ("notepad.exe" if sys.platform == "win32" else None)
+
+
 def tool_open_file(file: str = "", task: str = "", program: str = "", **_):
     from core.agent.pc import NEVER_RUN, LocalPC
     t, path = _task_file(task, file)
-    if t is None:
+    if (path is None or not path.exists()) and file:          # v1.1: anything in his E.V.A. folder, by name
+        from core.one import files as my
+        inside = my.inside(file)
+        path = inside if inside and inside.exists() else (my.by_name(file) or path)
+    if t is None and path is None:
         return _r({"error": "no tasks"}, "I haven't made any files yet, sir.")
     if path is None or not path.exists():
-        return _r({"error": f"{file} isn't among the {t.title}'s files"}, f"I can't find {file} in the {t.title}, sir.")
+        where = f"the {t.title}" if t else "your E.V.A. folder"
+        return _r({"error": f"{file} isn't among {where}'s files"}, f"I can't find {file} in {where}, sir.")
+    if path.is_file() and path.suffix.lower() in CODE:        # code is opened to read, in an editor, never run
+        ed = editor()
+        if not ed:
+            return _r({"error": "no editor found"})
+        subprocess.Popen([ed, str(path)], cwd=str(path.parent), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        name = "VS Code" if "code" in Path(ed).name.lower() else Path(ed).stem
+        return _r({"opened": str(path), "with": name}, f"Opening {path.name} in {name}, sir.")
     if path.is_file() and path.suffix.lower() not in OPENABLE:
         return _r({"error": f"{path.suffix} files aren't opened from here"})
     if program:

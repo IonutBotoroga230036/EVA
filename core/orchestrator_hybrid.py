@@ -34,7 +34,7 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator, Callable, Optional
 
 import httpx
 import yaml
@@ -276,6 +276,24 @@ def _messages_when_locked(tool: str) -> bool:
 
 _YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|do it|go ahead|go on|confirm(?:ed)?|ok(?:ay)?|please do|"
                   r"affirmative|correct|absolutely|of course|da|sigur|trimite|trimite-l|fă-o|fa-o)(?!\w)", re.I)
+_ASKS_KNOWING = re.compile(r"\b(?:do you know|how do you|why|what is|what's|where is|where's|can you see|are you|"
+                           r"is it|how does|how come|tell me about)\b", re.I)
+_NOT_MEDIA = re.compile(r"\b(?:task|project|build|design|setup|set-up|download|install|script|skill|story)\b", re.I)
+
+
+def reflex_fits(text: str, tool: str) -> bool:
+    """v1.1: a reflex is for a short, plain command. Nov 27: "Can you locate my phone? Like, do you know my location?"
+    rang the phone, and "resume the task for the face recognition camera" resumed the music."""
+    t = (text or "").strip()
+    if len(t.split()) > 9 or len(re.findall(r"[.?!]\s+\S", t)) >= 1:
+        return False
+    if _ASKS_KNOWING.search(t) and tool not in ("get_datetime", "task_cancel"):
+        return False
+    if tool in ("media_control", "spotify_play", "spotify_volume") and _NOT_MEDIA.search(t):
+        return False
+    return True
+
+
 _PLAIN_YES = re.compile(r"^\W*(?:(?:yes|yeah|yep|yup|sure|ok(?:ay)?|alright|go ahead|do it|please do|send it|go for it|"
                         r"confirm(?:ed)?|absolutely|definitely|of course)\b[\s,.!]*)+(?:(?:please|sir|eva|thanks|"
                         r"thank you|now)\b[\s,.!]*)*$", re.I)      # v1.0: only a plain yes runs it untouched
@@ -2092,7 +2110,8 @@ class HybridOrchestrator:
                 note += f" (You had asked him for the {a['field']} for {a['tool']}; this may be his answer.)"
         if not note and not ran:
             fp = fast_path(user_input, self.belt)
-            if fp and fp[0] in set(one.cfg().get("reflexes") or []) and self.belt.has(fp[0]):
+            if fp and fp[0] in set(one.cfg().get("reflexes") or []) and self.belt.has(fp[0]) and \
+                    reflex_fits(user_input, fp[0]):
                 tool, args = fp[0], await self._fill(fp[0], fp[1], user_input)
                 level, why = risk.judge(tool, args, self.belt)
                 if level != "ask":
@@ -2115,9 +2134,40 @@ class HybridOrchestrator:
         async for ev in brain.turn(user_input, note=note.strip(), ran=ran):
             yield ev
 
+    async def _memoir_turn(self, user_input: str) -> Optional[list]:
+        """v1.1: while the biography records, his sentences are written down, not answered."""
+        from core import memoir
+        try:
+            m = await asyncio.to_thread(memoir.intercept, user_input)
+        except Exception as e:
+            logger.warning(f"MEMOIR: {e}")
+            return None
+        if m is None:
+            return None
+        self.history.append({"role": "user", "content": user_input})
+        events: list = []
+        if m.get("widget"):
+            events.append({"type": "widget", "data": m["widget"]})
+        if m.get("silent"):
+            events.append({"type": "memoir", "state": "recording", "parts": m.get("parts", 0),
+                           "words": m.get("words", 0)})
+            events.append({"type": "final", "text": "", "silent": True})
+            self.last_tools, self.last_lane = ["memoir_add"], "memoir"
+        else:
+            self._finish(user_input, m["say"], {"memoir_stop"})
+            events.append({"type": "memoir", "state": "idle" if not memoir.status()["active"] else "recording"})
+            events.append({"type": "final", "text": m["say"]})
+        return events
+
     async def _process_stream(self, user_input: str) -> AsyncIterator[dict]:
         from core import activity
         from core import one as _one
+        story = await self._memoir_turn(user_input)
+        if story is not None:
+            activity.mark()
+            for ev in story:
+                yield ev
+            return
         if _one.enabled():
             activity.mark()
             if self._stale:

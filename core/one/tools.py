@@ -94,9 +94,33 @@ SCHEMAS = [
             "what": {"type": "string", "description": "a few words, e.g. 'turn the lights off'"}},
             "required": ["minutes", "tool"]}}},
 ]
+def tool_adopt_skill(name: str = "", purpose: str = "", script: str = "", args: list | None = None,
+                     parameters: dict | None = None, **_):
+    import re as _re
+    from core.one import made
+    sk = _re.sub(r"[^a-z0-9_]", "_", (name or "").lower()).strip("_")[:40]
+    if not sk or not sk[:1].isalpha():
+        return _r({"error": "give the skill a name like who_is_here"})
+    out = made.adopt(sk, purpose, script, args, parameters)
+    if not out.get("ok"):
+        return _r(out)
+    return _r(out, changes=[{"what": f"skill_{sk}", "before": "(not a skill)", "after": "one of her skills"}])
+
+
+SCHEMAS.append({"type": "function", "function": {
+    "name": "adopt_skill",
+    "description": "Make a Python script in his E.V.A. folder one of your skills for good, so you can use it any "
+                   "time as skill_<name> (e.g. a face recognition script: 'wire it up so you can use it'). Read the "
+                   "script (and its SKILL.md) first. args: its command-line arguments, with {placeholders} for the "
+                   "parameters, e.g. ['--camera', '{camera}']. Needs his yes once.",
+    "parameters": {"type": "object", "properties": {
+        "name": {"type": "string"}, "purpose": {"type": "string"}, "script": {"type": "string"},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "parameters": {"type": "object", "description": "JSON schema of the placeholders"}},
+        "required": ["name", "purpose", "script"]}}})
 FUNCTIONS = {"what_i_did": tool_what_i_did, "change_setting": tool_change_setting,
-             "schedule_later": tool_schedule_later}
-ACTIONS = {"change_setting", "schedule_later"}
+             "schedule_later": tool_schedule_later, "adopt_skill": tool_adopt_skill}
+ACTIONS = {"change_setting", "schedule_later", "adopt_skill"}
 
 # ---------------------------------------------------------------- the loop's own (not in the belt)
 LOOP_TOOLS = [

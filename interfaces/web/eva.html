@@ -501,6 +501,20 @@ button.glance-chip{cursor:pointer}
 .task-trail{display:flex;flex-direction:column;gap:3px;margin-top:6px;font-size:12px;color:var(--dim-text)}
 .task-trail b{color:var(--ice);font-weight:500}
 .set-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+/* ===== v1.1: the biography recording, the latency meter, markdown in cards ===== */
+.eva-story{display:none;align-items:center;gap:10px;margin-top:10px;height:34px;padding:0 6px 0 14px;border-radius:17px;border:1px solid rgba(192,38,211,.45);
+  background:rgba(192,38,211,.12);color:var(--ice);font-size:13px}
+.eva.story-on .eva-story{display:inline-flex}
+.eva-story i{width:8px;height:8px;border-radius:50%;background:var(--magenta);animation:storyDot 1.6s ease-in-out infinite}
+@keyframes storyDot{50%{opacity:.35}}
+.eva-story button{height:26px;border-radius:13px;border:1px solid var(--line);background:var(--glass-row);color:var(--ice);font-size:12px;padding:0 10px}
+.eva-lat{font-size:11.5px;color:var(--dim-text);margin-top:4px;opacity:0;transition:opacity .4s}
+.eva-lat.on{opacity:.8}
+.md p{margin:0 0 .5em}.md ul{margin:.2em 0 .5em;padding-left:1.2em}.md h4{margin:.4em 0 .2em;font:600 13px var(--font-display);letter-spacing:.04em;color:var(--lilac)}
+.md code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92em;background:rgba(255,255,255,.06);border-radius:4px;padding:0 4px}
+.bio-ch{padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.bio-ch b{color:var(--ice);font-size:14px}.bio-ch small{display:block;color:var(--dim-text);font-size:12px;margin-top:2px}
+@media (prefers-reduced-motion: reduce){.eva-story i{animation:none}}
 .set-tab{flex:none}
 
 /* ===== Phone ===== */
@@ -605,6 +619,8 @@ button.glance-chip{cursor:pointer}
       <p class="eva-caption is-muted" id="evaCaption" aria-live="polite"></p>
       <div class="eva-think" id="evaThink" aria-hidden="true"></div>
       <div class="eva-steps" id="evaSteps" aria-label="What she did this turn"></div>
+      <div class="eva-story" id="evaStory" role="status"><i></i><span id="evaStoryText">Recording your story</span><button id="evaStoryStop">That's the end</button></div>
+      <div class="eva-lat" id="evaLat" aria-hidden="true"></div>
       <div class="eva-glance" id="evaGlance" aria-label="At a glance"></div>
     </section>
     <aside class="eva-rail" id="evaRail" aria-label="Cards"></aside>
@@ -850,7 +866,7 @@ const RENDER = {
       h('div', { class: 'card__hint' }, 'Or just say "go ahead"')];
   },
   nowplaying(d) { return [head('Now playing'), h('div', { class: 'card__title' }, d.what)]; },
-  note(d) { const out = [head(d.title || 'Note'), h('div', { class: 'card__text' }, d.text)];
+  note(d) { const out = [head(d.title || 'Note'), h('div', { class: 'card__text' }, md(d.text))];
     const links = (d.links || []).filter(l => /^https?:\/\//.test(l.url || '')).slice(0, 12);      // v0.8: links she found
     if (links.length) out.push(h('div', { class: 'card__links' }, ...links.map(l => h('a', { href: l.url, target: '_blank', rel: 'noopener noreferrer' }, l.title || l.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)))));
     return out; },
@@ -906,7 +922,7 @@ const RENDER = {
     setTimeout(() => pick(0), 0);
     return [head(d.title || 'Model', `${ms.length} file${ms.length === 1 ? '' : 's'}`), box, chips, size,
       h('div', { class: 'model__links' }, ms.map(m => h('a', { href: url(m, m.png), target: '_blank', rel: 'noopener' }, `views of ${m.name}`))),
-      d.text ? h('div', { class: 'card__text model__text' }, d.text) : null];
+      d.text ? h('div', { class: 'card__text model__text' }, md(d.text)) : null];
   },
   reminder(d, c) { return RENDER.alert({ kind: 'Reminder', title: d.title, text: d.text }, c); },
   alert(d, c) {
@@ -1184,13 +1200,14 @@ function openSettings() { closeAll(); root.classList.add('settings-open'); $('ev
   $('evaSettingsBtn').setAttribute('aria-expanded', 'true'); settingsLoad(); }
 $('evaSettingsBtn').onclick = () => root.classList.contains('settings-open') ? closeAll() : openSettings();
 addEventListener('eva:review-open', () => { SETTAB = 'notes'; openSettings(); });
+$('evaStoryStop').onclick = () => window.dispatchEvent(new CustomEvent('eva:text', { detail: { text: "That's the end." } }));
 addEventListener('eva:journal', () => { if (SETTAB === 'did' && root.classList.contains('settings-open')) didLoad(); });
 /* v0.7 settings: what you'd otherwise say or edit in YAML; saved on top of your settings files */
 var SETTAB = 'settings';                       // v0.9: Settings | What she knows | Her notes; v1.0: What she did, JARVIS test
 function setHead(title) {
   return [h('div', { class: 'panel__head' }, h('div', { class: 'panel__title' }, title),
       h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: closeAll }, icon('x'))),
-    h('div', { class: 'set-tabs', role: 'tablist' }, [['settings', 'Settings'], ['did', 'What she did'], ['tasks', 'Tasks'], ['projects', 'Projects'], ['memory', 'What she knows'], ['notes', 'Her notes'], ['jarvis', 'JARVIS test']].map(([k, l]) =>
+    h('div', { class: 'set-tabs', role: 'tablist' }, [['settings', 'Settings'], ['did', 'What she did'], ['tasks', 'Tasks'], ['projects', 'Projects'], ['memory', 'What she knows'], ['bio', 'Biography'], ['notes', 'Her notes'], ['jarvis', 'JARVIS test']].map(([k, l]) =>
       h('button', { class: 'set-tab' + (SETTAB === k ? ' is-on' : ''), role: 'tab', 'aria-selected': SETTAB === k ? 'true' : 'false', onclick: () => { SETTAB = k; settingsLoad(); } }, l)))];
 }
 const MEM = { q: '', armed: 0, editing: 0, timer: 0 };
@@ -1360,6 +1377,51 @@ function jarvisRender(d) {
       h('div', null, r.title || r.id, (r.problems || []).map(p => h('small', null, p)), r.answers && r.answers.length ? h('small', null, '\u201c' + r.answers[r.answers.length - 1] + '\u201d') : null),
       h('small', null, `${r.seconds} s`))) : []));
 }
+/* v1.1: markdown in cards ("**Files** ... - `skull.stl`" showed as raw text) */
+function mdInline(text) {
+  const out = []; const rx = /(\*\*[^*]+\*\*|`[^`]+`)/g; let last = 0, m;
+  while ((m = rx.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(m[0][0] === '`' ? h('code', null, m[0].slice(1, -1)) : h('b', null, m[0].slice(2, -2)));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+function md(text) {
+  const box = h('div', { class: 'md' }); let list = null;
+  String(text || '').split(/\n/).forEach(line => {
+    const t = line.trim();
+    if (!t) { list = null; return; }
+    if (/^[-*\u2022] /.test(t)) { if (!list) { list = h('ul'); box.append(list); } list.append(h('li', null, ...mdInline(t.slice(2)))); return; }
+    list = null;
+    if (/^#{1,6} /.test(t)) { box.append(h('h4', null, ...mdInline(t.replace(/^#+ /, '')))); return; }
+    box.append(h('p', null, ...mdInline(t)));
+  });
+  return box;
+}
+/* v1.1: his biography */
+async function bioLoad() {
+  try { const r = await fetch('/api/memoir', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'bio') bioRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('Biography'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load your biography.")); }
+}
+async function bioAct(what) {
+  await fetch('/api/memoir/' + what, { method: 'POST', credentials: 'same-origin', headers: { 'X-EVA': '1' } }).catch(() => {});
+  bioLoad();
+}
+function bioRender(d) {
+  const box = $('evaSettings'), st = d.status || {}, chs = (d.chapters || []).slice().reverse();
+  box.textContent = '';
+  box.append(...setHead('Biography'), h('div', { class: 'set-ok', id: 'setOk' }),
+    h('div', { class: 'set-group' }, h('div', { class: 'panel__help' }, `Tell her a story from your life ("Eva, I want to tell you a story"), take your time, and say "that's the end". She writes it down as a chapter in your own words, in ${d.folder || 'your E.V.A. folder'}.`),
+      h('div', { class: 'mem-actions' }, st.active ? h('button', { class: 'mem-btn', onclick: () => bioAct('stop') }, "That's the end: write it") : h('button', { class: 'mem-btn', onclick: () => bioAct('start') }, st.paused ? 'Carry on with the story' : 'Start recording a story'),
+        st.active ? h('button', { class: 'mem-btn', onclick: () => bioAct('pause') }, 'Pause') : null,
+        (st.active || st.paused) ? h('button', { class: 'mem-btn', onclick: () => bioAct('cancel') }, 'Throw this recording away') : null),
+      st.parts ? h('div', { class: 'panel__help' }, `${st.active ? 'Recording' : 'Paused'}: ${st.parts} parts, ${st.words} words so far.`) : null),
+    (d.questions || []).length ? h('div', { class: 'set-group' }, h('div', { class: 'bench__label' }, 'What she would like to ask you next'), ...d.questions.map(q => h('div', { class: 'panel__help' }, q))) : null,
+    ...(chs.length ? chs.map(c => h('div', { class: 'bio-ch' }, h('b', null, c.title), h('small', null, [c.period, c.told ? 'told ' + c.told.slice(0, 10) : '', c.words ? `${c.words} words` : ''].filter(Boolean).join(' \u00b7 ')),
+      c.summary ? h('small', null, c.summary) : null, (c.people || []).length ? h('small', null, 'People: ' + c.people.join(', ')) : null)) : [h('div', { class: 'panel__help', style: 'padding:12px 0' }, 'No chapters yet.')]));
+}
 const PROJ = { armed: '', open: '' };
 async function projectsLoad() {
   try { const r = await fetch('/api/projects', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'projects') projectsRender(d); }
@@ -1400,6 +1462,7 @@ async function settingsLoad() {
   if (SETTAB === 'notes') return notesLoad();
   if (SETTAB === 'did') return didLoad();
   if (SETTAB === 'jarvis') return jarvisLoad();
+  if (SETTAB === 'bio') return bioLoad();
   try {
     const r = await fetch('/api/settings', { credentials: 'same-origin' }); if (!r.ok) throw new Error(r.status);
     const d = await r.json(); if (SETTAB === 'settings') settingsRender(d);
@@ -1666,6 +1729,8 @@ function stepChip(s) {
 }
 window.EVA = { setState, setLevel: v => { core.level = v == null ? null : Math.max(0, Math.min(1, v)); },
   thinking, turnReset, stepChip,
+  story(ev) { root.classList.toggle('story-on', ev.state === 'recording'); $('evaStoryText').textContent = ev.parts ? `Recording your story \u00b7 ${ev.parts} part${ev.parts > 1 ? 's' : ''} \u00b7 ${ev.words} words` : 'Recording your story'; },
+  latency(s) { const el = $('evaLat'); el.textContent = `first sound ${s} s`; el.classList.add('on'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('on'), 6000); },
   setCaption, setHint, setConnection, showCard, showCards, dismiss, clearCards, expand,
   alert: (data) => { const id = showCard('alert', data, { proactive: true }); setState('alert'); return id; },
   setStatus, openPanel, openHistory, closeAll, addTranscript, chatLoaded, chatMeta, rules: RULES };
@@ -1755,6 +1820,9 @@ function glanceFull() {
   if (d.project) grid.append(tile('Project', d.project.name, [d.project.open_questions ? `${d.project.open_questions} open question${d.project.open_questions > 1 ? 's' : ''}` : '', d.project.parts ? `${d.project.parts} parts, about ${Math.round(d.project.total_eur)} euros` : ''].filter(Boolean).join(' \u00b7 ') || null));
   (d.tasks || []).forEach(t => grid.append(tile(t.status === 'waiting' ? 'Needs you' : 'Working on', t.title, t.now || null)));
   if (d.review && d.review.headline) grid.append(tile('Her notes on ' + (d.review.date || 'yesterday'), d.review.headline, null));
+  if ((d.lately || []).length) grid.append(h('div', { class: 'gf-tile' }, h('h3', null, 'Lately'),               // v1.1: the HUD
+    ...d.lately.map(x => h('div', { class: 'gf-small' }, `${pad2(new Date(x.ts * 1000).getHours())}:${pad2(new Date(x.ts * 1000).getMinutes())} ${x.tool.replace(/_/g, ' ')}${x.decision === 'asked' ? ' (asked you)' : ''}: ${x.result}`))));
+  if (d.latency) grid.append(tile('Speed today', `${d.latency.last} s`, `average ${d.latency.avg} s over ${d.latency.turns} answers, slowest ${d.latency.slowest} s`));
 }
 function glanceClock() {
   const now = new Date();
@@ -1799,6 +1867,16 @@ function setState(s) { state = s; E.setState(s); }
 /* v1.0: when she has to think (the local model can take a few seconds), a soft two-note tone says "got it" without
    the same "one moment, sir" every time. Never while she speaks. */
 let cueDone = false, cueCtx = null;
+function storyCue() {                         // one soft low note: "got that part"
+  try {
+    if (isSpeaking()) return;
+    cueCtx = cueCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = cueCtx.currentTime, o = cueCtx.createOscillator(), g = cueCtx.createGain();
+    o.type = 'sine'; o.frequency.value = 520;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.035, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    o.connect(g); g.connect(cueCtx.destination); o.start(t); o.stop(t + 0.32);
+  } catch (_) {}
+}
 function thinkCue() {
   try {
     if (isSpeaking()) return;
@@ -1947,6 +2025,8 @@ function handle(ev) {
     case 'thinking': if (E.thinking) E.thinking(ev.text || ''); if (!cueDone && lastWasVoice) { cueDone = true; thinkCue(); } break;   // v1.0: her thinking, and a soft tone instead of "one moment"
     case 'step': if (E.stepChip) E.stepChip(ev.data || {}); break;                   // v1.0: what she just did
     case 'journal': window.dispatchEvent(new CustomEvent('eva:journal', { detail: ev })); break;
+    case 'memoir': if (E.story) E.story(ev); if (ev.state === 'recording' && ev.parts) storyCue(); break;   // v1.1: her biography
+    case 'latency': if (E.latency) E.latency(ev.first_sound_s); break;
     case 'device_action':                                    // alarms, timers: the Android app does it
       if (window.EvaNative) window.EvaNative.postMessage(JSON.stringify(ev));
       else sendCtl({ type: 'device_result', id: ev.id, ok: false, error: 'this window is not the phone app' });
@@ -1971,6 +2051,7 @@ function handle(ev) {
       else { const c = toCard(ev.data); if (c) E.showCard(c.type, c.data); }
       break;
     case 'final': {
+      if (ev.silent && !ev.text) { streamBuf = ''; turnText = ''; setState('idle'); break; }    // v1.1: a story part, written down
       const t = ev.text || streamBuf; turnText = t; streamBuf = '';
       if (ev.proactive) {
         turnProactive = true;

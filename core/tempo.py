@@ -116,7 +116,7 @@ class _Fixed:
 
 def free_slots(google, day: str = "today", duration_minutes: int = 30, now: Optional[datetime] = None) -> dict:
     now = now or datetime.now()
-    start, end, label = day_window(day)
+    start, end, label = day_window(day, now.date())
     lo, hi = part_of_day(day) or (WORK_START, WORK_END)
     window_start = max(start.replace(hour=lo), now if start.date() == now.date() else start.replace(hour=lo))
     window_end = start.replace(hour=hi) if hi < 24 else end

@@ -34,7 +34,7 @@ last_user_ts = 0.0                            # when he last said something (fro
 # what is worth reading: his words, her answers, decisions, tools, the mind, tasks, and every warning
 _WORTH = re.compile(r"USER|EVA:|EVA \(proactive\)|UNDERSTAND|TOOL |MIND:|AGENT:|COMPUTER:|BROWSER|NEARBY|CHATS:|"
                     r"LATER:|ORCH:|claim guard|fact guard|ECHO heard|ECHO: '|holding an unfinished|CLAUDE: |BRAIN:|REFLEX:|"
-                    r"JOURNAL:|SKILLS: made|JARVIS TEST:")
+                    r"JOURNAL:|SKILLS: |JARVIS TEST:|MEMOIR:|PATTERNS:")
 _SECRETS = re.compile(r"(sk-ant-[\w-]+|token=[\w-]+|Bearer [\w.-]+|\b\d{13,19}\b)")
 
 

@@ -235,7 +235,9 @@ class CloudBackend:
                 push("assistant", blocks or [{"type": "text", "text": "..."}])
             elif m["role"] == "tool":
                 content: Any = m.get("text") or "(no result)"
-                if m.get("images"):
+                if m.get("raw_content") is not None:         # a toolset's own result blocks (browser_state...)
+                    content = m["raw_content"]
+                elif m.get("images"):
                     content = [{"type": "text", "text": content}] + [
                         {"type": "image", "source": {"type": "base64", "media_type": i["media_type"], "data": i["b64"]}}
                         for i in m["images"]]

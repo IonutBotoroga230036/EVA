@@ -88,6 +88,14 @@ SCHEMAS = [
      "folder (Documents/E.V.A./<task>), where they can open them. Give all of them in one call: one question "
      "for the user. Asks first unless they gave a standing yes.",
      "input_schema": _s({"paths": {"type": "array", "items": STR}, "path": STR})},
+    {"name": "download_file", "description": "Download a public file (a model, weights, a dataset, an image) into "
+     "the task folder. The sandbox has no network: download what your code needs first, then run it.",
+     "input_schema": _s({"url": STR, "path": STR}, ["url"])},
+    {"name": "find_my_files", "description": "Find files in the user's E.V.A. folder (what earlier tasks made, or "
+     "what he put there): names, folders, sizes.", "input_schema": _s({"query": STR})},
+    {"name": "import_file", "description": "Copy a file from the user's E.V.A. folder into this task's folder, to "
+     "work on it (his script, his trained model, an earlier task's output).",
+     "input_schema": _s({"path": STR, "as_name": STR}, ["path"])},
     {"name": "finish", "description": "The task is done. summary: one or two short spoken sentences (what you made "
      "and the one thing to do next), no lists. details: the full write-up for the screen (sizes, print settings, "
      "steps, caveats), markdown is fine. Check the files exist before you finish.",
@@ -98,7 +106,7 @@ KIND = {"update_plan": "look", "mark_step": "look", "ask_user": "look", "tell_us
         "install_python_packages": "pip_install", "check_program": "look", "install_program": "install_program",
         "run_program": "run_program", "web_search": "look", "fetch_page": "look", "find_places": "look",
         "list_eva_tools": "look", "use_eva_tool": "eva_action", "deliver_file": "export_file", "finish": "look",
-        "preview_model": "look"}
+        "preview_model": "look", "download_file": "look", "find_my_files": "look", "import_file": "workspace"}
 
 
 def _json(d) -> str:
@@ -374,6 +382,20 @@ class Hands:
         return {"model": out["model"], "size_mm": size, "triangles": out["triangles"],
                 "look": "Check: is it the shape you meant, the right size, stable, printable without supports?",
                 "_image_b64": out["png_b64"]}
+
+    def h_download_file(self, url: str, path: str = ""):
+        out = get_pc().download(self.task.id, url, path)
+        self.task.note(f"downloaded {out.get('saved')} ({out.get('bytes', 0) // 1024} KB)")
+        return out
+
+    def h_find_my_files(self, query: str = ""):
+        from core.one import files as my
+        return {"folder": str(my.root()), "files": my.find(query, 40)}
+
+    def h_import_file(self, path: str, as_name: str = ""):
+        out = get_pc().import_file(self.task.id, path, as_name)
+        self.task.note(f"brought in {out.get('to')}")
+        return out
 
     def h_deliver_file(self, paths: Optional[list] = None, path: str = ""):
         done = []

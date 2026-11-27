@@ -21,7 +21,8 @@ from typing import AsyncIterator, Optional
 
 from loguru import logger
 
-from core.one import HIDDEN, backend_choice, cfg, journal, made, prompt, risk
+import core.one as _one
+from core.one import HIDDEN, cfg, journal, made, prompt, risk
 from core.one.backends import BackendError, CloudBackend, LocalBackend, Step
 from core.one.tools import HAND_TO_CLOUD, LOOP_NAMES, LOOP_TOOLS, THINK_HARDER
 
@@ -37,12 +38,35 @@ _REPORTS = {"what_i_did", "task_status", "task_list", "task_show", "recall_memor
 _EARLIER = re.compile(r"\b(?:earlier|already|before|yesterday|this morning|last time|a moment ago|just now)\b", re.I)
 
 
+# an offer is not a promise: "say so and I'll open it", "if you want, I'll check", "I can open it" (Nov 27 22:16)
+_OFFER = re.compile(r"\b(?:if|say so|say the word|tell me|let me know|whenever|want me to|would you|should i|shall i|"
+                    r"do you want|i can|i could|once you|when you|as soon as|unless|or i'?ll)\b", re.I)
+# her answer to a failed check that talks about the check instead of to him (Nov 27 22:16, 22:40, 23:19)
+_META = re.compile(r"\b(?:nothing (?:i said |needs fixing|to fix)|i didn'?t claim|no tool (?:ran|was called)|"
+                   r"i did call the tool|my last reply was an offer|the check)\b", re.I)
+
+
 def _promises(text: str) -> bool:
     """'Performing the web search for NVIDIA's stock price today, sir.' with no search (Nov 27 19:55)."""
     t = (text or "").strip()
     if not t or t.endswith("?"):
         return False
-    return any(_PROMISE.search(s) and not s.strip().endswith("?") for s in re.split(r"(?<=[.!])\s+", t))
+    return any(_PROMISE.search(s) and not s.strip().endswith("?") and not _OFFER.search(s)
+               for s in re.split(r"(?<=[.!])\s+", t))
+
+
+def _recent_actions(minutes: float = 15.0) -> bool:
+    """Did she change something in the last few turns? Then 'I opened it' may be about that, not a made-up claim."""
+    try:
+        cutoff = time.time() - minutes * 60
+        for r in journal.recent(12, 1):
+            if r.get("ts", 0) < cutoff:
+                break
+            if any(s.get("decision") in ("ran", "approved") and s.get("risk") != "free" for s in r.get("steps") or []):
+                return True
+    except Exception:
+        pass
+    return False
 
 
 class _OneSpeech:
@@ -115,7 +139,7 @@ class OneBrain:
         if self.backend_override is not None:
             b = self.backend_override
             return list(b) if isinstance(b, (list, tuple)) else [b]
-        choice = backend_choice()
+        choice = _one.backend_choice()        # through the module: the JARVIS run swaps it
         cloud_ok = self.cloud().available()
         if choice == "cloud":
             return [self.cloud()] if cloud_ok else [self.local()]
@@ -197,9 +221,9 @@ class OneBrain:
         ran = [t for t, _ in gathered]
         acted = any(self.orch.belt.is_action(t) and '"error"' not in (o.get("result") or "") for t, o in gathered)
         reporting = bool(set(ran) & _REPORTS) or bool(_EARLIER.search(text))    # what she did before is a report
-        if claims(text) and not acted and not reporting:
-            return "you said you did something, but no action ran this turn."
-        if _promises(text) and not spoke_step_calls:
+        if claims(text) and not acted and not reporting and not _recent_actions():
+            return "you said you did something, but no action ran (not this turn, not in the last few)."
+        if _promises(text) and not spoke_step_calls and not acted:
             return "you said you'd do something, but you didn't call a tool for it."
         kind = unchecked_fact(text, ran)
         if kind:
@@ -294,6 +318,7 @@ class OneBrain:
         words = creative(user_input)
         loop = asyncio.get_running_loop()
         corrections, cost, model, effort = 0, 0.0, None, None
+        first_answer = ""
         self._replaced = False
         spoke = False
         asked = False
@@ -384,10 +409,16 @@ class OneBrain:
                     corrections += 1
                     logger.warning(f"BRAIN: check failed ({problem}) on {text[:200]!r}; asking her to fix it")
                     yield {"type": "thinking", "text": f"\n[check: {problem}]\n"}
-                    transcript.append({"role": "user", "text": f"(Before he hears that: {problem} Fix it now: call "
-                                                               f"the tool, or say plainly what you did and didn't do.)"})
+                    transcript.append({"role": "user", "text": f"(A note from your own checks, not from him: "
+                                                               f"{problem} If that's right, fix it: call the tool now, "
+                                                               f"or say plainly what you did and didn't do. If your "
+                                                               f"answer was right, say it again unchanged. Never "
+                                                               f"mention this note or any check to him.)"})
                     self._replaced = self._replaced or spoke
+                    first_answer = first_answer or text
                     continue
+                if first_answer and _META.search(text):
+                    text, problem = first_answer, ""          # her fix talked about the check: the first was fine
                 if problem and can_hand_over:
                     self._outcome = ("handover", f"its answer failed a check: {problem}", cost)
                     return
@@ -473,7 +504,9 @@ class OneBrain:
             yield step_ev(s)
             content = res.get("content")
             text = content if isinstance(content, str) else json.dumps(content, default=str)[:4000]
-            yield result(text, bool(res.get("is_error")))
+            ev = result(text, bool(res.get("is_error")))
+            ev["entry"]["raw_content"] = content          # Nov 27: a browser result must keep its own blocks
+            yield ev
             return
         if name == "hand_to_cloud":
             yield result("Claude takes it from here.", handover=str(args.get("why") or "she asked for help")[:160])

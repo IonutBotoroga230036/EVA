@@ -261,6 +261,45 @@ class FakeWorld:
         from core.tools_native import tool_calculate
         return tool_calculate(expression=expression)
 
+    def t_my_files(self, query="", **_):
+        files = [{"path": "C:/Users/you/Documents/E.V.A/face recognition camera/eva_face.py", "name": "eva_face.py",
+                  "folder": "face recognition camera"},
+                 {"path": "C:/Users/you/Documents/E.V.A/face recognition camera/who_is_here.py",
+                  "name": "who_is_here.py", "folder": "face recognition camera"}]
+        q = (query or "").lower()
+        return self._r({"files": [f for f in files if not q or any(w in f["path"].lower() for w in q.split())]
+                        or files})
+
+    def t_read_my_file(self, path="", **_):
+        return self._r({"path": path, "text": "who_is_here.py --camera N: prints JSON {is_ionut, confidence}"})
+
+    def t_run_my_script(self, path="", args=None, **_):
+        return self._r({"ok": True, "output": '{"is_ionut": true, "confidence": 0.98}',
+                        "json": {"is_ionut": True, "confidence": 0.98}})
+
+    def t_adopt_skill(self, name="", **_):
+        return self._r({"ok": True, "skill": f"skill_{name}"})
+
+    def t_task_resume(self, which="", **_):
+        return self._r({"ok": True}, "Back on it.")
+
+    def t_media_control(self, action="", **_):
+        return self._r({"ok": True}, "Done.")
+
+    def t_phone_ring(self, **_):
+        return self._r({"ringing": True}, "Ringing your phone.")
+
+    def t_where_am_i(self, **_):
+        return self._r({"place": "home", "since": "21:37"}, "You're at home.")
+
+    def t_memoir_start(self, topic="", **_):
+        from core.memoir import tool_memoir_start
+        return tool_memoir_start(topic)
+
+    def t_memoir_stop(self, **_):
+        from core.memoir import tool_memoir_stop
+        return tool_memoir_stop()
+
     def t_what_i_did(self, day="today", **_):
         from core.one.tools import tool_what_i_did
         return tool_what_i_did(day)
@@ -365,6 +404,11 @@ async def run_one(sc: dict, make_backend: Optional[Callable] = None, registry=No
         logger.exception(f"JARVIS TEST: {sc['id']} crashed")
     finally:
         tasks_mod.get_store = old_store
+        try:
+            from core import memoir
+            memoir.cancel()                       # a story left recording mustn't swallow the next scenario
+        except Exception:
+            pass
     seconds = time.time() - t0
     called = {n for n, _ in world.calls}
     recs = [r for r in journal.recent(200, 1) if r["id"] in set(turn_ids)]
@@ -455,13 +499,25 @@ def due(now: Optional[datetime] = None, last_user_ts: float = 0.0) -> bool:
     return not any(r.get("date") == now.date().isoformat() and r.get("nightly") for r in listing(3))
 
 
+def fake_writer(raw: str, topic: str) -> dict:
+    """The JARVIS run checks her listening, not the writing: a plain chapter, no model."""
+    return {"title": (topic or "A story")[:60], "text": raw, "period": "", "year": 0, "people": [], "places": [],
+            "summary": raw[:120], "questions": ["What happened next?"], "_writer": "test"}
+
+
 def _isolate(tmp: Path) -> None:
-    """In the run's own process: her journal, skills, risk notes and settings changes go to a temp folder."""
-    from core import settings as settings_mod
-    from core.one import journal, made, risk
+    """In the run's own process: her journal, skills, risk notes, biography and settings changes go to a temp
+    folder."""
+    from core import memoir, settings as settings_mod
+    from core.one import files, journal, made, patterns, risk
     journal.DIR = tmp / "journal"
     made.DIR = tmp / "skills_made"
     risk.STORE = tmp / "risk.json"
+    patterns.STORE = tmp / "patterns.json"
+    files.APPROVALS = tmp / "script_approvals.json"
+    memoir.STATE = tmp / "memoir_state.json"
+    memoir.folder = lambda: tmp / "Biography"
+    memoir._write_json = fake_writer
     settings_mod.UI_PATH = tmp / "settings_ui.json"
 
 

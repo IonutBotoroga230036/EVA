@@ -40,7 +40,7 @@ TELL = {  # changes in his own space, mostly undoable
     "spotify_volume", "media_control", "set_volume", "lights_power", "lights_set", "set_mood", "create_mood",
     "phone_ring", "phone_alarm", "phone_timer", "phone_volume", "phone_stay_dark", "phone_ask_unlock",
     "send_to_phone", "set_brain_mode", "use_computer", "change_setting", "undo", "make_skill", "run_skill",
-    "schedule_later",
+    "schedule_later", "memoir_start", "memoir_stop", "memoir_pause", "memoir_add",
 }
 _SENDS = re.compile(r"(?:^|_)(?:send|reply|post|publish|tweet|dm|message|mail|email|whatsapp|telegram|sms|invite|share)"
                     r"(?:_|$)", re.I)
@@ -114,6 +114,13 @@ def judge(tool: str, args: Optional[dict] = None, belt=None, approved: Optional[
         except Exception:
             pass
         return "ask", "it uses your mouse and keyboard"
+    if tool == "run_my_script":                 # v1.1: approved once per script; a changed file asks again
+        from core.one import files
+        if files.approved(args.get("path", "")):
+            return "tell", "a script of yours that he already let run"
+        return "ask", "it runs a script on your PC for the first time"
+    if tool == "adopt_skill":
+        return "ask", "it makes a script on your PC one of my skills"
     if tool == "run_skill":
         from core.one import made
         return made.risk_of(args.get("name", ""), args.get("args") or {})

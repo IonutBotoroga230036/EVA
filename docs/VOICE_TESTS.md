@@ -447,3 +447,20 @@ First: `ollama pull qwen3.5:4b`, restart, and check the start-up has no `BRAIN: 
 | 30.12 | The chats sidebar: open an old chat, start a new one, hide it, search | Like ChatGPT; your memory carries over | |
 | 30.13 | Settings > Tasks > Decisions on a task | Its plan, what it asked you, every step | |
 | 30.14 | Settings > Her brain > How she decides: The old routing | Everything as in v0.9 | |
+
+## 31. v1.1: patience, her files, the biography
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 31.1 | Say a long sentence with a pause in the middle ("I was thinking... about the trip") | One sentence, not two | `ECHO heard:` once |
+| 31.2 | End on "uh" or "so like", wait | She waits for the rest; after the wait she still gets what you said | `holding an unfinished sentence` |
+| 31.3 | Settings > Listening: wait 1.5 s | Noticeably more patient, no restart | |
+| 31.4 | "Can you locate my phone? Do you know where I am?" | No ringing; she answers with where_am_i | `BRAIN: step 1: where_am_i` |
+| 31.5 | "Where did you put the face recognition script?" | The folder and file name | `TOOL my_files` |
+| 31.6 | "Run the setup of eva_face.py" | Asks once; after yes it runs with her Python | `TOOL run_my_script` |
+| 31.7 | "Wire up who_is_here.py so you can use it", yes, then "can you see me?" | She runs her new skill and says who she sees | `SKILLS: adopted`, `skill_who_is_here` |
+| 31.8 | "Open eva_face.py in VS Code" | It opens in VS Code | `TOOL open_file` |
+| 31.9 | A task that needs a model download | No "the sandbox couldn't fetch"; no question for copying files | `downloaded` in the task's trail |
+| 31.10 | "Eva, I want to tell you a story", talk for a few minutes with breaks, "that's the end" | Quiet while you talk (a soft tone), then "I wrote it down as ..." and a card | `MEMOIR: wrote` |
+| 31.11 | Settings > Biography | The chapter, and the questions she'd ask next | |
+| 31.12 | /stage on the second screen | "Lately" and "Speed today" tiles | |

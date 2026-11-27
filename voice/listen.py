@@ -63,6 +63,7 @@ class ListenConfig:
     early_wake_ms: int = 900            # wake mode: after this much speech, peek for "Eva" so the UI reacts at once
     barge_peek_ms: int = 1200           # wake-barge mode: how often speech over her voice is checked for "Eva"
     barge_tail_ms: int = 2400           # ...and how much of the latest audio each check hears
+    patience_secs: float = 0.0          # v1.1: after Smart Turn says "done", wait this long (settings: 0.7)
 
     @classmethod
     def from_settings(cls, cfg: dict) -> "ListenConfig":
@@ -71,7 +72,8 @@ class ListenConfig:
         for key in ("pre_roll_ms", "min_speech_ms"):
             if key in cfg:
                 setattr(c, key, int(cfg[key]))
-        for key in ("max_utterance_secs", "max_pause_secs", "barge_in_secs", "command_window_secs", "echo_secs"):
+        for key in ("max_utterance_secs", "max_pause_secs", "barge_in_secs", "command_window_secs", "echo_secs",
+                    "patience_secs", "carry_secs"):
             if key in cfg:
                 setattr(c, key, float(cfg[key]))
         if "barge_in" in cfg:
@@ -114,7 +116,8 @@ def _norm(text: str) -> str:
 
 
 _TRAILING = re.compile(r"(?:\.\.\.|\u2026)\s*$|\b(?:and|or|but|so|also|then|because|like|plus|can you|could you|"
-                       r"would you|will you|and can you|and also|can you also)\s*[,.]?\s*$", re.I)
+                       r"would you|will you|and can you|and also|can you also|"
+                       r"uh+|um+|uhm+|erm|er|hmm+|ah+|you know|i mean|so like|sort of|the|an)\s*[,.\-]?\s*$", re.I)     # v1.1: "uh", "so like", "the..." = still talking
 
 
 def unfinished(text: str) -> bool:
@@ -123,6 +126,15 @@ def unfinished(text: str) -> bool:
 
 
 # ------------------------------------------------------------------ listener
+def _live_overrides() -> dict:
+    """v1.1: the biography's slower listening while it records (longer pauses, longer turns)."""
+    try:
+        from core import memoir
+        return memoir.listening() or {}
+    except Exception:
+        return {}
+
+
 @dataclass
 class _Utterance:
     started: float
@@ -133,6 +145,7 @@ class _Utterance:
     woke: bool = False                      # a peek heard the wake word: this utterance is for her
     over_her: bool = False                  # started while her voice played, in wake-barge mode
     peeked_ms: float = 0.0                  # wake-barge mode: speech already checked for "Eva"
+    ending_at: float = 0.0                  # v1.1: Smart Turn said done; ends here unless he talks again
 
 
 class Listener:
@@ -165,6 +178,25 @@ class Listener:
         self.last_audio = 0.0
         self._peaks: deque[tuple[float, float]] = deque(maxlen=200)
         self._carry: Optional[tuple[float, str]] = None
+        self._over: dict = {}
+        self.settings_source: Optional[Callable[[], dict]] = None     # v1.1: the settings, re-read per utterance
+
+    def _refresh(self) -> None:
+        """New settings from the window (patience, pause length) and the biography's overrides, at each new
+        utterance: no restart needed."""
+        self._over = _live_overrides()
+        if self.settings_source is None:
+            return
+        try:
+            fresh = ListenConfig.from_settings(self.settings_source() or {})
+            pause = max(fresh.max_pause_secs, float(self._over.get("patience_secs", 0)) + 1.0)
+            if pause != self.cfg.max_pause_secs and hasattr(self.turn, "set_max_pause"):
+                self.turn.set_max_pause(pause)
+            for key in ("patience_secs", "max_utterance_secs", "max_pause_secs", "carry_secs", "barge_in_secs"):
+                setattr(self.cfg, key, getattr(fresh, key))
+            self.cfg.max_pause_secs = pause
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------- control
     def arm(self, secs: float | None = None) -> None:
@@ -247,6 +279,7 @@ class Listener:
         utt = self._utt
 
         if speaking and not was and utt is None:                      # a new utterance begins
+            self._refresh()
             utt = self._utt = _Utterance(started=now, chunks=list(self._ring))
             if self.speaking and self.barge_mode == "wake":
                 utt.over_her = True                                   # judged by her name only, never ducked
@@ -275,18 +308,33 @@ class Listener:
                     await self._emit({"type": "barge_in", "stage": "stop"})
                     await self.on_barge_in()
             ended = False
+            patience = max(self.cfg.patience_secs, float(self._over.get("patience_secs", 0)))
+            if speaking and utt.ending_at:                            # he went on: the same turn
+                utt.ending_at = 0.0
             if was and not speaking:                                  # VAD heard them stop
                 if await self.turn.analyze():
-                    ended = True
+                    if patience > 0:
+                        utt.ending_at = now + patience
+                    else:
+                        ended = True
                 else:
                     await self._emit({"type": "listen", "state": "pause"})
-            if silence_done or (now - utt.started) >= self.cfg.max_utterance_secs:
+            if utt.ending_at and not speaking and now >= utt.ending_at:
+                ended = True
+            limit = max(self.cfg.max_utterance_secs, float(self._over.get("max_utterance_secs", 0)))
+            if silence_done or (now - utt.started) >= limit:
                 ended = True
             if ended:
                 await self._end_utterance()
         elif self.armed_until and not self._armed_notified and now >= self.armed_until:
             self._armed_notified = True                               # the window closed in silence
-            await self._emit({"type": "listen", "state": "timeout"})
+            if self._carry:                   # v1.1: a held "can you-" that got no rest still goes to her
+                text, self._carry = self._carry[1], None
+                text = re.sub(r"[,\s]*\b(?:uh+|um+|uhm+|erm|er|hmm+|ah+)\W*$", "", text, flags=re.I).strip() or text
+                logger.info(f"ECHO heard (unfinished, nothing followed): {text}")
+                await self.on_command(text)
+            else:
+                await self._emit({"type": "listen", "state": "timeout"})
         self._ring.append(chunk)
 
     async def _end_utterance(self) -> None:
@@ -517,5 +565,7 @@ def build_listener(*, on_event: Event, on_command: TextCb, on_wake: VoidCb, on_b
             logger.warning(f"ECHO: Smart Turn unavailable ({e}); ending turns after silence instead")
     if turn is None:
         turn = pipecat_audio.SilenceTurn(float(cfg.get("silence_secs", 0.8)))
-    return Listener(vad, turn, get_stt(), lc, on_event=on_event, on_command=on_command,
-                    on_wake=on_wake, on_barge_in=on_barge_in)
+    listener = Listener(vad, turn, get_stt(), lc, on_event=on_event, on_command=on_command,
+                        on_wake=on_wake, on_barge_in=on_barge_in)
+    listener.settings_source = pipeline_config
+    return listener

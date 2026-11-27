@@ -121,11 +121,43 @@ def review() -> Optional[dict]:
         return None
 
 
+def lately(n: int = 4) -> list[dict]:
+    """v1.1, the HUD: her latest decisions that changed something (from the journal)."""
+    try:
+        from core.one import journal
+        out = []
+        for r in journal.recent(30, 2):
+            for st in reversed(r.get("steps") or []):
+                if st.get("risk") != "free" and st.get("decision") in ("ran", "approved", "asked"):
+                    out.append({"ts": st.get("ts") or r["ts"], "tool": st["tool"], "decision": st["decision"],
+                                "result": str(st.get("result") or "")[:120], "undo": bool(st.get("undo")) and
+                                not st.get("undone"), "id": st.get("id")})
+            if len(out) >= n:
+                break
+        return out[:n]
+    except Exception:
+        return []
+
+
+def latency() -> Optional[dict]:
+    """v1.1, the latency meter: her first sound after you finished, today."""
+    try:
+        from voice.speech import FIRST_SOUND
+        today = datetime.now().date()
+        vals = [s for t, s in FIRST_SOUND if datetime.fromtimestamp(t).date() == today]
+        if not vals:
+            return None
+        return {"last": vals[-1], "avg": round(sum(vals) / len(vals), 1), "slowest": max(vals), "turns": len(vals)}
+    except Exception:
+        return None
+
+
 def snapshot(now: Optional[datetime] = None) -> dict:
     now = now or datetime.now()
     nxt, left = next_event(now)
     return {"now": now.isoformat(timespec="seconds"), "weather": weather(), "next": nxt, "left_today": left,
-            "train": train(now), "project": project(), "tasks": tasks(), "spend": spend(), "review": review()}
+            "train": train(now), "project": project(), "tasks": tasks(), "spend": spend(), "review": review(),
+            "lately": lately(), "latency": latency()}
 
 
 # ---------------------------------------------------------------- the morning heads-up (v0.9)

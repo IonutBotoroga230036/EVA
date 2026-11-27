@@ -612,6 +612,11 @@ def tool_open_app(app: str = "", **_):
     if not name or name in _TOOL_NAMES or _SHELL_META.search(name):
         return {"result": json.dumps({"error": f"no valid app name was given ({app!r})"})}
     target = _APPS.get(name) or shutil.which(name)
+    if target == "code" or name in ("code", "vscode", "vs code", "visual studio code"):
+        from core.pc_tools import editor          # Nov 27: [WinError 2] for "code" (it's code.cmd, or not on PATH)
+        target = editor()
+    elif target and not target.endswith(":") and not os.path.isabs(target):
+        target = shutil.which(target) or target   # PATHEXT: finds .cmd/.exe launchers by name
     if not target:
         return {"result": json.dumps({"error": f"I don't know an app called {app}"})}
     try:
@@ -1018,7 +1023,19 @@ GUARDS.update(_review.GUARDS)
 # ---------------------------------------------------------------- v1.0: the one brain's own tools
 from core.one import tools as _one_tools  # noqa: E402
 
-TOOL_SCHEMAS += _one_tools.SCHEMAS
+from core.one import files as _one_files  # noqa: E402
+
+TOOL_SCHEMAS += _one_tools.SCHEMAS + _one_files.SCHEMAS
 REGISTRY.update(_one_tools.FUNCTIONS)
-ACTION_TOOLS |= _one_tools.ACTIONS
+REGISTRY.update(_one_files.FUNCTIONS)
+ACTION_TOOLS |= _one_tools.ACTIONS | _one_files.ACTIONS
 ACK_PHRASES.update({"web_read": "Reading the page, sir."})
+CONFIRM_TOOLS.update({"run_my_script": _one_files.describe_run,          # classic routing: always a yes first
+                      "adopt_skill": lambda a: f"make {a.get('script', 'the script')} one of my skills"})
+
+# ---------------------------------------------------------------- v1.1: his biography
+from core import memoir as _memoir  # noqa: E402
+
+TOOL_SCHEMAS += _memoir.SCHEMAS
+REGISTRY.update(_memoir.FUNCTIONS)
+ACTION_TOOLS |= _memoir.ACTIONS

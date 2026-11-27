@@ -29,6 +29,10 @@ from typing import Awaitable, Callable, Optional
 import numpy as np
 from loguru import logger
 
+from collections import deque as _deque
+
+FIRST_SOUND: _deque = _deque(maxlen=200)        # v1.1: (when, seconds) of her first sound per turn
+
 SAMPLE_RATE = 24000
 
 # ------------------------------------------------------------ text for speech
@@ -302,7 +306,13 @@ class TurnSpeaker:
                 wav = None
             if wav:
                 if self.sent == 0 and self.started:        # v0.9: how fast she answers, for him to see
-                    logger.info(f"ECHO: first sound {time.time() - self.started:.1f} s after you finished")
+                    took = time.time() - self.started
+                    logger.info(f"ECHO: first sound {took:.1f} s after you finished")
+                    FIRST_SOUND.append((time.time(), round(took, 2)))     # v1.1: the latency meter
+                    try:
+                        await self.send({"type": "latency", "turn": self.turn, "first_sound_s": round(took, 1)})
+                    except Exception:
+                        pass
                 await self.send({"type": "audio", "turn": self.turn, "seq": self.sent,
                                  "text": text, "audio": base64.b64encode(wav).decode()})
                 self.sent += 1

@@ -86,14 +86,20 @@ the app can start right at the beginning of v0.3.
 One loop decides every turn (local first, Claude when stuck), the risk judge instead of "just to confirm", the
 journal with undo, skills she makes herself, the automatic JARVIS test, chats in a sidebar. docs/ONE_BRAIN.md.
 
+## v1.1 (28 Nov, done)
+
+Patient listening, her files and scripts (adopt a script as a skill), tasks that download and ask less, the
+biography, patterns offered once, skill review, the HUD and the latency meter. docs/ONE_BRAIN.md, v1.1 section.
+
 ## Next, toward JARVIS (proposed 27 Nov)
 
 1. Her own voice in real time: a duplex speech model (talk over each other naturally, hums and "mm-hm") once one
    runs on 6 GB; until then, faster first words with the local model streaming its first sentence while it thinks.
-2. Initiative from the journal: she notices patterns ("you move standup every Monday; shall I make it 9:15 for
+2. Initiative from the journal (started in v1.1): she notices patterns ("you move standup every Monday; shall I make it 9:15 for
    good?") and offers once.
-3. Skills she made, reviewed: the nightly review also reads her made skills and retires the unused ones.
-4. A HUD on the second monitor: the journal, live tasks and her thinking as a JARVIS-style overlay.
-5. Presence: knowing you're at the desk (webcam presence, no recording) so she speaks only when you're there.
+3. Skills she made, reviewed (v1.1 retires the unused ones; next: she fixes the failing ones).
+4. A HUD on the second monitor: started in v1.1 (Lately, Speed today); next: her live thinking on it.
+5. Presence: knowing you're at the desk. Now possible with the face skill you built: once adopted, she can check
+   who is there before speaking up (next version).
 6. Local model upgrades without code: pull a bigger model when there's a better GPU, flip one setting; the JARVIS
    score shows whether it's better.

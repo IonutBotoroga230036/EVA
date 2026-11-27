@@ -182,6 +182,8 @@ voice:
     enabled: true
     pre_roll_ms: 700                   # audio kept from before speech is detected, so first words are never lost
     max_pause_secs: 3.0                # a thinking pause may last this long before the turn ends anyway
+    patience_secs: 0.7                 # v1.1: after she thinks you're done, she waits this long; talk again = same turn
+    carry_secs: 8                      # "and...", "uh", "so like": she waits this long for the rest
     smart_turn: true                   # false = end the turn after silence_secs of quiet instead
     silence_secs: 0.8
     min_speech_ms: 250                 # shorter sounds are ignored

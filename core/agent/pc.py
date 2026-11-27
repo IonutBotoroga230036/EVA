@@ -41,7 +41,7 @@ NEVER_RUN = {"cmd", "powershell", "pwsh", "bash", "sh", "zsh", "wsl", "python", 
              "scp", "ftp", "explorer", "taskkill", "del", "rm", "format", "diskpart", "bcdedit", "netsh", "icacls",
              "takeown", "runas", "git", "perl", "ruby", "php", "java", "javaw", "lua", "osascript"}
 METHODS = ("list_files", "read_file", "write_file", "run_python", "pip_install", "find_program", "install_program",
-           "run_program", "export_file", "info", "preview", "file_b64")
+           "run_program", "export_file", "info", "preview", "file_b64", "import_file", "download")
 SHOWABLE = {".stl": "model/stl", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml",
             ".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".scad": "text/plain; charset=utf-8"}
 
@@ -278,6 +278,56 @@ class LocalPC:
         shutil.copy2(src, dest)
         return {"copied_to": str(dest)}
 
+
+    def import_file(self, task: str, src: str, path: str = "") -> dict:
+        """v1.1: a copy of a file from his E.V.A. folder (what earlier tasks or he made) into this task's folder."""
+        from core.one import files as my
+        p = my.inside(src)
+        if not p or not p.is_file():
+            hits = my.find(Path(str(src)).name)
+            p = Path(hits[0]["path"]) if hits else None
+        if not p or not p.is_file():
+            raise PCError(f"{src} isn't a file in the E.V.A. folder ({my.root()})")
+        if p.stat().st_size > 500 * 1024 * 1024:
+            raise PCError("that file is over 500 MB")
+        ws = _workspace(task)
+        dest = _inside(ws, path or p.name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, dest)
+        return {"copied": str(p), "to": dest.relative_to(ws).as_posix(), "bytes": dest.stat().st_size}
+
+    def download(self, task: str, url: str, path: str = "", max_mb: int = 300) -> dict:
+        """v1.1: a public file (a model, a dataset) into this task's folder. Nov 27: the face models never came,
+        because the sandbox has no network; the download now happens here, outside it."""
+        from urllib.parse import urljoin, urlparse
+        import httpx
+        from core.agent.hands import _public_url
+        ws = _workspace(task)
+        name = path or Path(urlparse(url).path).name or "download.bin"
+        dest = _inside(ws, name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        for _ in range(5):
+            if not _public_url(url):
+                raise PCError("only public http(s) addresses")
+            with httpx.stream("GET", url, timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=False,
+                              headers={"User-Agent": "E.V.A. assistant"}) as r:
+                loc = r.headers.get("location") if 300 <= r.status_code < 400 else None
+                if loc:
+                    url = urljoin(url, loc)
+                    continue
+                if r.status_code >= 400:
+                    raise PCError(f"the server answered {r.status_code}")
+                n = 0
+                with open(dest, "wb") as f:
+                    for chunk in r.iter_bytes(1 << 16):
+                        n += len(chunk)
+                        if n > max_mb * 1024 * 1024:
+                            f.close()
+                            dest.unlink(missing_ok=True)
+                            raise PCError(f"the file is bigger than {max_mb} MB")
+                        f.write(chunk)
+                return {"saved": dest.relative_to(ws).as_posix(), "bytes": n}
+        raise PCError("too many redirects")
 
     def preview(self, task: str, path: str) -> dict:
         """A picture of a 3D model in the task folder (core/agent/preview.py), saved as _eva_preview/<name>.png."""
