@@ -8,7 +8,7 @@ from core.google_api import NeedAuth, auth_message, get_google
 TOOLS = [
     {"type": "function", "function": {
         "name": "calendar_agenda",
-        "description": "What is on the user's calendar for a day or week: 'today', 'tomorrow', 'friday', 'this week'. "
+        "description": "What is on the user's calendar for a day or week: 'today', 'tomorrow', 'yesterday', 'friday', 'the 26th', 'this week'. "
                        "Daily routine items (wake up, vitamins) are summed up unless everything is true.",
         "parameters": {"type": "object", "properties": {"day": {"type": "string"}, "everything": {
             "type": "boolean", "description": "true only when the user asks for everything, including the routine"}}}}},

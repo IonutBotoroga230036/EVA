@@ -241,4 +241,4 @@ FUNCTIONS = {"show_images": tool_show_images, "find_videos": tool_find_videos, "
 GUARDS = {"show_images": r"\b(show|picture|pictures|photo|photos|image|images|look like|looks like|see)\w*\b",
           "find_videos": r"\b(video|videos|youtube|clip|watch|tutorial)\w*\b",
           "open_shown": r"\b(open|play|show|bigger|first|second|third|fourth|fifth|sixth|one|number|\d)\w*\b"}
-ACKS = {"show_images": "Let me find some, sir.", "find_videos": "Looking, sir."}
+ACKS = {"show_images": "Finding pictures, sir.", "find_videos": "Finding videos, sir."}

@@ -112,7 +112,9 @@ It refuses payments, orders, passwords and card numbers: when a step needs those
  "Take a screenshot first, act one step at a time, and check with a screenshot after each step."}
 He can stop you any moment (saying stop, or pushing the mouse into a corner). Never type passwords; never pay,
 order, send messages or emails, delete files, or change accounts or security settings without ask_user first. Use
-the keyboard where it's more reliable (Windows key, typing a setting's name, Enter). When it's done, finish.""")
+the keyboard where it's more reliable. A Windows settings page opens in one go: key super+r, type
+ms-settings:<page> (bluetooth, network-wifi, display, sound, defaultapps, ...), key Return. When you're sure of
+the next few actions, send them together in one turn and take one screenshot after. When it's done, finish.""")
     return "\n".join(out) + "\n"
 
 
@@ -207,6 +209,14 @@ def _add_user(msgs: list, text: str) -> None:
         msgs[-1] = {"role": "user", "content": blocks + [{"type": "text", "text": text}]}
     else:
         msgs.append({"role": "user", "content": text})
+
+
+LINE_WAITS = (10.0, 30.0)          # after the client's own quick retries; tests set ()
+
+
+def _line_trouble(e: Exception) -> bool:
+    from core.claude import line_trouble
+    return line_trouble(e)
 
 
 def tools_for(t: Task) -> list:
@@ -444,6 +454,10 @@ class Manager:
                 self.answer("Carry on, there's budget again.", t.id)
                 self.notify(t, "progress", f"Sir, there's budget again, so I'm carrying on with the {t.title}.")
                 n += 1
+            elif t.status == "waiting" and t.waiting.get("consent_kind") == "network":
+                t.note("trying the line again after a restart")
+                self.answer("Carry on.", t.id)
+                n += 1
         return n
 
     def _claude(self):
@@ -509,13 +523,25 @@ class Manager:
                     t.drop_thinking = True
                     t.note("trimmed the older steps")
                 live.emit(t, "doing", label="Thinking")
-                try:
-                    resp = self._ask_claude(claude, t, msgs, c)
-                except Exception as e:
-                    from core.budget import BudgetExceeded
-                    if isinstance(e, BudgetExceeded):
-                        return self._wait(t, "question", _budget_words(t), None, msgs, kind="budget")
-                    raise
+                resp = None
+                for wait in (*LINE_WAITS, None):              # v0.8: a broken line is a pause, not a crash
+                    try:
+                        resp = self._ask_claude(claude, t, msgs, c)
+                        break
+                    except Exception as e:
+                        from core.budget import BudgetExceeded
+                        if isinstance(e, BudgetExceeded):
+                            return self._wait(t, "question", _budget_words(t), None, msgs, kind="budget")
+                        if not _line_trouble(e):
+                            raise
+                        if wait is None:
+                            logger.warning(f"AGENT: task {t.id} lost the line to Claude ({str(e)[:120]}); waiting")
+                            return self._wait(t, "question", f"I lost the connection to Claude while working on "
+                                              f"the {t.title}, sir. Say 'carry on' when the internet is back; I'll "
+                                              f"pick up where I stopped.", None, msgs, kind="network")
+                        logger.warning(f"AGENT: task {t.id}: {str(e)[:120]}; trying again in {wait:g} s")
+                        live.emit(t, "doing", label="The line to Claude dropped; trying again")
+                        time.sleep(wait)
                 t.cost_eur += float(resp.get("cost_eur") or 0.0)
                 t.steps += 1
                 if (resp.get("text") or "").strip() and resp.get("tool_uses"):
@@ -718,6 +744,8 @@ class Manager:
             said = f"The user answered: {ans.get('words', '')}"
             if w.get("consent_kind") == "budget":
                 said = "(Paused for budget, now going on.) " + said
+            elif w.get("consent_kind") == "network":
+                said = "(The connection to you dropped for a while; it's back. Carry on from where you were.) " + said
             _add_user(msgs, said)
             return True
         results = list(w.get("results") or [])

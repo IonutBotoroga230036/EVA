@@ -143,6 +143,8 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .bench__view .model__view{height:100%;min-height:240px}
 .bench__code{margin:0;padding:14px 16px;font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;color:#d9ccff;white-space:pre;tab-size:4}
 .bench__code.is-bad{color:#ffb3c1}
+.card__links{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.card__links a{color:var(--lilac,#c4a4ff);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bench__screen{display:block;max-width:100%;max-height:100%;margin:auto;object-fit:contain;border-radius:8px;cursor:zoom-in}
 .bench__empty{display:grid;place-items:center;height:100%;color:var(--dim-text);font-size:14px;text-align:center;padding:24px}
 .bench__scan{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,transparent 0,rgba(168,85,247,.12) 50%,transparent 100%);
@@ -722,7 +724,10 @@ const RENDER = {
       h('div', { class: 'card__hint' }, 'Or just say "go ahead"')];
   },
   nowplaying(d) { return [head('Now playing'), h('div', { class: 'card__title' }, d.what)]; },
-  note(d) { return [head(d.title || 'Note'), h('div', { class: 'card__text' }, d.text)]; },
+  note(d) { const out = [head(d.title || 'Note'), h('div', { class: 'card__text' }, d.text)];
+    const links = (d.links || []).filter(l => /^https?:\/\//.test(l.url || '')).slice(0, 12);      // v0.8: links she found
+    if (links.length) out.push(h('div', { class: 'card__links' }, ...links.map(l => h('a', { href: l.url, target: '_blank', rel: 'noopener noreferrer' }, l.title || l.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)))));
+    return out; },
   vision(d) { return [head(d.title || 'Vision'), h('div', { class: 'card__text' }, d.text)]; },
   project(d) {                                         // v0.6: a project: decided, open, parts
     const sec = (title, kids) => kids && kids.length ? h('div', { class: 'proj__sec' }, h('div', { class: 'bench__label' }, title), kids) : null;
@@ -1368,7 +1373,7 @@ function toCard(d) {
   if (!d || !d.kind) return null;
   if (d.kind === 'clock') return { type: 'note', data: { title: 'Time', text: `${d.time} · ${d.date}` } };
   if (['weather', 'calendar', 'email', 'confirm', 'nowplaying', 'forge', 'vision', 'model', 'gallery', 'media', 'project'].includes(d.kind)) return { type: d.kind, data: d };
-  return { type: 'note', data: { title: d.title || 'Note', text: d.text || '' } };
+  return { type: 'note', data: { title: d.title || 'Note', text: d.text || '', links: d.links || [] } };
 }
 function proactiveCard(d, text) {
   if (d && d.kind === 'model') return { type: 'model', data: d };          // a finished task: show what it made
@@ -1533,6 +1538,8 @@ function handle(ev) {
     }
     case 'audio': onAudio(ev); break;
     case 'audio_end': onAudioEnd(ev); break;
+    case 'quiet': stopAudio(); setState('idle'); idleHint(); break;                 // v0.8: 'Eva, stop' over her voice
+    case 'audio_pending': if (ev.turn === P.accept) kick(); break;               // v0.8: a long answer is still being voiced
     case 'task_live': if (E.bench) E.bench.event(ev.task, ev.event || {}); break;    // v0.5: the workbench
     case 'chat': if (E.chatLoaded) E.chatLoaded(ev.chat || {}); break;                // v0.7: chats
     case 'chat_meta': if (E.chatMeta) E.chatMeta(ev); break;

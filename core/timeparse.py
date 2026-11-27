@@ -66,6 +66,10 @@ def parse_when(text: str, now: Optional[datetime] = None) -> Optional[datetime]:
     return when
 
 
+def _nth(n: int) -> str:
+    return f"{n}{'th' if 11 <= n % 100 <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
 def day_window(text: str, today: Optional[date] = None) -> tuple[datetime, datetime, str]:
     """A spoken day or week -> (start, end, label for speech)."""
     today = today or date.today()
@@ -76,6 +80,19 @@ def day_window(text: str, today: Optional[date] = None) -> tuple[datetime, datet
     if re.search(r"\b(this week|the week|week)\b", t):
         return (datetime.combine(today, time()), datetime.combine(today + timedelta(days=7 - today.weekday()), time()),
                 "this week")
+    if re.search(r"\b(?:yesterday|last night)\b", t):              # v0.8: Nov 27 "yesterday" read today
+        day = today - timedelta(days=1)
+        return datetime.combine(day, time()), datetime.combine(today, time()), "yesterday"
+    nth = re.search(r"\b(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b", t)
+    if nth and not re.search(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b", t):
+        try:                                                           # "on the 26th": this month
+            day = today.replace(day=int(nth.group(1)))
+        except ValueError:
+            day = None
+        if day:
+            label = "today" if day == today else "yesterday" if day == today - timedelta(1) else \
+                "tomorrow" if day == today + timedelta(1) else day.strftime("on %A the ") + _nth(day.day)
+            return datetime.combine(day, time()), datetime.combine(day + timedelta(days=1), time()), label
     phrase, _ = extract_when(t)
     day = resolve_day(phrase, today) if phrase else today
     day = day or today

@@ -50,7 +50,20 @@ def cfg() -> dict:
 
 def mode() -> str:
     m = str(cfg().get("mode", "ask"))
-    return m if m in ("off", "watch", "ask") else "ask"
+    return m if m in ("off", "watch", "ask", "auto") else "ask"
+
+
+def acts_alone(args: dict | None = None) -> bool:
+    """v0.8: 'Act without asking' in the settings: use_computer starts at once (the corner stop and the
+    never-list stay)."""
+    return mode() == "auto"
+
+
+def _page_for(goal: str) -> str:
+    g = (goal or "").lower()
+    if not re.search(r"\b(settings?|turn (on|off)|switch (on|off)|enable|disable|connect|disconnect|pair)\b", g):
+        return ""
+    return next((k for k in sorted(SETTINGS_PAGES, key=len, reverse=True) if re.search(rf"\b{re.escape(k)}\b", g)), "")
 
 
 def _gui():
@@ -225,10 +238,18 @@ def tool_use_computer(goal: str = "", **_):
                 "say": "Using your computer is switched off in the settings, sir."}
     if len(goal) < 6:
         return {"result": json.dumps({"error": "no goal"}), "say": "What should I do on your computer, sir?"}
-    from core.agent import tools as atools
     from core.agent.runner import get_manager
     from core.agent.tasks import name_task
-    t = get_manager().start(goal, 0.0, name_task(goal), "", toolsets=["computer:" + ("watch" if m == "watch" else "act")])
+    task_goal = goal
+    page = _page_for(goal) if m != "watch" else ""
+    if page and getattr(__import__("os"), "startfile", None):       # v0.8: open the page first, saves a few steps
+        try:
+            tool_open_settings(page)
+            task_goal = f"{goal}\n(The Windows {page} settings page was just opened for you; start from it.)"
+        except Exception:
+            pass
+    t = get_manager().start(task_goal, 0.0, name_task(goal), "",
+                            toolsets=["computer:" + ("watch" if m == "watch" else "act")])
     look = "look at your screen" if m == "watch" else "use your mouse and keyboard"
     return {"result": json.dumps({"task": t.id, "title": t.title}), "exact": True,
             "say": f"On it, sir: I'll {look} to {goal[0].lower() + goal[1:]}. Say stop, or push the mouse into a "
@@ -259,3 +280,4 @@ GUARDS = {"use_computer": r"\b(turn|switch|click|type|mouse|cursor|keyboard|comp
           "open_settings": r"\b(settings?|bluetooth|wi-?fi|display|sound|notifications?|power|updates?|background)\b"}
 ACTIONS = {"use_computer"}
 CONFIRM = {"use_computer": describe_use}
+CONFIRM_UNLESS = {"use_computer": acts_alone}      # v0.8: no question in 'Act without asking' mode

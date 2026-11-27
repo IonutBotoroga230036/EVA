@@ -85,7 +85,7 @@ from core.telegram_bridge import TelegramBridge, active as telegram_active, set_
 from core.orchestrator_hybrid import HybridOrchestrator
 from skills.registry import get_registry
 from voice.listen import Resampler, build_listener, pipeline_status
-from voice.speech import SentenceChunker, TurnSpeaker, get_tts, speakable
+from voice.speech import SentenceChunker, TurnSpeaker, get_tts, sentences, speakable
 
 UI_FILE = Path(__file__).parent / "eva.html"
 STATIC = Path(__file__).parent / "static"
@@ -1062,6 +1062,11 @@ async def status():
     })
 
 
+_SHUSH = re.compile(r"^\W*(?:(?:hey|ok|okay)\W+)?(?:eva\W*)?(?:(?:ok(?:ay)?|alright)\W+)?(?:stop(?: talking| it| there)?|skip"
+                    r"(?: it| that)?|enough|that'?s enough|quiet|be quiet|shush|hush|never ?mind|got it|thanks?(?: you)?)"
+                    r"(?:\W+(?:eva|sir|please))*\W*$", re.I)
+
+
 class Connection:
     """One browser tab: its orchestrator, its send lock, and the reply in progress."""
 
@@ -1183,7 +1188,8 @@ class Connection:
                         rest = event["text"]
                     else:
                         rest = chunker.flush() if streamed else event["text"]
-                    await speaker.say(rest)
+                    for sentence in sentences(rest):          # v0.8: the first sentence plays while the rest is made
+                        await speaker.say(sentence)
             tools = set(getattr(self.orch, "last_tools", ()) or ())
             if tools & MUSIC_TOOLS or ("media_control" in tools and re.search(r"\b(play|resume)\b", text, re.I)):
                 self.music_on = True
@@ -1316,12 +1322,19 @@ class Connection:
 
     async def voice_command(self, text: str) -> None:
         _romanian_hint(self.orch)
+        if _SHUSH.match(text or "") and time.time() - getattr(self, "_barged_at", 0.0) < 8:
+            # v0.8: "Eva, stop" over her own voice only stops her talking (not the music, not a new turn)
+            logger.info(f"ECHO: '{text}' while she talked: stopped, nothing else")
+            await self.send({"type": "heard", "text": text, "stt": True})
+            await self.send({"type": "quiet"})
+            return
         await self.submit(text, voice=True, stt=True)
 
     async def on_wake(self) -> None:
         await self.send({"type": "wake", "text": WAKE_PHRASE})
 
     async def on_barge_in(self) -> None:
+        self._barged_at = time.time()
         await self.interrupt()
 
     async def on_device_state(self, locked: bool) -> None:

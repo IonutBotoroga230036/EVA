@@ -46,6 +46,10 @@ class Script:
                 content.append(u)
                 uses.append({k: u[k] for k in ("id", "name", "input", "toolset_name") if k in u})
         text = "".join(b for b in blocks if isinstance(b, str))
+        if kw.get("on_text"):                              # v0.8: words arrive a few at a time, like the stream
+            import re as _re
+            for piece in _re.findall(r"\S+\s*", text):
+                kw["on_text"](piece)
         return {"content": content, "tool_uses": uses, "text": text, "cost_eur": self.cost,
                 "stop_reason": stop or ("tool_use" if uses else "end_turn")}
 
@@ -848,7 +852,7 @@ def test_show_me_without_models_shows_the_write_up():
     out = atools.tool_task_show()
     assert out["widget"] == {"kind": "note", "title": "week", "text": "Monday: gym."} or \
         out["widget"]["text"] == "Monday: gym."
-    assert "no 3D models" in out["say"]
+    assert out["say"] == "Here's what the week found, sir, in the window."      # v0.8: not "no 3D models"
 
 
 def test_the_window_gets_the_model_files_and_nothing_else(monkeypatch):

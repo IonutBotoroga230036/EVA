@@ -37,6 +37,8 @@ FIELDS: list[tuple[str, list[tuple]]] = [
         ("mind.enabled", "Use the mind for open questions", "bool", {}),
         ("mind.effort", "How hard it thinks", "select", {"choices": [("low", "Low (fastest)"), ("medium", "Medium"),
                                                                      ("high", "High (slowest)")]}),
+        ("mind.chat_effort", "How hard plain talk thinks", "select", {"choices": [("low", "Low (fastest answers)"),
+                                                                              ("medium", "Medium"), ("high", "High")]}),
         ("mind.max_steps", "Tool rounds per answer", "number", {"min": 1, "max": 12, "step": 1}),
     ]),
     ("Tasks", [
@@ -51,7 +53,8 @@ FIELDS: list[tuple[str, list[tuple]]] = [
     ]),
     ("Using your computer", [
         ("computer.mode", "Computer use", "select", {"choices": [
-            ("off", "Off"), ("watch", "Watch only (screenshots)"), ("ask", "Ask before each task, then act")]}),
+            ("off", "Off"), ("watch", "Watch only (screenshots)"), ("ask", "Ask before each task, then act"),
+            ("auto", "Act without asking (corner stop and the never-list stay)")]}),
     ]),
     ("Focus", [
         ("focus.enabled", "Focus mode during calendar events", "bool", {}),

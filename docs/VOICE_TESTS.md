@@ -384,3 +384,19 @@ nothing new (pyautogui is already installed).
 | 26.10 | Open Chats (bottom), talk a bit, then "New chat", then open the first chat again and ask about it | The list has both with titles; the old one carries on where you left it | `CHATS: window on '...'` |
 | 26.11 | In a new chat: "What did we decide about the desk screen in the other chat?" | She looks through earlier chats | `MIND: step 1: find_in_chats` |
 | 26.12 | Search chats for a word, rename one (tap its title), delete one (tap x twice) | Works without reloading | |
+
+## 27. v0.8: speaking while she thinks, and the 27 Nov fixes
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 27.1 | "Should I print the stand at the library or buy a printer?" | She starts talking within about two seconds; no "let me check" | `MIND: answered`, effort low |
+| 27.2 | Ask something long ("explain how a Pepper's ghost works") | Read out to the end, sentence by sentence | `ECHO: Kokoro loaded (... device cuda)` at start |
+| 27.3 | While she talks: "Eva, stop" | She stops; the music (if any) keeps playing | `ECHO: 'Eva, stop' while she talked` |
+| 27.4 | "Check my screen, is this listing legit?" (an eBay page) | She reads the real price, seller and address | `MIND: looking at his screen` |
+| 27.5 | After "Shall I open it in Notepad?": "Yes" | It opens (no `open_file('""')`) | `MIND: his answer to her question` |
+| 27.6 | "Is the Albert Heijn still open?" at night | "None is open right now, sir. The nearest Albert Heijn, ... opens tomorrow 08:00", in a few seconds | `TOOL nearby` |
+| 27.7 | "What's on my calendar yesterday?" / after midnight "am I free today?" | "You had ..." / "today, Friday the 27th" | |
+| 27.8 | "What's on my calendar tomorrow and do I have time to go to a makerspace?" | Both answered together | `MIND: step 1: calendar_agenda`, then `nearby` |
+| 27.9 | After a research task: "show me the links" | A card with the links, clickable | `TOOL task_show` |
+| 27.10 | Settings: computer use to "Act without asking", then "turn on Bluetooth" | No question; the Bluetooth page opens first, then she clicks | `TOOL use_computer`, `COMPUTER:` |
+| 27.11 | Pull the network cable during a task, plug it back | The task says it lost the line; "carry on" goes on | `CLAUDE: ...; trying again`, `AGENT: ... waiting` |

@@ -86,7 +86,7 @@ def test_she_checks_a_page_in_her_browser_and_shows_it(eva, think, her_browser):
     shown = [e["data"] for e in events if e["type"] == "widget"]
     assert shown and shown[-1]["kind"] == "media" and shown[-1]["image"].startswith("/api/browser/shot.png?v=")
     assert shown[-1]["url"] == her_browser.last_url
-    assert any(e["type"] == "ack" and "look it up" in e["text"] for e in events)
+    assert any(e["type"] == "ack" and e["text"] == "Checking prusa3d.com, sir." for e in events)
 
 
 def test_after_a_failed_browser_step_the_rest_of_the_batch_waits(eva, think, her_browser):

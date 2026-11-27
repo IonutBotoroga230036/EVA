@@ -174,7 +174,7 @@ voice:
     beam_size: 5
   acks:
     # "One moment, sir." only when a tool is still busy after this long; quick things stay silent.
-    after_ms: 900                      # 0 = always at once, -1 = never
+    after_ms: 1500                     # v0.8: only when something takes a while; 0 = always at once, -1 = never
   pipeline:
     # Server-side listening: your mic streams to E.V.A.; Silero VAD + Smart Turn v3 (Pipecat, CPU) + Whisper.
     # Off, or packages missing: the interface uses the browser's speech recognition as before.
@@ -200,7 +200,7 @@ voice:
     voice_kira: "am_adam"
     lang_code: "a"                     # a = American English, b = British English
     speed: 1.0
-    device: "cpu"                      # keeps all VRAM for the LLM; try "cuda" if replies feel slow
+    device: "auto"                     # v0.8: the GPU when there is one (Kokoro needs about 0.3 GB); or "cpu" / "cuda"
   romanian:                            # v0.3.2: Romanian parts of her answers (Piper, local, free; male voice)
     voice: "ro_RO-mihai-medium"        # one-time: python -m piper.download_voices ro_RO-mihai-medium --download-dir data/voices
     dir: "data/voices"
@@ -281,6 +281,9 @@ mind:                                  # v0.5 one mind (docs/MIND.md): sentences
   hard_model: "claude-sonnet-5-5"      # when she calls think_harder (designs, tricky plans)
   effort: "medium"                     # Haiku's default; "low" is faster but skips checks more often
   max_steps: 6                         # tool rounds in one answer before she answers with what she has
+  chat_effort: "low"                   # v0.8: plain talk (no tool in sight) thinks briefly, so she answers faster
+  stream: true                         # v0.8: she starts speaking while she still writes the answer
+  ack_after_s: 2.5                     # v0.8: "One moment, sir" only if a working answer is still silent this long
 
 agent:
   model: "claude-sonnet-5-5"           # plans and works through a task ($2 / $10 per million tokens)
@@ -298,5 +301,5 @@ browser:                               # v0.7 her own browser (core/browser.py):
   visible: false                       # true = you see her window on the PC while she browses
 
 computer:                              # v0.7 using your computer (core/computer.py), always as a task you said yes to
-  mode: "ask"                          # off | watch (screenshots only) | ask (asks first, then mouse and keyboard)
+  mode: "ask"                          # off | watch (screenshots only) | ask (asks first) | auto (acts without asking)
 

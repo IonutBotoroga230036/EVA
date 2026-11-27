@@ -277,6 +277,17 @@ def isolate_v07(tmp_path, monkeypatch):
     def no_screen():
         raise AssertionError("tests never move your real mouse")
     monkeypatch.setattr(computer, "_gui", no_screen)
+    import core.claude as claude_mod                  # v0.8: a failing fake call fails at once (no waiting)
+    monkeypatch.setattr(claude_mod, "RETRY_WAITS", ())
+    import core.agent.runner as runner_mod
+    monkeypatch.setattr(runner_mod, "LINE_WAITS", ())
+    import types as _types                            # v0.8: never a screenshot of your real screen
+    fake_gui = _types.ModuleType("pyautogui")
+
+    def _no_shot(*a, **k):
+        raise RuntimeError("tests never look at your real screen")
+    fake_gui.screenshot = _no_shot
+    monkeypatch.setitem(__import__("sys").modules, "pyautogui", fake_gui)
     import core.chats as chats                       # never your real chats; titles inline
     monkeypatch.setattr(chats, "DIR", tmp_path / "chats")
     monkeypatch.setattr(chats, "THREADED", False)

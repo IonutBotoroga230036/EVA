@@ -50,9 +50,17 @@ except Exception:
 
 HOME_CITY = os.environ.get("EVA_HOME_CITY", "Breda")
 
-ACK_PHRASES = {
-    "get_weather": "Let me check, sir.",
-    "web_search": "Looking into that now, sir.",
+ACK_PHRASES = {            # v0.8: say what she's doing, not "let me check" every time (spoken after voice.acks.after_ms)
+    "get_weather": "Checking the weather, sir.",
+    "web_search": "Searching the web, sir.",
+    "calendar_agenda": "Looking at your calendar, sir.",
+    "calendar_free": "Looking at your calendar, sir.",
+    "email_unread": "Checking your inbox, sir.",
+    "email_important": "Checking your inbox, sir.",
+    "train_times": "Checking the trains, sir.",
+    "nearby": "Looking at the map, sir.",
+    "show_images": "Finding pictures, sir.",
+    "find_videos": "Finding videos, sir.",
     "spotify_play": "Right away, sir.",
     "open_app": "Opening it now, sir.",
     "open_website": "One moment, sir.",
@@ -877,7 +885,8 @@ TOOL_SCHEMAS += _computer.SCHEMAS
 REGISTRY.update(_computer.FUNCTIONS)
 GUARDS.update(_computer.GUARDS)
 ACTION_TOOLS |= _computer.ACTIONS
-CONFIRM_TOOLS.update(_computer.CONFIRM)          # using the mouse and keyboard always asks first
+CONFIRM_TOOLS.update(_computer.CONFIRM)          # using the mouse and keyboard asks first...
+CONFIRM_UNLESS = dict(_computer.CONFIRM_UNLESS)   # ...unless the settings say 'Act without asking' (v0.8)
 
 # ---------------------------------------------------------------- v0.7: chats (one memory across them)
 from core import chats as _chats  # noqa: E402

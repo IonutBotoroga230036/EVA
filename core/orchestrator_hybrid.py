@@ -87,6 +87,7 @@ _CLAIM = re.compile(r"\b(?:has|have|had) been (?:added|scheduled|created|booked|
                     r"|\b(?:reminder|alarm|timer) (?:is |has been )?(?:set|added|created|started)\b|^\s*(?:done|added|scheduled|created|set)\b[ ,:]"
                     r"|\badded\b.{0,60}\bto your (?:calendar|list|notes|shopping list|reminders)\b"
                     r"|\blights? (?:are |is )?(?:now )?set to\b"
+                    r"|\bi(?:'ve| have| just)? (?:ordered|bought|purchased|paid for|placed (?:the|an|your) order)\b"
                     r"|\bi(?:'ve| have| just) (?:set|turned|changed|played|started|opened|put|drafted|sent|made)\b"
                     r"|^\s*i (?:set|turned|changed|played|started|opened|put|drafted|sent)\b"
                     r"|\b(?:e-?mail|message|draft|reminder)s? (?:was |were |has been |have been )?sent\b"
@@ -326,21 +327,69 @@ from core.understand import brains as understanding  # noqa: E402  (v0.3.1 under
 import random  # noqa: E402
 
 # Acks (v0.2.5): spoken only when a tool is still busy after this long, so quick things stay silent.
-# settings voice.acks.after_ms (default 900). 0 = always at once, a negative value = never.
+# settings voice.acks.after_ms (default 1500 since v0.8). 0 = always at once, a negative value = never.
 ACK_AFTER_OVERRIDE: float | None = None        # tests pin this
-GENERIC_ACKS = ("One moment, sir.", "On it, sir.", "Let me check, sir.", "Give me a second, sir.",
+# v0.8: "Let me check, sir." went (he heard it all the time); the mind has its own few
+MIND_ACKS = ("One moment, sir.", "Give me a second, sir.", "Thinking it through, sir.", "Let me think, sir.")
+GENERIC_ACKS = ("One moment, sir.", "On it, sir.", "Give me a second, sir.",
                 "Looking into it, sir.", "Checking now, sir.", "Right away, sir.", "Just a moment, sir.")
 _GENERIC_SOURCES = {"Looking into that now, sir.", "One moment, sir.", "On it, sir."}
+
+
+def _vague_site(tool: str, decision: dict) -> bool:
+    """'open the projector's shop page': a site named by what was said before, not by its name (Nov 27: it
+    searched the web for those words). The mind knows which page."""
+    if tool != "open_website":
+        return False
+    site = str(decision.get("site") or (decision.get("args") or {}).get("site") or "")
+    return "." not in site and bool(re.search(r"\b(?:the|that|this|its|their|his|her|same)\b.*\b(?:page|site|link|"
+                                              r"shop|store|listing|product|one)\b|\b(?:it|that|this one)$", site, re.I))
+
+
+_ANSWER_WORDS = re.compile(
+    r"^(?:(?:hey |ok |okay )?eva,?\s+)?(?:yes|yeah|yep|yup|sure|ok(?:ay)?|alright|go ahead|do it|do that|please(?: do)?|"
+    r"sounds good|perfect|great|no|nope|nah|not (?:now|yet)|maybe|the (?:first|second|third|last|other) one|"
+    r"(?:the )?(?:first|second|third|last) (?:one|option)|option \w+|both|neither|that one|this one)\b", re.I)
+
+
+class _Speech:
+    """The mind's words as checked sentences (v0.8): each finished sentence is spoken while the rest is still
+    coming, unless it claims an action nobody ran or states an unchecked fact; from then on she holds back and the
+    whole answer goes through the usual guards."""
+    def __init__(self, ran: list):
+        from voice.speech import SentenceChunker
+        self.chunker, self.ran, self.blocked, self.held = SentenceChunker(), ran, False, []
+
+    def _pass(self, sentences: list[str]) -> list[str]:
+        from core import mind
+        out = []
+        for raw in sentences:
+            sent = mind.spoken(raw)
+            if not sent:
+                continue
+            if self.blocked or _CLAIM.search(sent) or unchecked_fact(sent, self.ran):
+                self.blocked = True
+                self.held.append(sent)
+                continue
+            out.append(sent)
+        return out
+
+    def feed(self, text: str) -> list[str]:
+        return self._pass(self.chunker.feed(text))
+
+    def flush(self) -> list[str]:
+        rest = self.chunker.flush()
+        return self._pass([rest]) if rest else []
 
 
 def ack_after() -> float:
     if ACK_AFTER_OVERRIDE is not None:
         return ACK_AFTER_OVERRIDE
-    ms = (get_settings().get("voice", {}).get("acks", {}) or {}).get("after_ms", 900)
+    ms = (get_settings().get("voice", {}).get("acks", {}) or {}).get("after_ms", 1500)
     try:
         return float(ms) / 1000
     except (TypeError, ValueError):
-        return 0.9
+        return 1.5
 
 
 class ToolBelt:
@@ -399,7 +448,22 @@ class ToolBelt:
         return True if not rx else bool(re.search(rx, text, re.I))
 
     def needs_confirm(self, name: str) -> bool:
+        from core.tools_native import CONFIRM_UNLESS
+        if name in CONFIRM_UNLESS:
+            try:
+                if CONFIRM_UNLESS[name]():
+                    return False
+            except Exception:
+                pass
         return name in self.confirm_text or (self.is_mcp(name) and self.mcp.needs_confirm(name))
+
+    def acts_alone(self, name: str) -> bool:
+        """v0.8: an action he switched to 'without asking' in the settings."""
+        from core.tools_native import CONFIRM_UNLESS
+        try:
+            return name in CONFIRM_UNLESS and bool(CONFIRM_UNLESS[name]())
+        except Exception:
+            return False
 
     def describe(self, name: str, args: dict) -> str:
         if name in self.confirm_text:
@@ -504,6 +568,14 @@ def args_for(schema: dict, decision: dict, tool_names: list[str] | None = None) 
 
 
 # ============================================================ fast path
+# Nov 27: "what's on my calendar tomorrow and do I have time to go to a makerspace?" only listed the calendar;
+# "it was a busy day, you can see my schedule and actually talk about it with me" got a list too
+_MORE_THAN_CALENDAR = re.compile(
+    r"\b(?:and|also|plus|then)\b[^.?!]{0,60}\b(?:time (?:to|for)|go(?:ing)? to|get to|visit|makerspace|shop|store|"
+    r"gym|open|weather|train|is there|are there|any \w+ (?:near|available|open))|\btalk (?:about|through|with me)|"
+    r"\bdiscuss\b|\bhow was (?:my|the) day|\b(?:busy|long|rough|hard|crazy) day\b", re.I)
+
+
 def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
     t = _WAKE_PREFIX.sub("", text).strip()
     polite = r"(?:(?:i want you to|i need you to|can you|could you|would you|please|and|also|now|don't forget|i)\s+)*"
@@ -771,14 +843,19 @@ def fast_path(text: str, belt: ToolBelt) -> tuple[str, dict] | None:
             r"what(?:'s| is) (?:coming )?(?:up )?next|my next (?:meeting|event|appointment|thing|call)|"
             r"what do i have next|what(?:'s| is) coming up\b", t, re.I):
         return "calendar_next", {}
+    if re.search(r"\b(?:calendar|schedule|agenda|free|time)\b", t, re.I) and _MORE_THAN_CALENDAR.search(t):
+        return "work_it_out", {}              # v0.8: "...and do I have time for a makerspace?" needs thinking
     if belt.has("calendar_agenda") and re.search(
             r"what(?:'s| is) (?:on )?my (?:calendar|schedule|agenda)|what am i doing\b|"
             r"what do i have (?:on|planned)|do i have (?:anything|any meetings|any plans|plans)\b|my agenda\b", t, re.I):
         from core.weather import extract_when
         week = re.search(r"\b(next week|this week|the week)\b", t, re.I)
-        return "calendar_agenda", {"day": week.group(1) if week else (extract_when(t)[0] or "today")}
+        named = re.search(r"\b(yesterday|last night|(?:on )?the \d{1,2}(?:st|nd|rd|th))\b", t, re.I)
+        return "calendar_agenda", {"day": week.group(1) if week else named.group(1) if named else
+                                   (extract_when(t)[0] or "today")}
     if belt.has("calendar_free") and re.search(
-            r"\b(?:any|an) (?:opening|gap|free (?:time|slot))|when am i free|am i free\b|do i have time", t, re.I):
+            r"\b(?:any|an) (?:opening|gap|free (?:time|slot))|when am i free|am i free\b|do i have time", t, re.I) \
+            and not _MORE_THAN_CALENDAR.search(t):
         from core.weather import extract_when
         d, h = extract_when(t)
         day = d or ""
@@ -1070,6 +1147,46 @@ class HybridOrchestrator:
         self._last_ack = ack
         return ack
 
+    def _answers_mind(self, text: str) -> bool:
+        """His reply to a question the mind just asked (once: the next sentence only)."""
+        asked, self._mind_asked = getattr(self, "_mind_asked", 0.0), 0.0
+        if not asked or time.time() - asked > 180 or not self._mind_ready(text):
+            return False
+        words = len(text.split())
+        return bool(_ANSWER_WORDS.match(text.strip())) and words <= 45
+
+    async def _streamed(self, work, q: asyncio.Queue, ack: str | None, ack_after_s: float):
+        """Run a streamed Claude call: ("text", words) as they come, ("ack", ...) once if nothing came for
+        ack_after_s, then ("done", result)."""
+        task = asyncio.ensure_future(work)
+        loop = asyncio.get_running_loop()
+        start, got_any = loop.time(), False
+        try:
+            while True:
+                getter = asyncio.ensure_future(q.get())
+                timeout = None
+                if ack and not got_any:
+                    timeout = max(0.0, start + ack_after_s - loop.time())
+                done, _ = await asyncio.wait({task, getter}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+                if getter in done:
+                    got_any = True
+                    yield "text", getter.result()
+                    continue
+                getter.cancel()
+                if task in done:
+                    while not q.empty():
+                        yield "text", q.get_nowait()
+                    yield "done", task.result()
+                    return
+                if ack and not got_any:                       # the wait timed out: still silent
+                    pick = random.choice([a for a in MIND_ACKS if a != getattr(self, "_last_ack", None)])
+                    self._last_ack = pick
+                    yield "ack", pick
+                    ack = None
+        except BaseException:
+            task.cancel()
+            raise
+
     async def _with_ack(self, ack: str | None, work) -> AsyncIterator[tuple[str, object]]:
         """Run `work`; yield ("ack", text) only if it's still busy after ack_after(), then ("done", result)."""
         task = asyncio.ensure_future(work)
@@ -1261,34 +1378,67 @@ class HybridOrchestrator:
                           f"Use it if it's right, and answer like a thoughtful assistant, not a form.")
         msgs = mind.build_messages(self.history, user_input, situation, mind.facts_text(ctx.get("facts")),
                                    int(c["history_turns"]))
-        if hint and hint[0] == "look_at_shown":       # Nov 25: she answered from the caption without looking
+        if hint and hint[0] in ("look_at_shown", "see_screen"):   # Nov 25/27: she answers from what she SEES
+            img, note = None, ""
             try:
-                from core.show import tool_look_at_shown
-                out = tool_look_at_shown(**hint[1])
-            except Exception:
-                out = {}
-            if out.get("_image"):
-                img = out["_image"]
-                msgs[-1]["content"] = [{"type": "text", "text": msgs[-1]["content"] + "\n(Here is that picture.)"},
+                if hint[0] == "see_screen":
+                    from skills.vision.tools import grab_screen
+                    img = await asyncio.to_thread(grab_screen)
+                    note = "(Here is his screen right now. Read it carefully: the address bar, the seller, the price.)"
+                else:
+                    from core.show import tool_look_at_shown
+                    img = (tool_look_at_shown(**hint[1]) or {}).get("_image")
+                    note = "(Here is that picture.)"
+            except Exception as e:
+                logger.warning(f"MIND: couldn't get the picture ({e})")
+            if img:
+                msgs[-1]["content"] = [{"type": "text", "text": msgs[-1]["content"] + "\n" + note},
                                        {"type": "image", "source": {"type": "base64", "media_type": img["media_type"],
                                                                     "data": img["b64"]}}]
-                logger.info("MIND: looking at the picture he asked about")
-        model, effort, claude = c["model"], c.get("effort") or None, get_claude()
-        last_text = ""
+                logger.info(f"MIND: looking at {'his screen' if hint[0] == 'see_screen' else 'the picture he asked about'}")
+        from core.claude import ClaudeCut, line_trouble
+        chat = not getattr(self, "_mind_handed", False)   # v0.8: plain talk thinks briefly, never says "one moment"
+        model, claude = c["model"], get_claude()
+        effort = (c.get("chat_effort") if chat else c.get("effort")) or None
+        last_text, spoke = "", False
+        loop = asyncio.get_running_loop()
         for step in range(int(c["max_steps"])):
+            q: asyncio.Queue = asyncio.Queue()
+            on_text = (lambda t: loop.call_soon_threadsafe(q.put_nowait, t)) if c.get("stream", True) else None
             call = asyncio.to_thread(claude.message, system=self._mind_system, messages=msgs, tools=self._mind_tools,
                                      model=model, max_tokens=int(c["max_tokens"]), effort=effort, purpose="mind",
-                                     cache=True)
+                                     cache=True, on_text=on_text)
+            speech = _Speech([t for t, _ in gathered])
+            ack = None if (chat or step or spoke) else "One moment, sir."
             try:
                 resp = None
-                async for kind, value in self._with_ack("Let me think, sir." if step == 0 else None, call):
+                async for kind, value in self._streamed(call, q, ack, float(c.get("ack_after_s", 2.5))):
                     if kind == "ack":
                         yield {"type": "ack", "text": value}
+                    elif kind == "text":
+                        for sent in speech.feed(value):
+                            spoke = True
+                            yield {"type": "token", "text": sent + " "}
                     else:
                         resp = value
-            except (BudgetExceeded, ClaudeUnavailable, RuntimeError, httpx.HTTPError, OSError) as e:
-                logger.warning(f"MIND: {str(e)[:160]}; answering the old way")
-                return
+            except Exception as e:
+                if isinstance(e, ClaudeCut) or line_trouble(e):
+                    # Nov 27: the old way then promised a task it never started. Say what happened instead.
+                    logger.warning(f"MIND: lost the line to Claude ({str(e)[:120]})")
+                    self._mind_done = True
+                    text = ("Sorry, sir, the line to Claude dropped mid-answer. Ask me again and I'll finish that."
+                            if spoke or isinstance(e, ClaudeCut) else
+                            "I lost the line to Claude for a moment, sir. Could you say that again?")
+                    self._finish(user_input, text, used)
+                    yield {"type": "final", "text": text, "replaced": True}
+                    return
+                if isinstance(e, (BudgetExceeded, ClaudeUnavailable, RuntimeError, httpx.HTTPError, OSError)):
+                    logger.warning(f"MIND: {str(e)[:160]}; answering the old way")
+                    return
+                raise
+            for sent in speech.flush():                    # the last words, or what she said before a tool
+                spoke = True
+                yield {"type": "token", "text": sent + " "}
             msgs.append({"role": "assistant", "content": resp.get("content") or
                          [{"type": "text", "text": resp.get("text") or "..."}]})
             uses = resp.get("tool_uses") or []
@@ -1307,7 +1457,11 @@ class HybridOrchestrator:
                 if not acted and _CLAIM.search(answer):
                     logger.warning(f"MIND: claim guard: {answer!r} but no action ran")
                     answer = NOT_DONE
+                replaced = answer != text
+                if not replaced and speech.held:            # a sentence looked risky but the whole answer is fine
+                    yield {"type": "token", "text": " ".join(speech.held) + " "}
                 logger.info(f"MIND: answered after {step + 1} step{'s' if step else ''} ({model})")
+                self._mind_asked = time.time() if answer.rstrip().endswith("?") else 0.0
                 self._mind_done = True
                 self._finish(user_input, answer, used)
                 if browsed and brw.SHOT.exists():            # what she saw, in the window
@@ -1316,7 +1470,7 @@ class HybridOrchestrator:
                                                       or "Her browser", "source": b.last_url[:120],
                                                       "image": f"/api/browser/shot.png?v={int(time.time())}",
                                                       "url": b.last_url}}
-                yield {"type": "final", "text": answer}
+                yield {"type": "final", "text": answer, **({"replaced": True} if replaced and spoke else {})}
                 return
             logger.info(f"MIND: step {step + 1}: {', '.join(u['name'] for u in uses)}")
             results, failed_set = [], set()
@@ -1326,8 +1480,9 @@ class HybridOrchestrator:
                     if "browser" in failed_set:
                         results.append(brw.skipped(u, "browser"))
                         continue
-                    if not browsed:
-                        yield {"type": "ack", "text": "Let me look it up, sir."}
+                    if not browsed and not spoke:              # v0.8: only if she hasn't said what she's doing
+                        site = re.sub(r"^https?://(www\.)?", "", str((u.get("input") or {}).get("url") or "")).split("/")[0]
+                        yield {"type": "ack", "text": f"Checking {site}, sir." if site else "Checking the page, sir."}
                     res = await asyncio.to_thread(brw.result, u)
                     browsed = True
                     if res.get("is_error"):
@@ -1350,10 +1505,12 @@ class HybridOrchestrator:
                     continue
                 args = await self._fill(name, args, user_input)
                 if self.belt.needs_confirm(name) or (self.belt.is_action(name) and not (
-                        self.belt.guard_ok(name, user_input) or name in self._recent())):
+                        self.belt.guard_ok(name, user_input) or name in self._recent() or self.belt.acts_alone(name))):
                     # it changes something: E.V.A. asks, his yes runs it; the turn ends here
                     self._mind_done = True
                     for ev in self._ask_confirmation(name, args, user_input, used):
+                        if ev["type"] == "final" and spoke:       # her words are out already: say the question too
+                            yield {"type": "token", "text": ev["text"] + " "}
                         if ev["type"] == "final" and text and text not in ev["text"]:
                             ev = {**ev, "text": f"{text} {ev['text']}"}
                         yield ev
@@ -1873,8 +2030,15 @@ class HybridOrchestrator:
                     self._finish(user_input, answer, used)
                     return
 
+            # v0.8: her question, his answer: "Shall I open it in Notepad?" "Yes." goes back to the mind, which knows
+            # what it offered (Nov 27: understanding made open_file('""') of it, and "yes, but rename the courses"
+            # was cut into two commands)
+            answering_mind = not fp_override and self._answers_mind(user_input)
+            if answering_mind:
+                logger.info("MIND: his answer to her question; back to the mind")
+
             # 0a. "when I get home, turn on the lights" / "remind me to buy milk when I leave work" (Nov 23)
-            if not fp_override and self.belt.has("place_reminder"):
+            if not fp_override and not answering_mind and self.belt.has("place_reminder"):
                 from core import places as places_mod
                 t_clean, t_place, t_event, once = places_mod.split_trigger(user_input)
                 if t_place and t_clean:
@@ -1884,7 +2048,7 @@ class HybridOrchestrator:
                     return
 
             # 0b. several commands in one sentence (v0.2.5): plan, run, one combined answer
-            if not fp_override and multistep.looks_multi(user_input):
+            if not fp_override and not answering_mind and multistep.looks_multi(user_input):
                 steps = await multistep.plan(client, self.cfg, user_input)
                 if steps:
                     answer = ""
@@ -1896,7 +2060,7 @@ class HybridOrchestrator:
                     return
 
             # 0c. "... in 5 minutes": understood now, done then (v0.3 10b)
-            if not fp_override:
+            if not fp_override and not answering_mind:
                 clean, delay = self._when_later(user_input)
                 if delay and later_mod.is_correction(clean):
                     text = await self._retime(delay)
@@ -1915,7 +2079,15 @@ class HybridOrchestrator:
                         return
 
             # 1. fast path: no LLM, no embeddings
-            fp = fp_override or fast_path(user_input, self.belt)
+            fp = None if answering_mind else (fp_override or fast_path(user_input, self.belt))
+            if answering_mind:
+                handed = True
+            if fp and fp[0] == "work_it_out":            # v0.8: the fast path knows it needs thinking
+                fp = None
+                if self._mind_ready(user_input):
+                    handed = True
+            elif fp and fp[0] in _MIND_ONLY and not fp_override and self._mind_ready(user_input):
+                self._mind_hint, fp, handed = (fp[0], dict(fp[1])), None, True      # v0.8: e.g. see_screen
             if fp and fp[0] == "forge_build" and not fp_override:
                 fp = (fp[0], {**fp[1], "request": self._resolve_vague(fp[1].get("request", ""))})
             if fp:
@@ -1929,13 +2101,14 @@ class HybridOrchestrator:
                     yield ev
 
             # 2-4. the model decides, behind guards
-            elif not (_CAPABILITY_Q.search(user_input) or is_small_talk(user_input)):
+            elif not handed and not (_CAPABILITY_Q.search(user_input) or is_small_talk(user_input)):
                 self._context(user_input, ctx)
                 called, succeeded = set(), set()
                 for _ in range(MAX_TOOL_ITERS):
                     decision = await self._decide(client, ctx["skills"], gathered)
                     tool = decision.get("tool", "none")
-                    if (tool == "work_it_out" or tool in _MIND_ONLY) and not gathered and self._mind_ready(user_input):
+                    if (tool == "work_it_out" or tool in _MIND_ONLY or _vague_site(tool, decision)) and not gathered \
+                            and self._mind_ready(user_input):
                         handed = True                      # v0.5: it needs thinking: the mind answers below
                         flat = {k: v for k, v in decision.items() if k not in ("tool", "args") and not k.startswith("_")}
                         self._mind_hint = (tool, {**flat, **dict(decision.get("args") or {})}) \
@@ -2020,6 +2193,7 @@ class HybridOrchestrator:
             from core import mind as _mind_mod
             chat = conversation.enabled() and _mind_mod.is_chat(user_input) and not handed
             if not gathered and not chat and self._mind_ready(user_input):
+                self._mind_handed = handed
                 async for ev in self._mind(client, user_input, ctx, gathered, used):
                     yield ev
                 if self._mind_done:

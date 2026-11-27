@@ -25,13 +25,17 @@ from pathlib import Path
 from typing import Optional
 
 DEFAULTS = {"enabled": True, "model": "claude-haiku-5-5", "hard_model": "claude-sonnet-5-5", "max_steps": 6,
-            "max_tokens": 3000, "effort": "medium", "hard_effort": "medium", "history_turns": 10}
+            "max_tokens": 3000, "effort": "medium", "hard_effort": "medium", "history_turns": 10,
+            "chat_effort": "low", "stream": True, "ack_after_s": 2.5}
+# v0.8: chat (understanding found no tool) thinks at "low": it's talk, not checking. The mind streams its words
+# into speech; "One moment, sir" only when a working answer (a tool hint) is still silent after ack_after_s.
 # effort: Haiku 5.5's default. The docs warn that at "low" it skips checks and searches more often, and checking
 # instead of guessing is the point of the mind.
 SKIP_TOOLS = {"work_it_out"}
 # needs eyes, or a thoughtful answer: understanding hands these to the mind (when it's on), which runs them itself.
 # Nov 25: a project with only reflex answers felt like "nothing was really going on"
-MIND_ONLY = {"look_at_shown", "project_start", "project_note", "project_add_part", "project_answer"}
+MIND_ONLY = {"look_at_shown", "project_start", "project_note", "project_add_part", "project_answer",
+             "see_screen"}                     # v0.8: she looks at the screen herself
 
 THINK_HARDER = {"name": "think_harder",
                 "description": "Switch to a stronger model for the rest of this answer, for genuinely hard "

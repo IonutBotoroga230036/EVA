@@ -13,12 +13,18 @@ Claude API client for the few jobs a 3B local model can't do well: writing code
   without thinking.
 - Tool-forced calls (tool_choice) return structured input: that is how FORGE gets
   a skill back as reliable JSON instead of parsing prose.
+- v0.8: every call streams (server-sent events), so a long call never sits silent on the line (on 27 Nov
+  something on his connection cut calls after about 15 quiet seconds: three tasks crashed). on_text gets the
+  answer's words as they come (the mind speaks them). A call that breaks before any words arrived is sent
+  again (twice, after 1.5 s and 4 s); once words were delivered it raises ClaudeCut with what came.
 """
 
 from __future__ import annotations
 
+import json
 import os
-from typing import Any, Optional
+import time
+from typing import Any, Callable, Optional
 
 import httpx
 from loguru import logger
@@ -33,6 +39,110 @@ TOOLSET_API_VERSION = "2026-10-21"     # v0.7: the computer and browser toolsets
 
 class ClaudeUnavailable(RuntimeError):
     pass
+
+
+class ClaudeCut(RuntimeError):
+    """The line broke after part of the answer was already delivered to on_text."""
+    def __init__(self, msg: str, partial: str = ""):
+        super().__init__(msg)
+        self.partial = partial
+
+
+class _StreamError(RuntimeError):
+    def __init__(self, kind: str, msg: str):
+        super().__init__(f"Claude API stream error {kind}: {msg}")
+        self.kind = kind
+
+
+TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504, 529}
+RETRY_WAITS = (1.5, 4.0)                 # tests set () to fail at once
+STREAM = True                            # tests can switch it off
+
+
+class _Resp:
+    """What _send returns, streamed or not: status_code, text and json()."""
+    def __init__(self, status_code: int, text: str = "", data: Optional[dict] = None):
+        self.status_code, self.text, self._data = status_code, text, data
+
+    def json(self) -> dict:
+        return self._data if self._data is not None else json.loads(self.text)
+
+
+def read_stream(lines, on_text: Optional[Callable[[str], None]] = None) -> dict:
+    """Assemble a Messages API event stream into the same message a non-streamed call returns."""
+    msg: dict = {"content": [], "usage": {}}
+    blocks: dict[int, dict] = {}
+    partial: dict[int, str] = {}
+    done = False
+    for line in lines:
+        if not line or not line.startswith("data:"):
+            continue
+        try:
+            ev = json.loads(line[5:].strip())
+        except ValueError:
+            continue
+        kind = ev.get("type")
+        if kind == "message_start":
+            m = ev.get("message") or {}
+            msg.update({k: v for k, v in m.items() if k != "content"})
+            msg["usage"] = dict(m.get("usage") or {})
+        elif kind == "content_block_start":
+            b = dict(ev.get("content_block") or {})
+            blocks[int(ev.get("index", len(blocks)))] = b
+        elif kind == "content_block_delta":
+            i, d = int(ev.get("index", 0)), ev.get("delta") or {}
+            b = blocks.setdefault(i, {"type": "text", "text": ""})
+            dt = d.get("type")
+            if dt == "text_delta":
+                b["text"] = b.get("text", "") + d.get("text", "")
+                if on_text and d.get("text"):
+                    on_text(d["text"])
+            elif dt == "input_json_delta":
+                partial[i] = partial.get(i, "") + d.get("partial_json", "")
+            elif dt == "thinking_delta":
+                b["thinking"] = b.get("thinking", "") + d.get("thinking", "")
+            elif dt == "signature_delta":
+                b["signature"] = b.get("signature", "") + d.get("signature", "")
+            elif dt == "citations_delta" and d.get("citation"):
+                b.setdefault("citations", []).append(d["citation"])
+        elif kind == "content_block_stop":
+            i = int(ev.get("index", 0))
+            b = blocks.get(i)
+            if b is not None and i in partial:
+                try:
+                    b["input"] = json.loads(partial.pop(i)) if partial.get(i, "").strip() else (b.get("input") or {})
+                except ValueError:
+                    b["input"] = b.get("input") or {}
+        elif kind == "message_delta":
+            for k, v in (ev.get("delta") or {}).items():
+                msg[k] = v
+            msg["usage"].update(ev.get("usage") or {})             # cumulative counts
+            if ev.get("input_transformations"):
+                msg["input_transformations"] = ev["input_transformations"]
+        elif kind == "message_stop":
+            done = True
+            break
+        elif kind == "error":
+            err = ev.get("error") or {}
+            raise _StreamError(str(err.get("type") or "error"), str(err.get("message") or "")[:200])
+    if not done:
+        raise httpx.RemoteProtocolError("the stream ended before message_stop")
+    for i, raw in partial.items():                              # a tool block that never got its stop
+        try:
+            blocks[i]["input"] = json.loads(raw) if raw.strip() else {}
+        except ValueError:
+            blocks[i]["input"] = {}
+    msg["content"] = [blocks[i] for i in sorted(blocks)]
+    msg.setdefault("type", "message")
+    return msg
+
+
+def line_trouble(e: BaseException) -> bool:
+    """A dropped connection, an overloaded API or a cut stream: worth waiting for, not a broken request."""
+    import re
+    if isinstance(e, (httpx.TransportError, ClaudeCut, _StreamError, TimeoutError, ConnectionError)):
+        return True
+    return isinstance(e, RuntimeError) and bool(re.search(r"Claude API error (5\d\d|429|408)", str(e)))
 
 
 class ThinkingBound(RuntimeError):
@@ -71,7 +181,7 @@ class ClaudeClient:
                 max_tokens: int = 1500, thinking_budget: Optional[int] = None, effort: Optional[str] = None,
                 tools: Optional[list[dict]] = None, tool_choice: Optional[dict] = None,
                 purpose: str = "", cache: bool = False, thinking: Optional[dict] = None,
-                betas: Optional[list[str]] = None) -> dict:
+                betas: Optional[list[str]] = None, on_text: Optional[Callable[[str], None]] = None) -> dict:
         if not self.available():
             raise ClaudeUnavailable("no ANTHROPIC_API_KEY (set it in config/secrets.env)")
         model = model or self.model
@@ -95,13 +205,13 @@ class ClaudeClient:
             body["max_tokens"] = max(max_tokens, 6000)   # room for thinking AND the answer
         if thinking:                                     # v0.4 tasks: adaptive thinking with block_binding
             body["thinking"] = dict(thinking)
-            return self._finish(model, purpose, self._post_thinking(body, betas or []))
-        data = self._post(body)
+            return self._finish(model, purpose, self._post_thinking(body, betas or [], on_text))
+        data = self._post(body, on_text)
         if data is None and "thinking" in body:
             body.pop("thinking")
             body.pop("output_config", None)
             body["max_tokens"] = max_tokens
-            data = self._post(body)
+            data = self._post(body, on_text)
         if data is None:
             raise RuntimeError("Claude API rejected the request")
         return self._finish(model, purpose, data)
@@ -139,31 +249,74 @@ class ClaudeClient:
                     f"({usage.get('input_tokens')} in / {usage.get('output_tokens')} out)")
         return out
 
-    def _post_thinking(self, body: dict, betas: list[str]) -> dict:
+    def _post_thinking(self, body: dict, betas: list[str], on_text=None) -> dict:
         """Thinking set by the caller: never silently dropped. The binding error becomes ThinkingBound, so the caller
         can switch that conversation to drop_block. If the beta isn't accepted, once more without block_binding."""
-        r = self._send(body, betas)
+        r = self._send(body, betas, on_text)
         if r.status_code == 400 and "bound to a different conversation" in r.text:
             raise ThinkingBound(r.text[:300])
         if r.status_code == 400 and "block_binding" in body.get("thinking", {}) and (
                 "anthropic-beta" in r.text or "block_binding" in r.text):
             logger.warning(f"Claude didn't take the thinking binding setting ({r.text[:160]}); sending without it")
             body["thinking"] = {k: v for k, v in body["thinking"].items() if k != "block_binding"}
-            r = self._send(body, [b for b in betas if b != BINDING_BETA])
+            r = self._send(body, [b for b in betas if b != BINDING_BETA], on_text)
             if r.status_code == 400 and "bound to a different conversation" in r.text:
                 raise ThinkingBound(r.text[:300])
         if r.status_code >= 400:
             raise RuntimeError(f"Claude API error {r.status_code}: {r.text[:300]}")
         return r.json()
 
-    def _send(self, body: dict, betas: Optional[list[str]] = None):
+    def _once(self, body: dict, headers: dict, on_text=None):
+        """One request: streamed when the client can (every real one), else a plain POST (simple test fakes)."""
+        if not (STREAM and hasattr(self.http, "stream")):
+            return self.http.post(API_URL, json=body, headers=headers)
+        got: list[str] = []
+
+        def relay(t: str) -> None:
+            got.append(t)
+            if on_text:
+                on_text(t)
+        try:
+            with self.http.stream("POST", API_URL, json={**body, "stream": True}, headers=headers) as r:
+                if r.status_code >= 400:
+                    r.read()
+                    return _Resp(r.status_code, r.text)
+                if "text/event-stream" not in r.headers.get("content-type", ""):
+                    r.read()                              # a server (or test) that answered in one piece
+                    return _Resp(r.status_code, r.text)
+                return _Resp(r.status_code, data=read_stream(r.iter_lines(), relay))
+        except (httpx.TransportError, _StreamError) as e:
+            if got:                                       # words were already spoken: can't quietly start over
+                raise ClaudeCut(f"the line broke mid-answer ({e})", "".join(got)) from e
+            raise
+
+    def _retrying(self, body: dict, headers: dict, on_text=None):
+        waits = list(RETRY_WAITS)
+        while True:
+            try:
+                r = self._once(body, headers, on_text)
+                if r.status_code not in TRANSIENT_STATUS or not waits:
+                    return r
+                why = f"HTTP {r.status_code}"
+            except ClaudeCut:
+                raise
+            except (httpx.TransportError, _StreamError) as e:
+                if not waits or (isinstance(e, _StreamError) and e.kind not in (
+                        "overloaded_error", "api_error", "rate_limit_error", "timeout_error")):
+                    raise
+                why = f"{type(e).__name__}: {str(e)[:80]}"
+            wait = waits.pop(0)
+            logger.warning(f"CLAUDE: {why}; trying again in {wait:g} s")
+            time.sleep(wait)
+
+    def _send(self, body: dict, betas: Optional[list[str]] = None, on_text=None):
         toolsets = any(isinstance(t, dict) and str(t.get("type", "")).endswith("toolset_20260801")
                        for t in body.get("tools") or [])
         version = TOOLSET_API_VERSION if toolsets and self._toolset_version_ok else API_VERSION
         headers = {"x-api-key": self.api_key, "anthropic-version": version, "content-type": "application/json"}
         if betas:
             headers["anthropic-beta"] = ",".join(betas)
-        r = self.http.post(API_URL, json=body, headers=headers)
+        r = self._retrying(body, headers, on_text)
         if toolsets and r.status_code == 400 and "anthropic-version" in r.text:
             # v0.7: the docs show the toolsets with a newer API version; if that one is refused (or required),
             # flip once and remember
@@ -171,11 +324,11 @@ class ClaudeClient:
             headers["anthropic-version"] = TOOLSET_API_VERSION if self._toolset_version_ok else API_VERSION
             logger.warning(f"Claude: anthropic-version {version} refused with the toolsets; trying "
                            f"{headers['anthropic-version']}")
-            r = self.http.post(API_URL, json=body, headers=headers)
+            r = self._retrying(body, headers, on_text)
         return r
 
-    def _post(self, body: dict) -> Optional[dict]:
-        r = self._send(body)
+    def _post(self, body: dict, on_text=None) -> Optional[dict]:
+        r = self._send(body, None, on_text)
         if r.status_code == 400 and "thinking" in body:
             logger.warning(f"Claude rejected extended thinking ({r.text[:160]}); retrying without it")
             return None

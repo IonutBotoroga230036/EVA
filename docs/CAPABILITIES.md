@@ -265,3 +265,9 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - The gear button: budget limits, test mode, brain switches, the mind, tasks, her browser, computer use, focus.
 - Chats (bottom of the window): named conversations, search, rename, delete, "New chat". "What did we decide in the
   other chat?" works: she looks through them.
+
+
+## Speaking and speed (v0.8)
+- She starts talking while she still thinks; long answers are read to the end. "Eva, stop" while she talks stops her.
+- Settings: "How hard plain talk thinks" (low is fastest); computer use can "Act without asking".
+- "Show me the links" after a research task; "check my screen" reads the real page; "yesterday" and "the 26th" in the calendar.

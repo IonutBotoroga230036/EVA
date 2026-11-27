@@ -52,6 +52,13 @@ def next_up(google, now: Optional[datetime] = None) -> dict:
                        "events": [{"time": _hm(e["start"]), "title": e["title"]} for e in widget_events]}}
 
 
+def _late(label: str, now: datetime) -> str:
+    """After midnight, 'today' is easy to mishear as the day that just ended: name it (Nov 27, 00:39)."""
+    if label == "today" and now.hour < 4:
+        return f"today, {now.strftime('%A')} the {now.day}{'th' if 11 <= now.day % 100 <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(now.day % 10, 'th')},"
+    return label
+
+
 def agenda(google, day: str = "today", now: Optional[datetime] = None, everything: bool = False) -> dict:
     now = now or datetime.now()
     start, end, label = day_window(day, now.date())
@@ -78,8 +85,8 @@ def agenda(google, day: str = "today", now: Optional[datetime] = None, everythin
             parts = [f"all day {r['title']}" if r["time"] == "all day" else f"{r['time']} {r['title']}" for r in rows[:5]]
             more = f", plus {len(rows) - 5} more" if len(rows) > 5 else ""
             return {"events": rows, "widget": widget,
-                    "say": f"You have {len(rows)} thing{'s' if len(rows) != 1 else ''} still to come today, sir: "
-                           f"{_join(parts)}{more}."}
+                    "say": f"You have {len(rows)} thing{'s' if len(rows) != 1 else ''} still to come "
+                           f"{_late('today', now).rstrip(',')}, sir: {_join(parts)}{more}."}
     rows = [{"time": "all day" if e["all_day"] else _hm(e["start"]), "title": e["title"],
              "day": e["start"].strftime("%a") if e["start"] else ""} for e in events]
     widget = {"kind": "calendar", "title": label.capitalize(), "events": rows}
@@ -90,8 +97,11 @@ def agenda(google, day: str = "today", now: Optional[datetime] = None, everythin
                                                      else f"{r['time']} {r['title']}") for r in rows[:6]]
     more = f", plus {len(rows) - 6} more" if len(rows) > 6 else ""
     n = len(rows)
+    past = "yesterday" in label or (start.date() < now.date())
     return {"events": rows, "widget": widget,
-            "say": f"You have {n} thing{'s' if n != 1 else ''} {label}, sir: {_join(parts)}{more}."}
+            "say": (f"You had {n} thing{'s' if n != 1 else ''} {label}, sir: {_join(parts)}{more}." if past else
+                    f"You have {n} thing{'s' if n != 1 else ''} {_late(label, now).rstrip(',')}, sir: "
+                    f"{_join(parts)}{more}.")}
 
 
 class _Fixed:
@@ -120,7 +130,7 @@ def free_slots(google, day: str = "today", duration_minutes: int = 30, now: Opti
     if window_end - cursor >= timedelta(minutes=duration_minutes):
         gaps.append((cursor, window_end))
     gaps = [(a, b) for a, b in gaps if b > a]
-    span = f"{label} {'in the ' + ('evening' if lo >= 18 else 'afternoon' if lo >= 12 else 'morning') if part_of_day(day) else ''}".strip()
+    span = f"{_late(label, now).rstrip(',')} {'in the ' + ('evening' if lo >= 18 else 'afternoon' if lo >= 12 else 'morning') if part_of_day(day) else ''}".strip()
     if not gaps:
         return {"gaps": [], "say": f"I don't see a free {duration_minutes} minutes {span}, sir."}
     words = [f"from {_hm(a)} to {_hm(b)}" for a, b in gaps[:3]]

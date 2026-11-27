@@ -1,6 +1,6 @@
 # E.V.A. handoff (for a new Claude session)
 
-Last updated: Thursday 26 November 2026, 00:30 (Europe/Amsterdam). Read this first, then EVA.md, docs/ROADMAP.md,
+Last updated: Friday 27 November 2026, 02:00 (Europe/Amsterdam). Read this first, then EVA.md, docs/ROADMAP.md,
 docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
 
 ## Who and what
@@ -25,7 +25,7 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v070_browser_computer_chats.zip`) plus short
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v080_streaming_voice.zip`) plus short
    install steps. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env` in a zip.
 5. Keys go in `config/secrets.env`, never in chat. The remote token never travels over plain http, never goes in
    URLs from the app, never repeated in chat.
@@ -94,6 +94,19 @@ docs/UNDERSTANDING.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 27 Nov 2026 (02:00, v0.8: streaming, voice v2, the 27 Nov fixes)
+
+His first v0.7 session (00:03-01:10) went well: computer use pressed keys (so the toolset API version was accepted),
+projects grew by talking. Problems: three task crashes and two mind fallbacks, all "Server disconnected without
+sending a response" about 15 s into a call; long answers not voiced (the window's 12 s audio watchdog gave up while
+Kokoro, on the CPU, voiced the whole answer as one clip); "let me check, sir" on nearly every mind turn (ack after
+0.9 s); "Albert Heim is closed" from an empty list; "yesterday" read today; see_screen answers from the small local
+vision model were wrong; "show me the links" said "no 3D models"; "yes" to her Notepad offer became open_file('""').
+All fixed on branch `claude/v08-streaming-voice` (from `claude/v07-browser-computer-chats`); see docs/MIND.md v0.8.
+Tests: tests/test_v08.py; conftest also stubs pyautogui (no real screenshots), RETRY_WAITS and LINE_WAITS.
+Full suite 1290 passed, 3 skipped, also under cp1252. Not testable here: the real stream from the API (format from
+the docs, Nov 2026), Kokoro on his GPU, a real line drop.
 
 ## State on 26 Nov 2026 (00:30, v0.7: her browser, your computer, settings, chats)
 
