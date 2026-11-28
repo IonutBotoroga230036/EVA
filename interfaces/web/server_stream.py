@@ -263,6 +263,17 @@ async def lifespan(_app: FastAPI):
     oracle_task = asyncio.create_task(oracle.run(), name="oracle")
     from core import review as _review                    # v0.9: her day, in memory only, for tonight's review
     _review.start()
+    from core import console as _console                  # v1.2: her console, in memory only (my_console)
+    _console.install()
+    from core.one import files as _files                  # v1.2: her folder moves next to her code, once
+
+    def _move_folder():
+        try:
+            if get_settings().get("agent", {}).get("move_old_folder", True):
+                _files.migrate()
+        except Exception as e:
+            logger.warning(f"FILES: couldn't move the old folder ({e})")
+    threading.Thread(target=_move_folder, daemon=True, name="files-move").start()
     logger.info(f"E.V.A. online: {cortex.stats()['facts']} facts, {len(registry.enabled())} skills, "
                 f"{sum(s.connected for s in mcp.servers.values())} MCP servers, "
                 f"voice: {'Kokoro' if tts else 'browser'}, "
@@ -617,7 +628,9 @@ async def phone_location(body: dict):
         if r.get("tool"):
             from core.orchestrator_hybrid import ToolBelt
             out = await ToolBelt(get_registry(), None).aexecute(r["tool"], r.get("args") or {})
-            lines.append(out.get("say") or f"Done, sir: {r['text']}.")
+            said = out.get("say") or ""
+            lead = f"{r['text'].rstrip('.')}. " if r.get("text") and r["text"].lower() not in said.lower() else ""
+            lines.append((lead + said).strip() or f"Done, sir: {r['text'] or r['tool'].replace('_', ' ')}.")
         else:
             lines.append(f"Reminder, sir: {r['text']}.")
     if not lines:
@@ -1130,6 +1143,27 @@ async def journal_undo(step: str, request: Request):
     out = await asyncio.to_thread(journal.undo, step, _any_belt().execute)
     logger.info(f"JOURNAL: undo {step} from the window: {out.get('say')}")
     return JSONResponse(out, status_code=200 if out.get("ok") else 400)
+
+
+@app.get("/api/console")
+async def console_tail(last: int = 200, level: str = "", contains: str = ""):
+    """v1.2: her log lines, from memory (nothing is written to a file)."""
+    from core import console
+    return {"lines": console.tail(last, level, contains)}
+
+
+@app.get("/api/places")
+async def places_view():
+    """v1.2: his saved places and what happens there."""
+    from core import places
+    pl = places.get_places()
+    fix = pl.last
+    age = ""
+    if fix:
+        secs = max(0, int(time.time() - fix["ts"]))
+        age = f"{secs // 60} min" if secs >= 60 else f"{secs} s"
+    return {"places": pl.data.get("places", {}), "rules": pl.rules(), "fix": bool(fix), "fix_age": age,
+            "at": (pl.where() or {}).get("at") if fix else None}
 
 
 @app.get("/api/memoir")

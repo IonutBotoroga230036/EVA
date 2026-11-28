@@ -57,6 +57,7 @@ class ListenConfig:
     barge_in_secs: float = 0.6          # sustained speech needed to stop her mid-sentence
     command_window_secs: float = 8.0    # after "Eva" alone, or a tap on the mic
     echo_secs: float = 20.0             # how long her own words count as possible echo
+    echo_tail_secs: float = 1.5         # v1.2: speech starting later than this after her voice stopped is him
     wake_words: tuple[str, ...] = ("eva", "eve", "ava", "iva", "evah")
     wake_phrase: str = "Yes, sir?"
     carry_secs: float = 8.0             # "and..." waits this long for the rest of the sentence
@@ -146,6 +147,7 @@ class _Utterance:
     over_her: bool = False                  # started while her voice played, in wake-barge mode
     peeked_ms: float = 0.0                  # wake-barge mode: speech already checked for "Eva"
     ending_at: float = 0.0                  # v1.1: Smart Turn said done; ends here unless he talks again
+    near_her: bool = True                   # v1.2: began while her voice played or right after (echo possible)
 
 
 class Listener:
@@ -180,6 +182,8 @@ class Listener:
         self._carry: Optional[tuple[float, str]] = None
         self._over: dict = {}
         self.settings_source: Optional[Callable[[], dict]] = None     # v1.1: the settings, re-read per utterance
+        self._quiet_since = 0.0             # v1.2: when her voice last stopped playing
+        self._speak_known = False           # the client reports when she speaks (else every utterance may be echo)
 
     def _refresh(self) -> None:
         """New settings from the window (patience, pause length) and the biography's overrides, at each new
@@ -221,6 +225,9 @@ class Listener:
             self._said.append((self.clock(), _norm(text)))
 
     async def set_speaking(self, on: bool) -> None:
+        self._speak_known = True
+        if self.speaking and not on:
+            self._quiet_since = self.clock()
         self.speaking = bool(on)
         if not on and self._utt is not None and self._utt.barge == "duck":
             self._utt.barge = None          # she finished first: judge it as a normal utterance
@@ -281,6 +288,8 @@ class Listener:
         if speaking and not was and utt is None:                      # a new utterance begins
             self._refresh()
             utt = self._utt = _Utterance(started=now, chunks=list(self._ring))
+            utt.near_her = (not self._speak_known or self.speaking
+                            or now - self._quiet_since <= self.cfg.echo_tail_secs)
             if self.speaking and self.barge_mode == "wake":
                 utt.over_her = True                                   # judged by her name only, never ducked
             elif self.speaking and self.cfg.barge_in:
@@ -361,7 +370,7 @@ class Listener:
             self.disarm()                                             # one command per window
             await self._emit({"type": "listen", "state": "end"})
         pcm = b"".join(utt.chunks)
-        await self._jobs.put((pcm, armed, window_end))
+        await self._jobs.put((pcm, armed, window_end, False, utt.near_her))
 
     async def _early_wake(self, utt: "_Utterance", pcm: bytes, anywhere: bool = False) -> None:
         """Wake mode: transcribe the first second or two while you're still talking. If it starts with her name,
@@ -394,10 +403,11 @@ class Listener:
             job = await self._jobs.get()
             pcm, armed, window_end = job[:3]
             over_her = len(job) > 3 and job[3]
+            near_her = job[4] if len(job) > 4 else True
             try:
                 audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
                 try:
-                    text = await asyncio.to_thread(self.stt.transcribe, audio)
+                    text = await asyncio.to_thread(self._transcribe, audio)
                 except Exception as e:
                     logger.error(f"ECHO: transcription failed: {e}")
                     self.failed = True
@@ -406,19 +416,29 @@ class Listener:
                 if over_her:
                     await self._handle_over_her(text)
                 else:
-                    await self._handle_text(text, armed, window_end)
+                    await self._handle_text(text, armed, window_end, near_her)
             except Exception as e:                                   # one bad utterance must not end listening
                 logger.exception(f"ECHO: utterance handling failed: {e}")
             finally:
                 self._jobs.task_done()
 
+    def _transcribe(self, audio) -> str:
+        """v1.2: long speech (a story) in pieces of at most ~24 s, cut where he paused."""
+        from voice.stt import split_long
+        pieces = split_long(audio)
+        if len(pieces) == 1:
+            return self.stt.transcribe(audio)
+        texts = [t for t in (self.stt.transcribe(p) for p in pieces) if t]
+        logger.info(f"ECHO: {len(audio) / SAMPLE_RATE:.0f} s of speech, read in {len(pieces)} pieces")
+        return " ".join(texts)
+
     async def idle(self) -> None:
         """Wait until every finished utterance has been transcribed and handled (tests, shutdown)."""
         await self._jobs.join()
 
-    async def _handle_text(self, text: str, armed: bool, window_end: float) -> None:
+    async def _handle_text(self, text: str, armed: bool, window_end: float, near_her: bool = True) -> None:
         now = self.clock()
-        if not text or self._is_echo(text):
+        if not text or (near_her and self._is_echo(text)):
             if text:
                 logger.info(f"ECHO: dropped as her own echo: {text!r}")
             if armed:

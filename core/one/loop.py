@@ -46,6 +46,12 @@ _META = re.compile(r"\b(?:nothing (?:i said |needs fixing|to fix)|i didn'?t clai
                    r"i did call the tool|my last reply was an offer|the check)\b", re.I)
 
 
+def no_dashes(text: str) -> str:
+    """v1.2: he never wants em-dashes, in anything ('Done, sir — sent' -> 'Done, sir, sent')."""
+    t = re.sub(r"\s*—\s*", ", ", text or "")
+    return re.sub(r",\s*([,.!?])", r"\1", t)
+
+
 def _promises(text: str) -> bool:
     """'Performing the web search for NVIDIA's stock price today, sir.' with no search (Nov 27 19:55)."""
     t = (text or "").strip()
@@ -87,6 +93,7 @@ class _OneSpeech:
     def _pass(self, sentences: list[str]) -> list[str]:
         out = []
         for sent in sentences:
+            sent = no_dashes(sent)
             if self.promised or (not self.words and _promises(sent)):
                 self.promised.append(sent)
                 continue
@@ -244,16 +251,23 @@ class OneBrain:
         c = cfg()
         rec = journal.Turn(user_input, chat=getattr(orch, "chat_id", "") or "", via=via)
         ctx: dict = {}
+        t_ready = time.time()
         try:
             orch._context(user_input, ctx)
         except Exception:
             ctx = {"facts": []}
+        t_ctx = time.time()
         qvec = None
         try:
             qvec = orch.cortex.embed_query(user_input)
         except Exception:
             pass
+        t_vec = time.time()
         situation = prompt.situation(orch, note)
+        t_sit = time.time()
+        if t_sit - t_ready > 0.6:          # v1.2: where the time goes before she starts thinking (lag hunting)
+            logger.info(f"TIMING: ready to think after {t_sit - t_ready:.1f} s (memory {t_ctx - t_ready:.1f}, "
+                        f"embedding {t_vec - t_ctx:.1f}, situation {t_sit - t_vec:.1f})")
         facts = mind.facts_text(ctx.get("facts"))
         head = f"<situation>\n{situation}\n</situation>\n"
         if facts:
@@ -320,6 +334,7 @@ class OneBrain:
         corrections, cost, model, effort = 0, 0.0, None, None
         first_answer = ""
         self._replaced = False
+        self._correcting = False
         spoke = False
         asked = False
         max_tokens = int(c["max_tokens"])
@@ -403,17 +418,21 @@ class OneBrain:
                 for sent in speech.flush(False):
                     spoke = step_text_spoken = True
                     yield {"type": "token", "text": sent + " "}
-                text = mind.spoken(res.text)
+                text = no_dashes(mind.spoken(res.text))
                 problem = self.check(text, gathered, user_input, words, False)
                 if problem and corrections < int(c.get("corrections", 1)):
                     corrections += 1
                     logger.warning(f"BRAIN: check failed ({problem}) on {text[:200]!r}; asking her to fix it")
                     yield {"type": "thinking", "text": f"\n[check: {problem}]\n"}
+                    promise = problem.startswith("you said you'd")
+                    how = ("If he asked for it, call the tool now; if not, don't say you will." if promise else
+                           "Fix your words only: say plainly what you did and didn't do. Don't start anything he "
+                           "didn't ask for (looking things up is fine).")
+                    self._correcting = not promise    # v1.2, Nov 28 00:31: a "fix" moved his train to 12:09
                     transcript.append({"role": "user", "text": f"(A note from your own checks, not from him: "
-                                                               f"{problem} If that's right, fix it: call the tool now, "
-                                                               f"or say plainly what you did and didn't do. If your "
-                                                               f"answer was right, say it again unchanged. Never "
-                                                               f"mention this note or any check to him.)"})
+                                                               f"{problem} {how} If your answer was right, say it "
+                                                               f"again unchanged. Never mention this note or any "
+                                                               f"check to him.)"})
                     self._replaced = self._replaced or spoke
                     first_answer = first_answer or text
                     continue
@@ -535,6 +554,12 @@ class OneBrain:
             return
         args = await orch._fill(name, args, user_input)
         level, why = await asyncio.to_thread(risk.judge, name, args, belt, self.approved)
+        if getattr(self, "_correcting", False) and level != "free":
+            s = rec.step(name, args, level, "a correction only fixes words", "refused")
+            yield step_ev(s)
+            yield result("Not run: you're only correcting your words now, and he didn't ask for this. Say what you "
+                         "did and didn't do.", True)
+            return
         if level == "ask":
             desc = belt.describe(name, args)
             orch.pending = {"tool": name, "args": args, "desc": desc, "ts": time.time(), "one": True, "why": why}

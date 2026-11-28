@@ -347,12 +347,12 @@ def tool_project_switch(project: str = "", **_):
 
 
 def tool_project_export(project: str = "", **_):
-    """The parts list as a spreadsheet (CSV, opens in Excel) and the project as a note, in Documents/E.V.A."""
+    """The parts list as a spreadsheet (CSV, opens in Excel) and the project as a note, in her folder."""
     p = _pick(project)
     if not p:
         return _r({"error": "no project"})
-    from core.agent.pc import _cfg as pc_cfg
-    out = Path(str(pc_cfg().get("output_dir") or "~/Documents/E.V.A.")).expanduser() / "projects" / \
+    from core.one import files as my
+    out = my.root() / "projects" / \
         re.sub(r"[^\w\s-]", "", p.name).strip()[:60]
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "parts.csv", "w", newline="", encoding="utf-8-sig") as f:

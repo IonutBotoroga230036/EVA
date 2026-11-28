@@ -3,7 +3,7 @@
 The same scenarios after every update, scored 0 (didn't), 1 (did it, stiff or with help), 2 (what a real
 JARVIS would do). The scorecard is the Excel file (sheet 'JARVIS test'); this is the list for the repo.
 
-v1.0: an automatic version runs by itself every night (`core/jarvis_test.py`, 28 scenarios in a fake world,
+v1.0: an automatic version runs by itself every night (`core/jarvis_test.py`, 33 scenarios in a fake world,
 Settings > JARVIS test, `python -m core.jarvis_test`). It checks what can be checked without you (the right tools,
 asking only when it should, nothing made up, no stock phrases). The list below stays the by-voice test of
 everything else.
@@ -18,7 +18,7 @@ everything else.
 | 6 | Projects | "Start a project for the desk screen", then "let's go with the glass version" | Project started; the choice is saved as a decision without you saying 'note this'. |
 | 7 | Projects | "What parts do I need?" | A task for the project; parts with prices and links land on the parts list; the workbench shows it working. |
 | 8 | Projects | "How do I connect it to the PC?" | Answers from what's decided (glass version, the parts chosen), not a generic answer. |
-| 9 | Projects | "Put the parts list in a file" | A spreadsheet and a summary in Documents/E.V.A./projects. |
+| 9 | Projects | "Put the parts list in a file" | A spreadsheet and a summary in E.V.A. Files/projects (next to her code). |
 | 10 | Memory | Next day: "What did we decide about the desk screen?" | The decisions, correctly, without you naming the project. |
 | 11 | Initiative | After a finished task, wait a moment | She suggests the next useful step once (e.g. add the cheapest screen to the parts list), without nagging. |
 | 12 | Initiative | "Design me a guitar stand so I can print it on a 3D printer" | Asks the few things that matter, shows the work live, checks stability with numbers, an honest two-sentence result. |
@@ -42,3 +42,9 @@ everything else.
 | 30 | Speed and cost | A whole evening with Who thinks: Local first | Mostly free; Claude only where the local model got stuck (journal: "handed to Claude"). |
 | 31 | Personality | "I want to tell you a story", talk for a few minutes with breaks | Listens without cutting in, then writes a chapter in your own voice and asks one good follow-up question. |
 | 32 | Hands | "Wire up the face script so you can use it", then "can you see me?" | Asks once, adopts it as a skill, runs it and tells you who she sees. |
+| 33 | Personality | Tell a 5-minute story with long pauses, answer her follow-up question | Every part is in sessions/ (no gaps); your answer is worked into the same chapter. |
+| 34 | Hands | "Run the face setup" when a module is missing | She installs it into her own environment herself and runs it again; no question, no terminal on your screen. |
+| 35 | Hands | "Check your console, why did that fail?" | Reads her own log and tells you the real reason in one sentence. |
+| 36 | Initiative | "Where in your code do you decide how long you listen?" | Finds it in her own code (voice/listen.py) and explains it; offers a change only if you want one. |
+| 37 | Initiative | "Make your listening window 2 seconds longer by default" | Changes it in her workshop, runs the tests, asks once to apply it, tells you to restart her. |
+| 38 | Hands | "The nearest Albert Heijn is my shop; when I get there tell me my shopping list" | Finds and saves it (Settings > Places shows it); at the shop your phone tells you the list. |

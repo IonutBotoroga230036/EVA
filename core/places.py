@@ -32,7 +32,10 @@ KEEP_DAYS = 30
 FRESH_S = 15 * 60
 DEFAULT_RADIUS = {"home": 120, "work": 150, "car": 40}
 _ALIASES = {"my car": "car", "the car": "car", "parking": "car", "where i parked": "car", "the gym": "gym",
-            "uni": "university", "my house": "home", "the office": "work", "office": "work", "my work": "work"}
+            "uni": "university", "my house": "home", "the office": "work", "office": "work", "my work": "work",
+            "house": "home", "the house": "home", "my home": "home", "my place": "home",     # v1.2: he saved "house"
+            "my shop": "shop", "the shop": "shop", "my supermarket": "shop", "the supermarket": "shop",
+            "my university": "university", "radboud": "university", "campus": "university"}
 
 
 def meters(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -91,7 +94,15 @@ class Places:
             d = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             d = {}
-        return {"places": {}, "rules": [], "visits": [], "inside": {}, "tracking": False, **d}
+        d = {"places": {}, "rules": [], "visits": [], "inside": {}, "tracking": False, **d}
+        if "house" in d["places"] and "home" not in d["places"]:      # v1.2: "house" is home
+            d["places"]["home"] = d["places"].pop("house")
+            if "house" in d["inside"]:
+                d["inside"]["home"] = d["inside"].pop("house")
+            for r in d["rules"]:
+                if r.get("place") == "house":
+                    r["place"] = "home"
+        return d
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,6 +176,30 @@ class Places:
             self.data["inside"][name] = fix["ts"]          # you're there now: no "arrived" for it
             self._save()
         return self.data["places"][name]
+
+    def remember_at(self, name: str, lat: float, lon: float, radius: Optional[float] = None, label: str = "",
+                    address: str = "") -> dict:
+        """v1.2: a place he isn't at: "remember the nearest Albert Heijn as my shop"."""
+        name = place_name(name)
+        r = float(radius or DEFAULT_RADIUS.get(name, 80))
+        with self._lock:
+            self.data["places"][name] = {"lat": float(lat), "lon": float(lon), "radius": r, "saved": self.now(),
+                                         **({"label": label} if label else {}), **({"address": address} if address else {})}
+            self._save()
+        return self.data["places"][name]
+
+    def summary(self) -> str:
+        """For her situation: his places and what happens there."""
+        if not self.data["places"]:
+            return ""
+        w = self.where() if self.last else {"at": None}
+        names = []
+        for n, p in self.data["places"].items():
+            extra = f" = {p['label']}" + (f", {p['address']}" if p.get("address") else "") if p.get("label") else ""
+            names.append(n + extra + (" (he's there now)" if w.get("at") == n else ""))
+        rules = [f"{r['event']} {r['place']}: " + (r.get("text") or "") + (f" [{r['tool']}]" if r.get("tool") else "")
+                 for r in self.data["rules"]]
+        return "His places: " + "; ".join(names) + (". When he gets there: " + "; ".join(rules) if rules else "")
 
     def forget(self, name: str) -> bool:
         name = place_name(name)
@@ -352,6 +387,78 @@ def tool_place_reminder(place: str = "", event: str = "arrive", text: str = "", 
             "say": f"Okay, sir: when you {phrase(rule['event'], name)}, I'll remind you to {rule['text']}."}
 
 
+def tool_place_save(name: str = "", find: str = "", radius_m: int = 0, **_):
+    """v1.2: save a place from the map, not from where he is: "the nearest Albert Heijn is my shop"."""
+    from core import nearby
+    if not name or not find:
+        return {"result": json.dumps({"error": "missing"}), "say": "Which place should I look for, and what should I call it, sir?"}
+    centre, how = nearby.where()
+    what = nearby._clean_what(find)
+    try:
+        els = nearby.search(what, centre, 5000)
+    except Exception as e:
+        return {"result": json.dumps({"error": f"the map search failed: {e}"}), "exact": True,
+                "say": "The map search isn't answering just now, sir. Try again in a minute."}
+    best = None
+    for el in els:
+        tags = el.get("tags") or {}
+        lat = el.get("lat") or (el.get("center") or {}).get("lat")
+        lon = el.get("lon") or (el.get("center") or {}).get("lon")
+        if lat is None or not tags.get("name"):
+            continue
+        d = meters(centre, (lat, lon))
+        if best is None or d < best[0]:
+            addr = " ".join(x for x in (tags.get("addr:street", ""), tags.get("addr:housenumber", "")) if x)
+            best = (d, lat, lon, tags["name"], addr)
+    if not best:
+        return {"result": json.dumps({"error": f"no {what} within 5 km of {how}"}), "exact": True,
+                "say": f"I couldn't find {what} within 5 kilometres of {how}, sir."}
+    d, lat, lon, label, addr = best
+    p = get_places().remember_at(name, lat, lon, radius_m or None, label, addr)
+    n = place_name(name)
+    return {"result": json.dumps({"place": n, "label": label, "address": addr, "distance_m": round(d),
+                                  "from": how, "radius_m": p["radius"]}, ensure_ascii=False), "exact": True,
+            "say": f"Saved, sir: {n} is the {label}{' on ' + addr if addr else ''}, {distance_words(d)} from {how}."}
+
+
+def tool_place_action(place: str = "", event: str = "arrive", tool: str = "", args: Optional[dict] = None,
+                      text: str = "", every_time: bool = True, **_):
+    """v1.2: something she does when he arrives or leaves: read the shopping list at the shop, a mood at home."""
+    if not place or not (tool or text):
+        return {"result": json.dumps({"error": "missing"}), "say": "Which place, and what should I do there, sir?"}
+    name = place_name(place)
+    if name not in get_places().data["places"]:
+        return {"result": json.dumps({"error": f"{name} isn't saved yet: place_remember when he's there, or "
+                                               f"place_save to find it on the map"}), "exact": True}
+    if tool:
+        try:
+            from core.one import risk
+            from core.tools_native import REGISTRY
+            known, belt = set(REGISTRY), None
+            try:
+                from core.orchestrator_hybrid import ToolBelt
+                from skills.registry import get_registry
+                belt = ToolBelt(get_registry(), None)
+                known |= {t["function"]["name"] for t in get_registry().tool_schemas()}
+            except Exception:
+                pass
+            if tool not in known:
+                return {"result": json.dumps({"error": f"there's no tool called {tool}"})}
+            level, why = risk.judge(tool, args or {}, belt)
+            if level == "ask":
+                return {"result": json.dumps({"error": f"{tool} needs his yes each time ({why}), so it can't run by "
+                                                       f"itself when he arrives; use a reminder text instead"})}
+        except Exception as e:
+            return {"result": json.dumps({"error": str(e)})}
+    ev = "leave" if str(event).startswith("leav") else "arrive"
+    rule = get_places().add_rule(name, ev, re.sub(r"^(?:to\s+)", "", (text or "").strip()), tool or "",
+                                 args if isinstance(args, dict) else {}, once=not every_time)
+    what = text or tool.replace("_", " ")
+    return {"result": json.dumps({"rule": rule["id"], "place": name, "event": ev, "tool": tool, "every_time": every_time}),
+            "exact": True, "say": f"Okay, sir: {'every time' if every_time else 'next time'} you {phrase(ev, name)}, "
+                                  f"I'll {('do this: ' + what) if tool else 'remind you: ' + what}."}
+
+
 def tool_location_tracking(on: bool = True, **_):
     get_places().set_tracking(bool(on))
     say = ("Tracking on, sir. I'll keep where you've been on this PC for 30 days, so you can ask 'where was I "
@@ -403,6 +510,19 @@ SCHEMAS = [
          "place": {"type": "string"}, "event": {"type": "string", "enum": ["arrive", "leave"]},
          "text": {"type": "string", "description": "what to remind, e.g. 'buy milk'"},
          "every_time": {"type": "boolean"}}, "required": ["place", "event", "text"]}}},
+    {"type": "function", "function": {"name": "place_save",
+     "description": "Save a place he ISN'T at, found on the map: 'the nearest Albert Heijn is my shop', 'save the "
+                    "Radboud campus as uni'. find: what to look for; name: what to call it (shop, uni, gym...).",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "find": {"type": "string"},
+                                                     "radius_m": {"type": "integer"}}, "required": ["name", "find"]}}},
+    {"type": "function", "function": {"name": "place_action",
+     "description": "Something to DO when he arrives at or leaves a saved place, every time unless he says once: "
+                    "at the shop read his shopping list (tool shopping_list), at home set a mood (set_mood with "
+                    "args), at uni something else. tool + args run then; text is said with it.",
+     "parameters": {"type": "object", "properties": {
+         "place": {"type": "string"}, "event": {"type": "string", "enum": ["arrive", "leave"]},
+         "tool": {"type": "string"}, "args": {"type": "object"}, "text": {"type": "string"},
+         "every_time": {"type": "boolean"}}, "required": ["place", "event"]}}},
     {"type": "function", "function": {"name": "location_tracking",
      "description": "Keep (on) or stop keeping and delete (off) a history of where the user has been.",
      "parameters": {"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]}}},
@@ -413,12 +533,15 @@ SCHEMAS = [
 ]
 FUNCTIONS = {"place_remember": tool_place_remember, "place_forget": tool_place_forget, "where_am_i": tool_where_am_i,
              "place_reminder": tool_place_reminder, "location_tracking": tool_location_tracking,
-             "location_history": tool_location_history}
+             "location_history": tool_location_history, "place_save": tool_place_save,
+             "place_action": tool_place_action}
 GUARDS = {"place_remember": r"\b(remember|save|this is|call this|parked)\b",
           "place_forget": r"\b(forget|delete|remove)\b",
           "where_am_i": r"\b(where|how far|park(?:ed)?|distance)\b",
           "place_reminder": r"\b(when|once|next time|every time|whenever)\b",
           "location_tracking": r"\b(track|tracking|location history|trail)\b",
-          "location_history": r"\b(where was i|when did i|last time i|yesterday|ago)\b"}
-ACTIONS = {"place_remember", "place_forget", "place_reminder", "location_tracking"}
+          "location_history": r"\b(where was i|when did i|last time i|yesterday|ago)\b",
+          "place_save": r"\b(save|remember|is my|as my|call)\b",
+          "place_action": r"\b(when|once|every time|whenever|arrive|get (?:to|home)|leave)\b"}
+ACTIONS = {"place_remember", "place_forget", "place_reminder", "location_tracking", "place_save", "place_action"}
 EXACT = set(FUNCTIONS)

@@ -287,3 +287,14 @@ most work with natural variations too. Anything marked **asks first** waits for 
 - Settings > Her notes, or "how did you do today?": her own review of her mistakes, with a copy button for Claude.
 - Mornings: the first thing you say gets a short heads-up first.
 - "Tell me a story for 10 minutes", then "continue". "Move the items from 9 until now 30 minutes later."
+
+
+## Her own code, her folder, your places (v1.2)
+- "Check your console" / "why did that fail?": she reads her own log. Settings > Console shows it live.
+- "Where in your code do you ...?": she reads her own code. "Change it so ...": she edits a copy, tests it, asks
+  once, and you restart her.
+- Her scripts install what they need into her own environment; "install X in your environment" works too.
+- Her files are in D:\Project E.V.A\E.V.A. Files (next to her code).
+- "The nearest Albert Heijn is my shop", "when I get to the shop, tell me my shopping list", "when I get home,
+  set the evening mood". Settings > Places.
+- In a story: answer her follow-up question and it goes into the chapter.

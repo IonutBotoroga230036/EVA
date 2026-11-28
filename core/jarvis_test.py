@@ -300,6 +300,36 @@ class FakeWorld:
         from core.memoir import tool_memoir_stop
         return tool_memoir_stop()
 
+    def t_memoir_add(self, text="", title="", **_):
+        from core.memoir import tool_memoir_add
+        return tool_memoir_add(text, title)
+
+    def t_install_package(self, packages=None, **_):
+        self.installed = list(getattr(self, "installed", [])) + list(packages or [])
+        return self._r({"ok": True, "packages": packages, "where": "her own environment"})
+
+    def t_my_console(self, level="", contains="", **_):
+        return self._r({"lines": "00:38:51 WARNING tools_native:795 TOOL run_my_script returned an error: "
+                                 "ModuleNotFoundError: No module named 'cv2'"})
+
+    def t_code_find(self, query="", **_):
+        return self._r({"hits": ["voice/listen.py:59:    max_pause_secs: float = 1.2",
+                                 "core/ui_settings.py:88: Listening: patience_secs, max_pause_secs"]})
+
+    def t_code_read(self, path="", **_):
+        return self._r({"path": path, "text": "   59      max_pause_secs: float = 1.2   # the longest pause"})
+
+    def t_place_save(self, name="", find="", **_):
+        self.places = {**getattr(self, "places", {}), name: find}
+        return self._r({"place": name, "label": "Albert Heijn", "address": "Ginnekenweg 120", "distance_m": 450},
+                       f"Saved: {name} is the Albert Heijn on Ginnekenweg.")
+
+    def t_place_action(self, place="", event="arrive", tool="", text="", **_):
+        return self._r({"rule": "r1", "place": place, "event": event, "tool": tool})
+
+    def t_place_reminder(self, place="", event="arrive", text="", **_):
+        return self._r({"rule": "r2", "place": place, "event": event, "text": text})
+
     def t_what_i_did(self, day="today", **_):
         from core.one.tools import tool_what_i_did
         return tool_what_i_did(day)
@@ -371,8 +401,16 @@ async def run_one(sc: dict, make_backend: Optional[Callable] = None, registry=No
     from core.agent import tasks as tasks_mod
     from core.memory.cortex import Cortex
     from core.one import journal
+    import core.mind as mind_mod
+    from core import places as places_mod
     workdir = workdir or Path(tempfile.mkdtemp(prefix="eva-jarvis-"))
     world = FakeWorld(sc.get("world"))
+    # v1.2: each scenario starts clean: its own journal, no places, and none of his real projects or tasks in her
+    # situation (Nov 28: "comparing options for your transparent desk screen project" in a fake world)
+    old_dir, old_sit, old_places = journal.DIR, mind_mod.situation, places_mod._places
+    journal.DIR = workdir / f"journal-{sc['id']}"
+    mind_mod.situation = lambda orch=None: "Situation:\nThe test world: an ordinary day at home in Breda."
+    places_mod._places = places_mod.Places(workdir / f"places-{sc['id']}.json", workdir / "trail.jsonl")
     store = tasks_mod.Store(workdir / f"tasks-{sc['id']}")
     for spec in world.tasks_spec:
         t = store.new(spec.get("goal") or spec.get("title", "a task"), 1.0, spec.get("title", ""), "", [])
@@ -417,6 +455,7 @@ async def run_one(sc: dict, make_backend: Optional[Callable] = None, registry=No
     results_text = " ".join(str(s.get("result", "")) for r in recs for s in r.get("steps") or []) + " " + \
         " ".join(json.dumps(v, default=str) for v in (world.web, world.weather, world.pages)) + " " + gathered
     bad = [f"crashed: {err}"] if err else judge(sc, answers, world, called, asked, seconds, results_text)
+    journal.DIR, mind_mod.situation, places_mod._places = old_dir, old_sit, old_places
     brains = sorted({f"{b['backend']}:{b['model']}" for r in recs for b in r.get("brain") or []})
     return {"id": sc["id"], "title": sc.get("title", ""), "passed": not bad, "problems": bad, "answers": answers,
             "tools": sorted(called), "seconds": round(seconds, 1), "brain": brains,
@@ -501,7 +540,8 @@ def due(now: Optional[datetime] = None, last_user_ts: float = 0.0) -> bool:
 
 def fake_writer(raw: str, topic: str) -> dict:
     """The JARVIS run checks her listening, not the writing: a plain chapter, no model."""
-    return {"title": (topic or "A story")[:60], "text": raw, "period": "", "year": 0, "people": [], "places": [],
+    m = re.search(r'"([^"]+)"', topic or "")
+    return {"title": (m.group(1) if m else topic or "A story")[:60], "text": raw, "period": "", "year": 0, "people": [], "places": [],
             "summary": raw[:120], "questions": ["What happened next?"], "_writer": "test"}
 
 
@@ -519,6 +559,7 @@ def _isolate(tmp: Path) -> None:
     memoir.folder = lambda: tmp / "Biography"
     memoir._write_json = fake_writer
     settings_mod.UI_PATH = tmp / "settings_ui.json"
+    files.root = lambda: tmp / "files"
 
 
 def main(argv: Optional[list[str]] = None) -> int:

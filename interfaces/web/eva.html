@@ -500,7 +500,9 @@ button.glance-chip{cursor:pointer}
 .jv-hist i{flex:1;max-width:22px;border-radius:4px 4px 0 0;background:var(--violet)}
 .task-trail{display:flex;flex-direction:column;gap:3px;margin-top:6px;font-size:12px;color:var(--dim-text)}
 .task-trail b{color:var(--ice);font-weight:500}
-.set-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+.set-tabs{flex:none;flex-wrap:wrap;overflow:visible}                 /* v1.2: every tab visible, never clipped */
+.con-pre{font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:var(--dim-text);max-height:60vh;overflow:auto;padding:8px 0}
+.con-pre .w{color:#fcd34d}.con-pre .e{color:#f0abfc}
 /* ===== v1.1: the biography recording, the latency meter, markdown in cards ===== */
 .eva-story{display:none;align-items:center;gap:10px;margin-top:10px;height:34px;padding:0 6px 0 14px;border-radius:17px;border:1px solid rgba(192,38,211,.45);
   background:rgba(192,38,211,.12);color:var(--ice);font-size:13px}
@@ -1207,7 +1209,7 @@ var SETTAB = 'settings';                       // v0.9: Settings | What she know
 function setHead(title) {
   return [h('div', { class: 'panel__head' }, h('div', { class: 'panel__title' }, title),
       h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: closeAll }, icon('x'))),
-    h('div', { class: 'set-tabs', role: 'tablist' }, [['settings', 'Settings'], ['did', 'What she did'], ['tasks', 'Tasks'], ['projects', 'Projects'], ['memory', 'What she knows'], ['bio', 'Biography'], ['notes', 'Her notes'], ['jarvis', 'JARVIS test']].map(([k, l]) =>
+    h('div', { class: 'set-tabs', role: 'tablist' }, [['settings', 'Settings'], ['did', 'What she did'], ['tasks', 'Tasks'], ['projects', 'Projects'], ['memory', 'What she knows'], ['bio', 'Biography'], ['places', 'Places'], ['notes', 'Her notes'], ['console', 'Console'], ['jarvis', 'JARVIS test']].map(([k, l]) =>
       h('button', { class: 'set-tab' + (SETTAB === k ? ' is-on' : ''), role: 'tab', 'aria-selected': SETTAB === k ? 'true' : 'false', onclick: () => { SETTAB = k; settingsLoad(); } }, l)))];
 }
 const MEM = { q: '', armed: 0, editing: 0, timer: 0 };
@@ -1422,6 +1424,41 @@ function bioRender(d) {
     ...(chs.length ? chs.map(c => h('div', { class: 'bio-ch' }, h('b', null, c.title), h('small', null, [c.period, c.told ? 'told ' + c.told.slice(0, 10) : '', c.words ? `${c.words} words` : ''].filter(Boolean).join(' \u00b7 ')),
       c.summary ? h('small', null, c.summary) : null, (c.people || []).length ? h('small', null, 'People: ' + c.people.join(', ')) : null)) : [h('div', { class: 'panel__help', style: 'padding:12px 0' }, 'No chapters yet.')]));
 }
+/* v1.2: her console (in memory only), and his places */
+const CON = { level: '', q: '', timer: 0 };
+async function conLoad() {
+  clearTimeout(CON.timer);
+  try {
+    const r = await fetch(`/api/console?last=300&level=${CON.level}&contains=${encodeURIComponent(CON.q)}`, { credentials: 'same-origin' });
+    const d = await r.json(); if (SETTAB === 'console') conRender(d);
+  } catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('Console'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load the console.")); }
+  if (SETTAB === 'console' && root.classList.contains('settings-open')) CON.timer = setTimeout(conLoad, 3000);
+}
+function conRender(d) {
+  const box = $('evaSettings'), pre = h('div', { class: 'con-pre', id: 'conPre' });
+  const old = $('conPre'), stick = !old || old.scrollTop + old.clientHeight >= old.scrollHeight - 30, keep = old ? old.scrollTop : 0;
+  for (const l of d.lines || []) pre.append(h('div', { class: l.level === 'warning' ? 'w' : (l.level === 'error' || l.level === 'critical') ? 'e' : '' }, `${l.t} ${l.where}  ${l.text}`));
+  const focused = document.activeElement && document.activeElement.id === 'conQ';
+  const q = h('input', { class: 'rt-in', id: 'conQ', type: 'search', placeholder: 'Only lines with...', value: CON.q, 'aria-label': 'Filter the console', oninput: e => { CON.q = e.target.value; clearTimeout(CON.timer); CON.timer = setTimeout(conLoad, 300); } });
+  box.textContent = '';
+  box.append(...setHead('Console'), h('div', { class: 'set-group' }, h('div', { class: 'panel__help' }, 'Her log, live: what she heard, which tools ran, warnings and errors. Kept in memory only; she reads it too ("check your console").'),
+    h('div', { class: 'mem-actions' }, ...[['', 'Everything'], ['warning', 'Problems only']].map(([k, l]) => h('button', { class: 'mem-btn' + (CON.level === k ? ' is-armed' : ''), onclick: () => { CON.level = k; conLoad(); } }, l))), q), pre);
+  pre.scrollTop = stick ? pre.scrollHeight : keep;
+  if (focused) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+}
+async function placesLoad() {
+  try { const r = await fetch('/api/places', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'places') placesRender(d); }
+  catch (_) { const box = $('evaSettings'); box.textContent = ''; box.append(...setHead('Places'), h('div', { class: 'panel__help', style: 'padding:24px' }, "I couldn't load your places.")); }
+}
+function placesRender(d) {
+  const box = $('evaSettings'), pl = d.places || {}, rules = d.rules || [];
+  box.textContent = '';
+  box.append(...setHead('Places'), h('div', { class: 'set-group' }, h('div', { class: 'panel__help' }, 'Where she knows you go, and what she does there. Say "remember this place as home", "the nearest Albert Heijn is my shop", or "when I get to the shop, tell me my shopping list". Your phone tells her where it is (E.V.A. app menu: Location on, with Hands-free).'),
+    h('small', null, d.fix ? `Your phone was last seen ${d.fix_age} ago${d.at ? ', at ' + d.at : ''}.` : 'No fresh location from your phone right now.')),
+    ...(Object.keys(pl).length ? Object.entries(pl).map(([n, p]) => h('div', { class: 'mem-row' }, h('b', { class: 'mem-text' }, n), h('small', null, [p.label, p.address, `within ${Math.round(p.radius)} m`].filter(Boolean).join(' \u00b7 ')),
+      ...rules.filter(r => r.place === n).map(r => h('small', null, `${r.event === 'leave' ? 'When you leave' : 'When you arrive'}: ${r.text || ''}${r.tool ? ' (' + r.tool.replace(/_/g, ' ') + ')' : ''}${r.once ? ', once' : ', every time'}`)))) :
+      [h('div', { class: 'panel__help', style: 'padding:12px 0' }, 'No places saved yet.')]));
+}
 const PROJ = { armed: '', open: '' };
 async function projectsLoad() {
   try { const r = await fetch('/api/projects', { credentials: 'same-origin' }); const d = await r.json(); if (SETTAB === 'projects') projectsRender(d); }
@@ -1463,6 +1500,8 @@ async function settingsLoad() {
   if (SETTAB === 'did') return didLoad();
   if (SETTAB === 'jarvis') return jarvisLoad();
   if (SETTAB === 'bio') return bioLoad();
+  if (SETTAB === 'console') return conLoad();
+  if (SETTAB === 'places') return placesLoad();
   try {
     const r = await fetch('/api/settings', { credentials: 'same-origin' }); if (!r.ok) throw new Error(r.status);
     const d = await r.json(); if (SETTAB === 'settings') settingsRender(d);
@@ -2180,7 +2219,7 @@ function micTouch() {                                          // tap mode: free
   if (!wakeMode) MIC.idle = setTimeout(() => { if (!wakeMode && state === 'idle') micRelease(); else micTouch(); }, 30000);
 }
 function sendCtl(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
-function armServer(ms, hint) { sendCtl({ type: 'listen', arm: ms }); setState('listening'); E.setHint(hint || 'Listening...'); micTouch(); }
+function armServer(ms, hint) { sendCtl({ type: 'listen', arm: ms }); setState('listening'); E.setHint(hint || "I'm listening..."); micTouch(); }
 async function tapServer() {
   if (micBlocked()) return;
   if (await micStart()) armServer(8000, 'Listening...');
@@ -2198,9 +2237,10 @@ function onStt(ev) {
     if (wakeMode) startWake();
   }
 }
-function onListen(ev) {
-  if (ev.state === 'speech') { setState('listening'); E.setHint('Listening...'); micTouch(); }
-  else if (ev.state === 'end') { setState('thinking'); E.setLevel(null); }
+function onListen(ev) {                                     // v1.2: the words say exactly where she is
+  if (ev.state === 'speech') { setState('listening'); E.setHint(root.classList.contains('story-on') ? 'Recording your story...' : 'Hearing you...'); micTouch(); }
+  else if (ev.state === 'pause') { if (state === 'listening') E.setHint('Still listening, take your time...'); }
+  else if (ev.state === 'end') { setState('thinking'); E.setLevel(null); E.setHint(root.classList.contains('story-on') ? 'Writing that part down...' : 'Got it. Thinking...'); }
   else if (ev.state === 'noise' || ev.state === 'timeout') {
     if (state === 'listening' || state === 'thinking') { setState('idle'); E.setLevel(null); idleHint(); }
   }

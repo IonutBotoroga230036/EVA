@@ -259,7 +259,7 @@ def isolate_nov23_afternoon(tmp_path, monkeypatch):
     monkeypatch.setattr(_apc, "VENV", tmp_path / "agent" / "venv")
     monkeypatch.setattr(_apc, "PROGRAMS", tmp_path / "agent" / "programs.json")
     monkeypatch.setattr(_apc, "LINK", {"conn": None, "loop": None})
-    monkeypatch.setattr(_apc, "_cfg", lambda: {"output_dir": str(tmp_path / "out")})   # never your Documents
+    monkeypatch.setattr(_apc, "_cfg", lambda: {"output_dir": str(tmp_path / "EVA")})   # never your real folder
     monkeypatch.setattr(_apc.LocalPC, "install_program",                              # tests never install
                         lambda self, winget_id, exe="": {"ok": False, "output": "tests never install programs"})
     monkeypatch.setattr(_apc.LocalPC, "pip_install",

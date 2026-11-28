@@ -464,3 +464,22 @@ First: `ollama pull qwen3.5:4b`, restart, and check the start-up has no `BRAIN: 
 | 31.10 | "Eva, I want to tell you a story", talk for a few minutes with breaks, "that's the end" | Quiet while you talk (a soft tone), then "I wrote it down as ..." and a card | `MEMOIR: wrote` |
 | 31.11 | Settings > Biography | The chapter, and the questions she'd ask next | |
 | 31.12 | /stage on the second screen | "Lately" and "Speed today" tiles | |
+
+## 32. v1.2: whole stories, her code and console, her folder, places
+
+| # | Do / say | Expect | Log |
+|---|---|---|---|
+| 32.1 | Tell a story for 3 minutes with pauses, "that's the end" | sessions/ has every part, no gaps | `ECHO: ... s of speech, read in N pieces` |
+| 32.2 | Answer her follow-up question | "Added to ..."; the chapter has your answer | `MEMOIR: wrote` again, same title |
+| 32.3 | Right after she says "say that's the end", say it | It ends the story (not dropped) | no `dropped as her own echo` |
+| 32.4 | "Run the face setup" (with a module missing) | She installs it herself and runs it again; no terminal opens | `FILES: pip install ... into her environment` |
+| 32.5 | "Check your console, why did that fail?" | The real reason, one sentence | `TOOL my_console` |
+| 32.6 | Settings > Console | Live log lines; "Problems only" filters | |
+| 32.7 | "Where in your code do you decide how long you listen?" | voice/listen.py and what it does | `TOOL code_find` |
+| 32.8 | "Make the listening window 2 seconds longer, test it" | Workshop change, tests, then she asks to apply | `CODE: changed ... in her workshop` |
+| 32.9 | Yes, then `git diff` in PowerShell | The change is there, uncommitted; restart her | `CODE: applied` |
+| 32.10 | After the first start: open D:\Project E.V.A\E.V.A. Files | The face folder and Biography are there; Documents\E.V.A gone or nearly empty | `FILES: moved` |
+| 32.11 | "Where did you put the face script?" | The new folder on D | |
+| 32.12 | "The nearest Albert Heijn is my shop. When I get there tell me my shopping list." | Settings > Places shows it; at the shop your phone says the list | `PLACES: arrive shop` |
+| 32.13 | "Do you know where I am?" | Home (your saved "house"), no ringing | `TOOL where_am_i` |
+| 32.14 | Settings on a narrow window | Every tab visible | |

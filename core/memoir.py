@@ -146,7 +146,8 @@ speech recognition (there may be misheard words and repetitions). Turn it into o
 Answer with JSON only:
 {"title": "a short title", "period": "when it happened, in his words or as a year/range ('' if he didn't say)",
  "year": a number for sorting (best guess from what he said, 0 if no idea),
- "people": ["names or roles"], "places": ["places"], "summary": "two sentences",
+ "people": ["names or roles of the others in it (never him: he is the one telling it)"], "places": ["places"],
+ "summary": "two sentences",
  "text": "the chapter in markdown", "questions": ["2 or 3 short questions a good biographer would ask him next"]}"""
 
 
@@ -235,9 +236,22 @@ def stop(write: bool = True) -> dict:
         return {"session": str(session), "error": "writer failed",
                 "say": "I kept every word you said, sir, but I couldn't write the chapter just now. Say 'write my "
                        "last story' later and I'll try again."}
+    entry = _render(data, raw, when, session)
+    q = entry["questions"][:2]
+    say = f"I wrote it down as \"{entry['title']}\", sir." + (f" Next time I'd love to hear: {q[0]}" if q else "")
+    return {**entry, "say": say}
+
+
+_ME = re.compile(r"^(?:i|me|myself|him|he|the narrator|ionu[tț](?:[- ]alberto)?(?: bo[tț]oroga)?)$", re.I)
+
+
+def _render(data: dict, raw: str, when: datetime, session: Path, path: Optional[Path] = None) -> dict:
+    """Write one chapter file and its index entry; rebuild Biography.md."""
+    base = folder()
     title = str(data.get("title") or "A story")[:80]
-    path = base / "chapters" / f"{when:%Y-%m-%d} {_slug(title)}.md"
-    people, places = [str(x) for x in data.get("people") or []][:20], [str(x) for x in data.get("places") or []][:20]
+    path = path or base / "chapters" / f"{when:%Y-%m-%d} {_slug(title)}.md"
+    people = [str(x) for x in data.get("people") or [] if not _ME.match(str(x).strip())][:20]
+    places = [str(x) for x in data.get("places") or []][:20]
     head = [f"# {title}", ""]
     meta = " · ".join(x for x in [str(data.get("period") or ""), f"told {when:%d %B %Y}"] if x)
     head.append(f"*{meta}*")
@@ -247,6 +261,7 @@ def stop(write: bool = True) -> dict:
                                            ("Places: " + ", ".join(places)) if places else ""] if x))
     body = "\n".join(head) + "\n\n" + str(data["text"]).strip() + \
         f"\n\n---\n*From what you told me: sessions/{session.name}*\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     idx = _index()
     try:
@@ -261,9 +276,47 @@ def stop(write: bool = True) -> dict:
     (base / "index.json").write_text(json.dumps(idx, indent=1, ensure_ascii=False), encoding="utf-8")
     compile_book()
     logger.info(f"MEMOIR: wrote '{title}' ({entry['words']} words, {entry['writer']})")
-    q = entry["questions"][:2]
-    say = f"I wrote it down as \"{title}\", sir." + (f" Next time I'd love to hear: {q[0]}" if q else "")
-    return {**entry, "say": say}
+    return entry
+
+
+def add_to_chapter(text: str, title: str = "") -> dict:
+    """v1.2: his answer to her follow-up question, or more of a story he just told (Nov 28 00:59: "I'll add this
+    to The Empty Book" and nothing was added). His words go into the chapter's session; the chapter is rewritten."""
+    text = " ".join((text or "").split())
+    if not text:
+        return {"error": "nothing to add", "say": "What should I add, sir?"}
+    chs = sorted(chapters(), key=lambda c: c.get("told", ""))
+    t = (title or "").lower().strip()
+    pick = next((c for c in reversed(chs) if t and t in c["title"].lower()), None) if t else None
+    pick = pick or (chs[-1] if chs else None)
+    if not pick:
+        return {"error": "no chapter yet", "say": "There's no story written down yet, sir. Say 'I want to tell you a "
+                                                  "story' and I'll start one."}
+    session = Path(pick["session"])
+    try:
+        old = session.read_text(encoding="utf-8")
+    except OSError:
+        old = ""
+    now = datetime.now()
+    session.parent.mkdir(parents=True, exist_ok=True)
+    session.write_text(old.rstrip() + f"\n\n[{now:%H:%M}, added later] {text}\n", encoding="utf-8")
+    raw = "\n\n".join(re.sub(r"^\[[^\]]*\]\s*", "", ln) for ln in session.read_text(encoding="utf-8").split("\n\n")
+                      if ln.strip() and not ln.startswith("# "))
+    try:
+        data = _write_json(raw, f"the chapter \"{pick['title']}\", with what he added at the end (work it into the "
+                                f"story where it belongs; keep the title unless it no longer fits)")
+    except Exception as e:
+        logger.warning(f"MEMOIR: couldn't rewrite the chapter ({e})")
+        data = {}
+    if not data.get("text"):
+        return {"session": str(session), "error": "writer failed",
+                "say": f"I kept your words with \"{pick['title']}\", sir, but couldn't rewrite the chapter just now."}
+    try:
+        when = datetime.fromisoformat(pick.get("told") or "")
+    except ValueError:
+        when = now
+    entry = _render(data, raw, when, session, Path(pick["file"]))
+    return {**entry, "added": len(text.split()), "say": f"Added to \"{entry['title']}\", sir."}
 
 
 def compile_book() -> Optional[Path]:
@@ -346,6 +399,11 @@ def tool_memoir_stop(**_):
     return _r({k: v for k, v in out.items() if k != "say"}, out["say"], exact=True, **({"widget": w} if w else {}))
 
 
+def tool_memoir_add(text: str = "", title: str = "", **_):
+    out = add_to_chapter(text, title)
+    return _r({k: v for k, v in out.items() if k != "say"}, out["say"], exact=True)
+
+
 def tool_memoir_list(**_):
     chs = chapters()
     return _r({"folder": str(folder()), "chapters": [{k: c.get(k) for k in ("title", "period", "people", "places",
@@ -375,6 +433,13 @@ SCHEMAS = [
         "name": "memoir_stop", "description": "He finished his story: write it down as a chapter of his biography.",
         "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {
+        "name": "memoir_add", "description": "Add what he just said to a chapter of his biography and rewrite it: "
+                                             "his answer to the question you asked after a story, or 'oh, and also...' "
+                                             "about a story he told. The latest chapter unless he names one. Pass his "
+                                             "words as he said them.",
+        "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "title": {"type": "string"}},
+                       "required": ["text"]}}},
+    {"type": "function", "function": {
         "name": "memoir_list", "description": "His biography so far: chapters, periods, people, the questions you "
                                               "wanted to ask him next.",
         "parameters": {"type": "object", "properties": {}}}},
@@ -383,5 +448,5 @@ SCHEMAS = [
         "parameters": {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}}},
 ]
 FUNCTIONS = {"memoir_start": tool_memoir_start, "memoir_stop": tool_memoir_stop, "memoir_list": tool_memoir_list,
-             "memoir_read": tool_memoir_read}
-ACTIONS = {"memoir_start", "memoir_stop"}
+             "memoir_read": tool_memoir_read, "memoir_add": tool_memoir_add}
+ACTIONS = {"memoir_start", "memoir_stop", "memoir_add"}

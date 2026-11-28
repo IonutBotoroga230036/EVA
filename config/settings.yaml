@@ -295,7 +295,8 @@ agent:
   max_steps: 40                        # Claude turns in one go before she asks "shall I keep going?"
   max_tokens: 16000                    # per turn, thinking included; only what she uses is paid for
   effort: "medium"                     # how hard she thinks per turn: low | medium | high ("" = the model's default)
-  output_dir: "~/Documents/E.V.A."     # finished files land in <output_dir>/<task>, after your yes
+  output_dir: ""                      # v1.2: "" = "E.V.A. Files" next to her code (D:/Project E.V.A/E.V.A. Files);
+                                      # files from the old Documents/E.V.A. folder move there by themselves
   pc: "auto"                           # auto: the PC agent if it's connected, else this machine | local | remote
   programs: ["openscad", "prusa-slicer", "blender"]   # may run on a task's files without asking (+ ones it installed)
 

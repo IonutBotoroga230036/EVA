@@ -85,7 +85,7 @@ SCHEMAS = [
      "in place, before you call it done. The user sees the same pictures.",
      "input_schema": _s({"path": STR}, ["path"])},
     {"name": "deliver_file", "description": "Copy finished files from the task folder to the user's E.V.A. "
-     "folder (Documents/E.V.A./<task>), where they can open them. Give all of them in one call: one question "
+     "folder (E.V.A. Files/<task>, next to her code), where they can open them. Give all of them in one call: one question "
      "for the user. Asks first unless they gave a standing yes.",
      "input_schema": _s({"paths": {"type": "array", "items": STR}, "path": STR})},
     {"name": "download_file", "description": "Download a public file (a model, weights, a dataset, an image) into "
@@ -192,7 +192,8 @@ class Hands:
 
     def _out_folder(self) -> str:
         from core.agent.pc import _cfg
-        return f"{_cfg().get('output_dir') or '~/Documents/E.V.A.'}/{self.task.title}"
+        from core.one import files as my
+        return str(my.root() / self.task.title)
 
     def log_consent(self, kind: str, what: str, decision: str) -> None:
         self.task.consents.append({"ts": time.time(), "kind": kind, "what": what[:300], "decision": decision})

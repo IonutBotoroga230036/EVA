@@ -50,8 +50,20 @@ def ideal(transcript, tools):
             return Step(text=f"That's {n.group(0) if n else 'a few'}, sir.")
         if "my_files" in done:
             return Step(text="It's in the face recognition camera folder: eva_face.py.")
+        if "memoir_add" in done:
+            return Step(text="Added that to your bike chapter, sir.")
         if "memoir_start" in done:
             return Step(text="I'm listening, sir.")
+        if "install_package" in done:
+            return Step(text="OpenCV is in my own environment now.")
+        if "place_save" in done and "place_action" not in done:
+            return _c("place_action", place="shop", event="arrive", tool="shopping_list")
+        if "place_action" in done:
+            return Step(text="Saved the Albert Heijn as your shop; I'll read your list when you get there.")
+        if "my_console" in done:
+            return Step(text="It failed because the cv2 module wasn't installed.")
+        if "code_find" in done:
+            return Step(text="In voice/listen.py: max_pause_secs, the longest pause before I stop listening.")
         if "where_am_i" in done:
             return Step(text="Your phone says you're at home.")
         if "task_resume" in done:
@@ -63,6 +75,16 @@ def ideal(transcript, tools):
         if "he said no" in situation.lower() or "never mind" in t:
             return Step(text="Okay, I'll leave it.")
         return Step(text="Sent, sir.")
+    if "embarrassed" in t:
+        return _c("memoir_add", text=text)
+    if "install opencv" in t:
+        return _c("install_package", packages=["opencv-python"])
+    if "albert heijn" in t:
+        return _c("place_save", name="shop", find="Albert Heijn")
+    if "check your console" in t:
+        return _c("my_console", level="warning")
+    if "in your code" in t:
+        return _c("code_find", query="max_pause")
     if "locate my phone" in t:
         return _c("where_am_i")
     if "resume the task" in t:
@@ -129,7 +151,7 @@ def test_every_scenario_passes_with_an_ideal_brain(monkeypatch):
     d = asyncio.run(jt.run_all(None, make, "ideal"))
     failed = {r["id"]: r["problems"] for r in d["results"] if not r["passed"]}
     assert not failed, failed
-    assert d["total"] == len(jt.scenarios()) >= 28 and d["score"] == 100
+    assert d["total"] == len(jt.scenarios()) >= 33 and d["score"] == 100
 
 
 def test_a_lazy_brain_fails_the_right_checks():

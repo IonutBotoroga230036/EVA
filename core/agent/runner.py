@@ -30,7 +30,7 @@ from core.agent.hands import KIND, SCHEMAS, Hands
 from core.agent.tasks import Store, Task, get_store
 
 DEFAULTS = {"model": "claude-sonnet-5-5", "budget_eur": 1.0, "budget_step_eur": 1.0, "max_steps": 40,
-            "max_tokens": 16000, "effort": "medium", "output_dir": "~/Documents/E.V.A.", "pc": "auto",
+            "max_tokens": 16000, "effort": "medium", "output_dir": "", "pc": "auto",
             "compact_chars": 60000}
 _CUT_OFF = ("(Your last reply hit the length limit and was cut off, so none of the tool calls in it ran. Carry on "
             "from there. Write long files in parts: several smaller write_file calls, or build them with run_python.)")

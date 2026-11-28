@@ -91,13 +91,19 @@ journal with undo, skills she makes herself, the automatic JARVIS test, chats in
 Patient listening, her files and scripts (adopt a script as a skill), tasks that download and ask less, the
 biography, patterns offered once, skill review, the HUD and the latency meter. docs/ONE_BRAIN.md, v1.1 section.
 
+## v1.2 (28 Nov, night, done)
+
+Whole stories (long speech read in pieces), his answers go into the chapter, her own environment for packages,
+her own code (read, workshop, tests, apply with his yes) and console, her folder on D next to the code, places from
+the map with actions on arrival, skills never retired. docs/ONE_BRAIN.md, v1.2 section.
+
 ## Next, toward JARVIS (proposed 27 Nov)
 
 1. Her own voice in real time: a duplex speech model (talk over each other naturally, hums and "mm-hm") once one
    runs on 6 GB; until then, faster first words with the local model streaming its first sentence while it thinks.
 2. Initiative from the journal (started in v1.1): she notices patterns ("you move standup every Monday; shall I make it 9:15 for
    good?") and offers once.
-3. Skills she made, reviewed (v1.1 retires the unused ones; next: she fixes the failing ones).
+3. Skills she made, reviewed (v1.2 keeps them all; next: she fixes the failing ones in her workshop).
 4. A HUD on the second monitor: started in v1.1 (Lately, Speed today); next: her live thinking on it.
 5. Presence: knowing you're at the desk. Now possible with the face skill you built: once adopted, she can check
    who is there before speaking up (next version).

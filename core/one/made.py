@@ -292,14 +292,41 @@ def _fill(template: list, args: dict) -> list[str]:
     return out
 
 
-def adopt(name: str, purpose: str, script: str, args: Optional[list] = None, parameters: Optional[dict] = None) -> dict:
-    """Make one of her scripts (in his E.V.A. folder) a skill: skill_<name> runs it with her own Python."""
+def adopt(name: str, purpose: str, script: str, args: Optional[list] = None, parameters: Optional[dict] = None,
+          code: str = "") -> dict:
+    """Make one of her scripts (in her folder) a skill: skill_<name> runs it with her own Python.
+    v1.2: script is the file's path or name; if she passes the code itself (Nov 28 00:45, four times), it is saved
+    as a file first (or matched to the file that already has it)."""
     from core.one import files
-    p = files.inside(script)
-    if not p or not p.is_file() or p.suffix.lower() != ".py":
-        p = files.by_name(script, ".py")
+    if not code and script and ("\n" in script or len(script) > 300):
+        code, script = script, ""
+    p = None
+    if script:
+        p = files.inside(script)
+        if not p or not p.is_file() or p.suffix.lower() != ".py":
+            p = files.by_name(script, ".py") or files.by_name(Path(script).name + ("" if script.endswith(".py") else ".py"))
+    if not p and code:
+        want = code.strip()
+        for h in files.find(name, 200) + files.find("py", 200):
+            hp = Path(h["path"])
+            try:
+                if hp.suffix == ".py" and hp.read_text(encoding="utf-8").strip() == want:
+                    p = hp
+                    break
+            except OSError:
+                continue
+        if not p:
+            same = files.by_name(f"{name}.py")
+            folder_ = same.parent if same else files.root() / "skills"
+            folder_.mkdir(parents=True, exist_ok=True)
+            p = folder_ / f"{name}.py"
+            if p.exists():
+                p = folder_ / f"{name}_skill.py"
+            p.write_text(code, encoding="utf-8")
+            logger.info(f"SKILLS: saved the code for skill_{name} as {p}")
     if not p:
-        return {"ok": False, "error": f"{script} isn't a Python script in the E.V.A. folder"}
+        return {"ok": False, "error": f"no script called {script or name} in your folder: give its path (my_files "
+                                      f"finds it) or the code"}
     folder = _folder(name)
     folder.mkdir(parents=True, exist_ok=True)
     params = parameters if isinstance(parameters, dict) and parameters.get("type") == "object" else \
@@ -328,20 +355,16 @@ def _run_pc(m: dict, args: dict, record) -> dict:
 
 
 def review(unused_days: int = 30) -> dict:
-    """v1.1, once a day: skills she made that nobody used for a month are retired (kept on disk, no longer tools);
-    the ones whose last run failed are listed for her notes."""
-    now = time.time()
-    retired, failing = [], []
+    """Once a day: the skills whose last run failed are listed for her notes. v1.2: nothing is ever retired or
+    deleted (he keeps everything); a skill retired by v1.1 is a tool again."""
+    failing = []
     for m in listing():
-        if m.get("status") != "ready":
-            continue
-        last = m.get("last_used") or m.get("created") or now
-        if now - float(last) > unused_days * 86400:
-            m["status"] = "retired"
+        if m.get("status") == "retired":
+            m["status"] = "ready"
             (_folder(m["name"]) / "skill.json").write_text(json.dumps(m, indent=1), encoding="utf-8")
-            retired.append(m["name"])
-        elif m.get("last_error"):
+            logger.info(f"SKILLS: skill_{m['name']} is back (skills are never retired now)")
+        if m.get("status") == "ready" and m.get("last_error"):
             failing.append(m["name"])
-    if retired or failing:
-        logger.info(f"SKILLS: review: retired {retired or 'none'}, failing {failing or 'none'}")
-    return {"retired": retired, "failing": failing}
+    if failing:
+        logger.info(f"SKILLS: review: failing {failing}")
+    return {"retired": [], "failing": failing}

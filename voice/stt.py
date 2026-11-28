@@ -47,6 +47,29 @@ def _norm(text: str) -> str:
     return " ".join(_WORDISH.findall(text.lower().replace(".", "")))
 
 
+def split_long(audio, sr: int = 16000, max_s: float = 24.0, min_s: float = 10.0) -> list:
+    """v1.2: one Whisper window is 30 s; a 2-minute story sent whole lost most of its words (Nov 28 00:53: three
+    minutes of talking came back as about forty seconds of text). Long audio is cut at its quietest moment between
+    min_s and max_s, so every piece fits one window and no word is cut in half."""
+    a = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if a.size <= int((max_s + 2.0) * sr):
+        return [a]
+    frame = max(1, int(0.03 * sr))
+    w = 10                                                     # 300 ms of quiet
+    pieces, start = [], 0
+    while a.size - start > int((max_s + 2.0) * sr):
+        lo, hi = start + int(min_s * sr), start + int(max_s * sr)
+        seg = a[lo:hi]
+        n = seg.size // frame
+        e = np.sqrt(np.mean(seg[: n * frame].reshape(n, frame) ** 2, axis=1))
+        smooth = np.convolve(e, np.ones(w) / w, mode="valid") if n > w else e
+        cut = lo + (int(np.argmin(smooth)) + (w // 2 if n > w else 0)) * frame
+        pieces.append(a[start:cut])
+        start = cut
+    pieces.append(a[start:])
+    return pieces
+
+
 def clean_transcript(segments: list[dict]) -> str:
     """Join Whisper segments, skipping ones it marks as no speech, and drop pure hallucinations.
 

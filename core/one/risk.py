@@ -41,6 +41,7 @@ TELL = {  # changes in his own space, mostly undoable
     "phone_ring", "phone_alarm", "phone_timer", "phone_volume", "phone_stay_dark", "phone_ask_unlock",
     "send_to_phone", "set_brain_mode", "use_computer", "change_setting", "undo", "make_skill", "run_skill",
     "schedule_later", "memoir_start", "memoir_stop", "memoir_pause", "memoir_add",
+    "install_package", "code_change", "code_test", "code_reset", "place_action", "place_save",   # v1.2
 }
 _SENDS = re.compile(r"(?:^|_)(?:send|reply|post|publish|tweet|dm|message|mail|email|whatsapp|telegram|sms|invite|share)"
                     r"(?:_|$)", re.I)
@@ -121,6 +122,8 @@ def judge(tool: str, args: Optional[dict] = None, belt=None, approved: Optional[
         return "ask", "it runs a script on your PC for the first time"
     if tool == "adopt_skill":
         return "ask", "it makes a script on your PC one of my skills"
+    if tool == "code_apply":                    # v1.2: her real code changes only with his yes
+        return "ask", "it changes my own code"
     if tool == "run_skill":
         from core.one import made
         return made.risk_of(args.get("name", ""), args.get("args") or {})

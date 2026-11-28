@@ -270,7 +270,8 @@ class LocalPC:
         src = _inside(ws, path)
         if not src.is_file():
             raise PCError(f"{path} doesn't exist in the task folder")
-        root = Path(os.path.expanduser(_cfg().get("output_dir") or "~/Documents/E.V.A.")).resolve()
+        from core.one import files as my
+        root = my.root().resolve()
         sub = re.sub(r"[^\w\- ]", "", folder or "").strip()[:60] or task
         dest_dir = root / sub
         dest_dir.mkdir(parents=True, exist_ok=True)

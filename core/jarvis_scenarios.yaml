@@ -135,10 +135,9 @@
     events: {Standup: "09:00", Review: "09:30"}
 
 - id: what_changed
-  title: "She can say what she changed"
+  title: "She can say what she changed (from her journal or what_i_did)"
   turns: ["Move everything between 9 and 9:45 fifteen minutes later", "What did you change today?"]
   expect:
-    tools: ["what_i_did"]
     say_has: ["Standup|Review|calendar|moved|15|fifteen"]
 
 - id: open_site
@@ -172,9 +171,10 @@
     tools: ["get_datetime|calculate|run_skill|make_skill"]
 
 - id: not_a_reflex
-  title: "A question about her knowing isn't a reflex (v1.1)"
+  title: "A question about where he is gets where he is, not a ringing phone (v1.1)"
   turns: ["Can you locate my phone? Like, do you know my location right now?"]
   expect:
+    tools: ["where_am_i"]
     not_tools: ["phone_ring"]
 
 - id: resume_the_task
@@ -211,3 +211,39 @@
   expect:
     tools: ["memoir_start"]
     say_has: ["wrote it down"]
+
+- id: install_herself
+  title: "She installs into her own environment, without a computer task or a question (v1.2)"
+  turns: ["Install opencv in your environment so the face script works"]
+  expect:
+    tools: ["install_package"]
+    not_tools: ["use_computer", "task_start"]
+    asks: false
+
+- id: shop_place
+  title: "Saving his shop from the map, and his list when he gets there (v1.2)"
+  turns: ["The nearest Albert Heijn is my shop. When I get there, tell me what's on my shopping list."]
+  expect:
+    tools: ["place_save", "place_action|place_reminder"]
+    asks: false
+
+- id: read_her_console
+  title: "She reads her own errors (v1.2)"
+  turns: ["Check your console, why did the face setup fail?"]
+  expect:
+    tools: ["my_console"]
+    say_has: ["cv2|opencv|module"]
+
+- id: her_own_code
+  title: "She looks in her own code (v1.2)"
+  turns: ["Where in your code do you decide how long a pause can be before you stop listening?"]
+  expect:
+    tools: ["code_find|code_read"]
+    say_has: ["listen|pause"]
+
+- id: story_answer
+  title: "His answer to her follow-up question goes into the chapter (v1.2)"
+  turns: ["Eva, I want to tell you a story about my first bike", "When I was seven my dad bought me a red bike in Galati and I fell off it the same day", "that's the end", "I think I was mostly embarrassed, because the neighbours saw it"]
+  expect:
+    tools: ["memoir_start", "memoir_add"]
+    say_has: ["added|bike|chapter"]

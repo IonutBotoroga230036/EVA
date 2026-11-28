@@ -101,3 +101,44 @@ suite still covers it (tests not marked `one_brain`).
 - Fixes: browser results keep their own blocks (the 22:37 API error), Windows file locks are retried (the 23:07
   task crash), the first-byte wait grows with the request (up to 14 s), the JARVIS run really uses the brain it
   names, free_slots uses the time it's given. The JARVIS test has 28 scenarios.
+
+## v1.2 (28 Nov, night): whole stories, her own code, her folder on D, places
+
+- **Whole stories.** A 2 to 3 minute stretch of speech went to Whisper as one block; past its 30 s window most
+  words were lost (00:53: three minutes came back as about forty seconds of text). Long speech is now cut at its
+  quietest moment every 10 to 24 s (`voice/stt.py: split_long`) and read piece by piece, so nothing is skipped.
+- **His words aren't her echo.** "That's the end" three seconds after she said "say that's the end" was dropped
+  as her own voice. The echo guard now only looks at speech that began while she spoke or within 1.5 s after
+  (`listen.echo_tail_secs`).
+- **The biography takes his answers.** `memoir_add` puts his answer to her follow-up question (or "oh, and...")
+  into the latest chapter and rewrites it; his exact words stay in sessions/. He is never listed under People.
+- **The checks:** an offer ("just say when you want the reminder set") is not a claim; "everyone else is busy"
+  isn't his calendar; a correction round only fixes words (the 00:31 "fix" moved Train To Dordrecht to 12:09: any
+  action in a correction is refused and journaled as `refused`). After his yes she gets the tool's full result,
+  not its one-line "it stopped with an error".
+- **Her scripts fix themselves.** A missing module (`No module named 'cv2'`) is installed into HER environment
+  (data/agent/venv) and the script runs again; `install_package` for anything else. A failing script's result
+  starts with the real error line. Never his Python: on 28 Nov a task typed `pip install` into his terminal.
+- **adopt_skill** takes the path or, if she passes the code itself (she did, four times), matches it to the file
+  that has it or saves it as a file first.
+- **Skills are kept.** Nothing is retired or deleted; skills v1.1 retired are tools again.
+- **Her own code** (`core/one/selfcode.py`): `code_find`, `code_read` (read-only; settings.local.yaml, secrets.env,
+  EVA.local.md, .env/key files, data/, .git and the venvs are never shown), `my_console` (her log lines, in memory,
+  keys blanked; Settings > Console shows them too). To change herself: `code_change` in her workshop (a git
+  worktree at `D:/Project E.V.A/eva-workshop`, branch `eva/workshop`; the running E.V.A. is untouched),
+  `code_test`, `code_diff`, then `code_apply` (asks him) puts the change into the real code as uncommitted changes;
+  he restarts her, and commits and pushes it himself. `code_reset` throws the workshop away. No Docker: she needs
+  the PC (camera, files, apps), and the workshop plus his yes keeps the real code safe.
+- **Her folder on D.** `agent.output_dir: ""` means "E.V.A. Files" next to her code (`D:/Project E.V.A/E.V.A.
+  Files`). At start, everything in the old Documents/E.V.A. moves there once (nothing is overwritten; a name that
+  exists in both stays in the old folder), and the old paths written in her scripts, notes, the biography index,
+  script approvals and pc skills are pointed at the new folder. `agent.move_old_folder: false` stops that.
+- **Places.** `place_save` finds a place on the map ("the nearest Albert Heijn is my shop"), `place_action` runs a
+  tool when he arrives or leaves (at the shop `shopping_list`, at home `set_mood`; tools that need his yes can't
+  be used), every time unless he says once. "house" is home. Her situation lists his places and rules; Settings >
+  Places shows them.
+- **The window:** the settings tabs wrap, so all of them are visible; the hint under the orb says "Hearing you",
+  "Still listening, take your time", "Got it. Thinking..." or "Recording your story".
+- **No em-dashes** in anything she says. `TIMING:` in the log when getting ready to think takes over 0.6 s.
+- The JARVIS test: 33 scenarios; each starts with its own journal and places and none of his real projects in
+  the situation (the small-talk answer mentioned his desk screen).

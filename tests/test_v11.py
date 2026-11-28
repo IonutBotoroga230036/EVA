@@ -351,14 +351,17 @@ def test_a_change_on_three_days_becomes_one_offer(monkeypatch):
     assert patterns.offer_once() is None                  # offered once, never again
 
 
-def test_unused_made_skills_are_retired():
+def test_unused_made_skills_are_kept_and_retired_ones_come_back():
+    """v1.2: he keeps everything. An old skill stays a tool; one that v1.1 retired is a tool again."""
     made.make("old_one", "an old helper", "def run(eva):\n    return 1\n", None, {}, lambda t, a: {},
               lambda t: False, lambda t: True)
     m = made.manifest("old_one")
     m["created"] = m["updated"] = time.time() - 40 * 86400
+    m["status"] = "retired"
     (made.DIR / "old_one" / "skill.json").write_text(json.dumps(m))
-    assert made.review() == {"retired": ["old_one"], "failing": []}
-    assert "skill_old_one" not in [t["function"]["name"] for t in made.schemas()]
+    assert made.review() == {"retired": [], "failing": []}
+    assert "skill_old_one" in [t["function"]["name"] for t in made.schemas()]
+    assert (made.DIR / "old_one" / "skill.json").exists()
 
 
 def test_the_glance_has_her_latest_decisions_and_speed(eva):

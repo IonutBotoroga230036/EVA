@@ -167,8 +167,9 @@ _DENIAL = re.compile(r"\b(?:i (?:can ?not|can't|am unable to|do not have|don't h
 # nothing planned. A sentence about your calendar, email, weather or music, when no tool of that kind ran this turn,
 # is replaced by an honest offer to check; "yes" then runs the check.
 _FACTS = {
-    "calendar": (re.compile(r"\byou(?:'re| are) (?:free|busy|clear)\b(?! to)|\b(?:looks?|is) (?:clear|wide open|busy|"
-                            r"packed)\b|\b(?:day|morning|afternoon|evening|night|schedule|calendar|agenda|today|tonight|"
+    "calendar": (re.compile(r"\byou(?:'re| are) (?:free|busy|clear)\b(?! to)|\b(?:day|morning|afternoon|evening|schedule|"
+                            r"calendar|agenda|today|tonight|tomorrow|week|weekend)\b[^.]{0,20}?\b(?:looks?|is) (?:clear|"
+                            r"wide open|busy|packed)\b|\b(?:day|morning|afternoon|evening|night|schedule|calendar|agenda|today|tonight|"
                             r"tomorrow|week|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b[^.]{0,25}?"
                             r"\b(?:is|looks?|seems?) (?:free|open)\b|\bfree (?:slot|time|window)s?\b|\bno (?:meetings?|events?|class(?:es)?|"
                             r"appointments?|lectures?)\b|\byou have (?:a |an |no |\d+ |two |three )?(?:meetings?|events?|"
@@ -196,10 +197,17 @@ _NEGATED = re.compile(r"(?:\bnothing|\bnot|n't|\bnever|\bno\b|\bwithout|\bwon't|
 _NEGATION_IN = re.compile(r"\b(?:nothing|not|never|no|none|neither)\b|n't", re.I)
 
 
+_OFFER_SENT = re.compile(r"\b(?:just say|say (?:when|so|the word)|if you(?:'d)? (?:want|like)|when(?:ever)? you (?:want|"
+                         r"like|say)|want me to|shall i|should i|do you want|would you like|i can|i could|let me know"
+                         r")\b", re.I)
+
+
 def claims(text: str) -> bool:
     """She says she did something (v0.8 _CLAIM), not counting 'Nothing has been moved' (Nov 27 10:01: the guard
     caught her saying nothing changed)."""
     for sent in re.split(r"(?<=[.!?])\s+", (text or "").strip()):      # v0.9: each sentence on its own
+        if sent.rstrip().endswith("?") or _OFFER_SENT.search(sent):
+            continue                     # v1.2: "Just say when you want the reminder set" offers, it doesn't claim
         for m in _CLAIM.finditer(sent):
             before = sent[max(0, m.start() - 40):m.start()]
             if not (_NEGATED.search(before) or _NEGATION_IN.search(m.group(0))):
@@ -2092,8 +2100,10 @@ class HybridOrchestrator:
                 out = gathered[-1][1] if gathered else {}
                 audit.log("confirm_granted", "orchestrator", {"tool": p["tool"]})
                 ran.append((p["tool"], dict(p["args"]), out, p.get("why") or "he said yes"))
-                note = (f"He said yes, so you just did this: {desc}. Result: {(out.get('say') or out.get('result') or '')[:600]} "
-                        f"Tell him how it went, in a sentence of your own.")
+                said = f" (its own line: {out['say']})" if out.get("say") else ""
+                note = (f"He said yes, so you just did this: {desc}. Result: {(out.get('result') or '')[:3000]}{said} "
+                        f"Tell him how it went, in a sentence of your own. If it failed, the result says why: read "
+                        f"it, and fix what you can yourself before asking him.")
             elif fresh and _NO.match(user_input) and short:
                 audit.log("confirm_denied", "orchestrator", {"tool": p["tool"]})
                 note = f"You had asked whether to {desc}; he said no, so it's not done. Acknowledge it briefly."

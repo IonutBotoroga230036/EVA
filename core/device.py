@@ -257,8 +257,9 @@ SCHEMAS.append({"type": "function", "function": {
     "parameters": {"type": "object", "properties": {"level": {"type": "integer"}}, "required": ["level"]}}})
 SCHEMAS.append({"type": "function", "function": {
     "name": "phone_ring",
-    "description": "Find the user's phone: make it ring at full volume, even on silent ('find my phone', 'where's my "
-                   "phone', 'ring my phone'); on=false stops it ('found it', 'stop ringing').",
+    "description": "Make his phone ring at full volume, even on silent, when he's looking for it nearby ('find my "
+                   "phone', 'ring my phone', 'where's my phone, I can't find it'); on=false stops it ('found it'). "
+                   "Not for where HE is ('do you know my location?', 'where am I'): that's where_am_i.",
     "parameters": {"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]}}})
 FUNCTIONS = {"phone_alarm": tool_phone_alarm, "phone_timer": tool_phone_timer, "phone_stay_dark": tool_phone_stay_dark,
              "phone_ask_unlock": tool_phone_ask_unlock, "phone_volume": tool_phone_volume, "phone_ring": tool_phone_ring}

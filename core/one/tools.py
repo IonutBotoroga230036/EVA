@@ -95,13 +95,13 @@ SCHEMAS = [
             "required": ["minutes", "tool"]}}},
 ]
 def tool_adopt_skill(name: str = "", purpose: str = "", script: str = "", args: list | None = None,
-                     parameters: dict | None = None, **_):
+                     parameters: dict | None = None, path: str = "", code: str = "", **_):
     import re as _re
     from core.one import made
     sk = _re.sub(r"[^a-z0-9_]", "_", (name or "").lower()).strip("_")[:40]
     if not sk or not sk[:1].isalpha():
         return _r({"error": "give the skill a name like who_is_here"})
-    out = made.adopt(sk, purpose, script, args, parameters)
+    out = made.adopt(sk, purpose, path or script, args, parameters, code)
     if not out.get("ok"):
         return _r(out)
     return _r(out, changes=[{"what": f"skill_{sk}", "before": "(not a skill)", "after": "one of her skills"}])
@@ -110,11 +110,13 @@ def tool_adopt_skill(name: str = "", purpose: str = "", script: str = "", args: 
 SCHEMAS.append({"type": "function", "function": {
     "name": "adopt_skill",
     "description": "Make a Python script in his E.V.A. folder one of your skills for good, so you can use it any "
-                   "time as skill_<name> (e.g. a face recognition script: 'wire it up so you can use it'). Read the "
-                   "script (and its SKILL.md) first. args: its command-line arguments, with {placeholders} for the "
-                   "parameters, e.g. ['--camera', '{camera}']. Needs his yes once.",
+                   "time as skill_<name> (e.g. a face recognition script: 'wire it up so you can use it'). script: "
+                   "the file's path or name, e.g. 'face recognition camera/who_is_here.py' (NOT its code). args: "
+                   "its command-line arguments, with {placeholders} for the parameters, e.g. ['--camera', "
+                   "'{camera}']. Needs his yes once.",
     "parameters": {"type": "object", "properties": {
-        "name": {"type": "string"}, "purpose": {"type": "string"}, "script": {"type": "string"},
+        "name": {"type": "string"}, "purpose": {"type": "string"},
+        "script": {"type": "string", "description": "path or file name of the .py file"},
         "args": {"type": "array", "items": {"type": "string"}},
         "parameters": {"type": "object", "description": "JSON schema of the placeholders"}},
         "required": ["name", "purpose", "script"]}}})

@@ -1031,7 +1031,17 @@ REGISTRY.update(_one_files.FUNCTIONS)
 ACTION_TOOLS |= _one_tools.ACTIONS | _one_files.ACTIONS
 ACK_PHRASES.update({"web_read": "Reading the page, sir."})
 CONFIRM_TOOLS.update({"run_my_script": _one_files.describe_run,          # classic routing: always a yes first
-                      "adopt_skill": lambda a: f"make {a.get('script', 'the script')} one of my skills"})
+                      "adopt_skill": lambda a: f"make {a.get('name') or 'the script'} one of my skills"})
+
+# ---------------------------------------------------------------- v1.2: her own code and console
+from core import console as _console  # noqa: E402
+from core.one import selfcode as _selfcode  # noqa: E402
+
+TOOL_SCHEMAS += _selfcode.SCHEMAS + _console.SCHEMAS
+REGISTRY.update(_selfcode.FUNCTIONS)
+REGISTRY.update(_console.FUNCTIONS)
+ACTION_TOOLS |= _selfcode.ACTIONS
+CONFIRM_TOOLS.update({"code_apply": _selfcode.describe_apply})
 
 # ---------------------------------------------------------------- v1.1: his biography
 from core import memoir as _memoir  # noqa: E402

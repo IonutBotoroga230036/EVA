@@ -1,6 +1,6 @@
 # E.V.A. handoff (for a new Claude session)
 
-Last updated: Saturday 28 November 2026, 00:30 (Europe/Amsterdam). Read this first, then docs/ONE_BRAIN.md (v1.0:
+Last updated: Saturday 28 November 2026, 01:40 (Europe/Amsterdam). Read this first, then docs/ONE_BRAIN.md (v1.0:
 how every turn works now), EVA.md, docs/ROADMAP.md and docs/VOICE_TESTS.md.
 
 ## Who and what
@@ -25,7 +25,7 @@ how every turn works now), EVA.md, docs/ROADMAP.md and docs/VOICE_TESTS.md.
    Piper voice, lights, phone, `data/*.json`. `tests/conftest.py` already isolates these (Claude key, Jev,
    understanding pinned to legacy, romanian translate/voice, message inbox, `data/phone.json`, places,
    meetings, device connections). Keep it that way for anything new.
-4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v11_listen_files_biography.zip`)
+4. Deliver changed files as a zip with a NEW filename each time (last: `eva_v12_stories_code_places.zip`)
    plus the PowerShell steps AND the git commands so he pushes it himself (his request, 27 Nov). Order: fetch,
    `git checkout -b claude/<new> origin/claude/<previous>`, THEN `Expand-Archive -Path "D:\Downloads\<zip>"`
    (his downloads are in D:\Downloads), add, status, commit, push. Never push from here. Never put `config/settings.local.yaml`, `EVA.local.md` or `config/secrets.env`
@@ -107,6 +107,21 @@ how every turn works now), EVA.md, docs/ROADMAP.md and docs/VOICE_TESTS.md.
   meeting recording), WakeEngine, OverlayActivity, DeviceActions, MessageListener (notification listener,
   replies, new messages), EvaLocation, EvaSend (accessibility auto-send), EvaLink (address/token in memory).
   Flutter `lib/main.dart`: menu toggles Hands-free, Messages, Send without tapping, Location.
+
+## State on 28 Nov 2026 (01:40, v1.2: whole stories, her code, her folder on D, places)
+
+Built on `claude/v11-listen-files-biography`; he pushes `claude/v12-stories-code-places` himself from
+`eva_v12_stories_code_places.zip`. From his v1.1 night (log af81ccd5): "she is gliding", JARVIS 26/28 local. Fixed:
+the 00:53 story lost most of its words (one Whisper block past 30 s), "that's the end" taken for her echo, his
+answer to her question not added, a claim-check "fix" moved his train, "everyone else is busy" read as his
+calendar, she couldn't see a script's error after his yes, a task typed pip into his terminal (his conda base),
+adopt_skill got the code instead of the path four times, v1.1 retired unused skills (he keeps everything), the
+settings tabs were clipped, the JARVIS world leaked his real projects. New: her code (selfcode: find, read,
+workshop worktree at ../eva-workshop, test, apply with his yes), her console (in memory), install_package, her
+folder next to the code (D:/Project E.V.A/E.V.A. Files, old Documents/E.V.A moved and repointed), place_save and
+place_action, Settings > Console and Places, TIMING lines. If his settings.local.yaml sets agent.output_dir, that
+still wins.
+Full suite: 1423 passed, 3 skipped, also cp1252.
 
 ## State on 28 Nov 2026 (00:30, v1.1: listening, her files, the biography)
 
