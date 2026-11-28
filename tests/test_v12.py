@@ -134,6 +134,17 @@ def test_a_correction_only_fixes_words(eva):
     assert "Fix your words only" in b.calls_seen[1]["transcript"][-1]["text"]
 
 
+def test_a_correction_may_act_when_he_asked_for_it(eva):
+    """v1.2.1: he asked, she said 'moved' without calling the tool: the correction does it."""
+    script(eva, [Step(text="I've moved Standup and Review fifteen minutes later, sir."),
+                 Step(calls=[call("calendar_shift", minutes=15, from_time="9", until_time="9:45")]),
+                 Step(text="Done: Standup and Review are fifteen minutes later.")])
+    reply, _ = say(eva, "Move everything between 9 and 9:45 fifteen minutes later")
+    assert [e["start"] for e in eva.world.events][:2] == ["09:15", "09:45"]
+    from core.one.loop import asks_for_action
+    assert asks_for_action("Can you move the train to 12:09?") and not asks_for_action("No, I was thinking.")
+
+
 def test_after_his_yes_she_sees_the_whole_error(eva):
     """00:38: she ran the setup, got a traceback, and said 'I don't have the error text'."""
     trace = "Traceback (most recent call last):\n" + "  File x\n" * 80 + "ModuleNotFoundError: No module named 'cv2'"

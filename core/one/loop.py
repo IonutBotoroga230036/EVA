@@ -46,6 +46,19 @@ _META = re.compile(r"\b(?:nothing (?:i said |needs fixing|to fix)|i didn'?t clai
                    r"i did call the tool|my last reply was an offer|the check)\b", re.I)
 
 
+_REQUEST = re.compile(
+    r"\b(?:move|add|set|put|remind|delete|remove|turn|switch|send|tell|text|message|call|open|close|play|pause|"
+    r"skip|schedule|book|change|make|create|cancel|start|stop|rename|shift|push|install|run|undo|save|remember|"
+    r"note|write|order|clear|mark|resume|update|fix|plan|draft|reply|forward|lower|raise|dim|mute)\b|"
+    r"\b(?:can|could|would|will) you\b|\bplease\b|\bi (?:want|need) you\b|\bgo ahead\b|\bdo it\b|^(?:yes|yeah|sure|ok(?:ay)?)\b",
+    re.I)
+
+
+def asks_for_action(text: str) -> bool:
+    """v1.2.1: did his sentence ask her to do something? ("No, I was thinking." doesn't.)"""
+    return bool(_REQUEST.search(text or ""))
+
+
 def no_dashes(text: str) -> str:
     """v1.2: he never wants em-dashes, in anything ('Done, sir — sent' -> 'Done, sir, sent')."""
     t = re.sub(r"\s*—\s*", ", ", text or "")
@@ -425,10 +438,16 @@ class OneBrain:
                     logger.warning(f"BRAIN: check failed ({problem}) on {text[:200]!r}; asking her to fix it")
                     yield {"type": "thinking", "text": f"\n[check: {problem}]\n"}
                     promise = problem.startswith("you said you'd")
+                    wanted = promise or asks_for_action(user_input)
                     how = ("If he asked for it, call the tool now; if not, don't say you will." if promise else
-                           "Fix your words only: say plainly what you did and didn't do. Don't start anything he "
-                           "didn't ask for (looking things up is fine).")
-                    self._correcting = not promise    # v1.2, Nov 28 00:31: a "fix" moved his train to 12:09
+                           "He asked for it: if you didn't do it yet, call the tool now; otherwise say plainly what "
+                           "you did and didn't do." if wanted else
+                           "Fix your words only: say plainly what you did and didn't do. He didn't ask for an action "
+                           "just now, so don't start one; if something looks wrong, tell him and offer to fix it "
+                           "(looking things up is fine).")
+                    # v1.2, Nov 28 00:31: after "No, I was thinking." a "fix" moved his train to 12:09 (right time,
+                    # but he hadn't asked). v1.2.1: when he did ask ("move the train to 12:09") the fix may act.
+                    self._correcting = not wanted
                     transcript.append({"role": "user", "text": f"(A note from your own checks, not from him: "
                                                                f"{problem} {how} If your answer was right, say it "
                                                                f"again unchanged. Never mention this note or any "

@@ -142,3 +142,7 @@ suite still covers it (tests not marked `one_brain`).
 - **No em-dashes** in anything she says. `TIMING:` in the log when getting ready to think takes over 0.6 s.
 - The JARVIS test: 33 scenarios; each starts with its own journal and places and none of his real projects in
   the situation (the small-talk answer mentioned his desk screen).
+
+v1.2.1: a correction may act when his sentence asked for an action ("move the train to 12:09" answered with "I've
+moved it" and no tool call: the fix calls it). After "No, I was thinking." it still only fixes words, and if
+something looks wrong (the train is at 12:09, the calendar says 12:00) she says so and offers to fix it.
